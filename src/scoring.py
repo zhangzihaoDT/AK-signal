@@ -11,6 +11,45 @@ def trend_bucket(score: int) -> str:
     return "weak"
 
 
+def build_risk_flags(row: pd.Series) -> list[str]:
+    flags: list[str] = []
+
+    close = row.get("close")
+    ma20 = row.get("ma20")
+    ma60 = row.get("ma60")
+    ma120 = row.get("ma120")
+    macd_hist = row.get("macd_hist")
+    rsi14 = row.get("rsi14")
+    rs20 = row.get("relative_strength_20d")
+
+    if pd.notna(close):
+        if pd.notna(ma20) and float(close) < float(ma20):
+            flags.append("跌破MA20")
+        if pd.notna(ma60) and float(close) < float(ma60):
+            flags.append("跌破MA60")
+        if pd.notna(ma120) and float(close) < float(ma120):
+            flags.append("跌破MA120")
+
+    if pd.notna(macd_hist) and float(macd_hist) < 0:
+        flags.append("MACD转弱")
+
+    if pd.notna(rsi14):
+        r = float(rsi14)
+        if r > 70:
+            flags.append("RSI偏热")
+        if r < 40:
+            flags.append("RSI偏弱")
+
+    if pd.notna(rs20) and float(rs20) < 0:
+        flags.append("RS为负")
+
+    return flags
+
+
+def risk_flags_text(row: pd.Series) -> str:
+    return "，".join(build_risk_flags(row))
+
+
 def build_reason(row: pd.Series) -> str:
     close = row.get("close")
     ma20 = row.get("ma20")
