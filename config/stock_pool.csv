@@ -7,6 +7,13 @@ false,TBD,长鑫存储,CN,,CNY,ai,manual,C,待确认代码或替代标的
 true,LI,理想汽车,US,NASDAQ,USD,auto_oem,daily,A,
 true,2015,理想汽车-W,HK,HKEX,HKD,auto_oem,weekly,A,
 true,NIO,蔚来,US,NYSE,USD,auto_oem,daily,B,
+true,XPEV,小鹏汽车,US,NYSE,USD,auto_oem,daily,B,
+true,9868,小鹏汽车-W,HK,HKEX,HKD,auto_oem,weekly,B,
+true,600104,上汽集团,CN,SSE,CNY,auto_oem,daily,A,
+
+true,510500,中证500ETF,CN,SSE,CNY,index_etf,daily,B,
+true,518880,黄金ETF,CN,SSE,CNY,commodity_etf,daily,B,
+false,IC9999.CCFX,中证500期货主力,CN,CFFEX,CNY,index_futures,daily,C,期货数据源暂未接入
 
 true,300750,宁德时代,CN,SZSE,CNY,auto_supply,daily,A,
 true,002920,德赛西威,CN,SZSE,CNY,auto_supply,daily,A,

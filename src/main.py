@@ -3,6 +3,9 @@ run:
   default:
     - command: "python src/main.py"
       behavior: "默认行为等价于 refresh-needed（只更新需要更新的资产）"
+    - command: "python src/main.py --only-symbols CN:510500,CN:518880"
+      behavior: "仅运行中证500ETF和黄金ETF（用于预热缓存）"
+"
   options:
     - flag: "--refresh-all",desc: "强制全部尝试在线刷新"
     - flag: "--refresh-missing",desc: "只更新无缓存资产"
@@ -494,11 +497,16 @@ def load_or_fetch_daily(
             "ConnectTimeout",
             "ChunkedEncodingError",
             "SSLError",
+            "JSONDecodeError",
         }
         if names & retryable_names:
             return True
 
         merged = " | ".join(t for t in texts if t).lower()
+        if "fetch returned empty" in merged:
+            return True
+        if "no value to decode" in merged:
+            return True
         if "remote end closed connection" in merged:
             return True
         if "connection aborted" in merged:
@@ -508,14 +516,30 @@ def load_or_fetch_daily(
         return False
 
     last_err: Exception | None = None
-    retries = max(1, int(max_retries))
+    eff_max_retries = int(max_retries)
+    eff_retry_sleep_base = float(retry_sleep_base)
+    if asset.market == "CN" and eff_max_retries == 3 and abs(eff_retry_sleep_base - 1.0) < 1e-9:
+        eff_max_retries = 5
+        eff_retry_sleep_base = 2.0
+
+    retries = max(1, eff_max_retries)
+    cn_sources = ["em", "sina", "tx"]
     for i in range(1, retries + 1):
         try:
-            time.sleep(random.uniform(0.1, 0.6))
-            df = provider.get_daily(asset, start_date=start_date, end_date=end_date)
+            if asset.market == "CN":
+                time.sleep(random.uniform(1.2, 2.5))
+                source = cn_sources[(i - 1) % len(cn_sources)]
+            else:
+                time.sleep(random.uniform(0.1, 0.6))
+                source = None
+
+            df = provider.get_daily(asset, start_date=start_date, end_date=end_date, source=source)
             if df is None or df.empty:
                 raise RuntimeError("fetch returned empty")
-            logger.info("fetch online success: %s", asset_key)
+            if source:
+                logger.info("fetch online success: %s (source=%s)", asset_key, source)
+            else:
+                logger.info("fetch online success: %s", asset_key)
             if merge_with_cache and cache_path.exists():
                 df_cached = _load_cached_raw(cache_path)
                 df = _merge_ohlcv(df_cached, df)
@@ -529,7 +553,7 @@ def load_or_fetch_daily(
                 break
             logger.warning("fetch retry %d/%d: %s (err=%s)", i, retries, asset_key, e)
             if i < retries:
-                base = float(retry_sleep_base) * (2 ** (i - 1))
+                base = eff_retry_sleep_base * (2 ** (i - 1))
                 jitter = random.uniform(0.0, 0.4 * base)
                 time.sleep(base + jitter)
 
@@ -840,7 +864,10 @@ def run(args: argparse.Namespace) -> tuple[Path, Path]:
                 }
             )
 
-        time.sleep(random.uniform(0.5, 2.0))
+        if asset.market == "CN":
+            time.sleep(random.uniform(2.0, 4.0))
+        else:
+            time.sleep(random.uniform(0.5, 2.0))
 
     summary = sort_report_df(pd.DataFrame(rows))
 
