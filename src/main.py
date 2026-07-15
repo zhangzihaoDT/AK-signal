@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import logging
 import random
+import sys
 import time
 from datetime import date, timedelta
 from pathlib import Path
@@ -915,6 +916,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    if len(sys.argv) >= 2 and sys.argv[1] in {
+        "bootstrap", "update", "calculate", "report", "validate", "run-day",
+    }:
+        from sw_industry_rps.cli import main as sw_main
+        sw_main()
+        return
+
     args = build_arg_parser().parse_args()
     run(args)
 

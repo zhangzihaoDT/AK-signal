@@ -1,0 +1,40 @@
+# 申万二级行业 RPS 监控 — 配置
+# 所有阈值集中在此文件，代码中不硬编码
+
+rps:
+  windows: [5, 10, 15]          # RPS 计算窗口（交易日）
+  range: [0, 100]               # RPS 取值范围
+
+regimes:
+  strong_threshold: 90           # 强势区阈值
+  observe_threshold: 80          # 观察区阈值
+  strong_streak_min_days: 3      # 持续强势最少天数
+  delta_acceleration: 10         # 加速判定 ΔRPS15 阈值
+
+data_source:
+  primary: "swsresearch"
+  retry_max_attempts: 5
+  retry_base_delay: 2.0
+  retry_max_delay: 30.0
+  request_timeout: 30
+
+storage:
+  raw_dir: "data/raw/sw_industry"
+  processed_dir: "data/processed/sw_industry"
+  reports_dir: "data/reports/sw_industry_rps"
+  master_file: "industry_master.csv"
+  metrics_file: "industry_daily_metrics.csv"
+  snapshot_file: "latest_snapshot.csv"
+  rotation_file: "rotation_matrix.csv"
+
+bootstrap:
+  min_days: 250                  # 历史数据最少天数
+  start_date: "20200101"         # 起始日期
+  max_industries: null           # null = 全部
+
+report:
+  title: "申万二级行业 RPS 监控"
+  subtitle: "基于申万二级行业指数的日频相对强度与轮动观察"
+  rotation_days: 20             # 轮动矩阵展示天数
+  chart_days: 60                # 走势图展示天数
+  lang: "zh-CN"
