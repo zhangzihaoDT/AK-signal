@@ -19,7 +19,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--adjust", default="qfq", choices=["", "qfq", "hfq"], help="复权方式")
     p.add_argument("--force", action="store_true", help="忽略缓存重新拉取")
     p.add_argument("--refresh-all", action="store_true", help="强制全部尝试在线刷新")
-    p.add_argument("--refresh-needed", action="store_true", help="只更新需要更新的资产（默认行为）")
     p.add_argument("--refresh-missing", action="store_true", help="只更新无缓存资产")
     p.add_argument("--offline", action="store_true", help="完全不联网，只用缓存生成报告")
     p.add_argument("--only-symbols", default="", help="仅运行指定 symbols，逗号分隔；可用 CN:600519 或 CN_600519 指定市场")

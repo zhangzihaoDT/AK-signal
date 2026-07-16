@@ -254,12 +254,21 @@ def _render_market_overview(summary_df: pd.DataFrame) -> str:
     strongest = df.sort_values(["_score", "_rs"], ascending=[False, False]).iloc[0]
     weakest = df.sort_values(["_score", "_rs"], ascending=[True, True]).iloc[0]
 
-    fresh = pd.to_numeric(df.get("data_freshness_days"), errors="coerce")
-    stale = df[(fresh.notna()) & (fresh >= 2)]
-    cache = df[df.get("data_source", "").astype(str) == "cache"]
+    if "data_freshness_days" in df.columns:
+        fresh = pd.to_numeric(df["data_freshness_days"], errors="coerce")
+        stale = df[(fresh.notna()) & (fresh >= 2)]
+    else:
+        stale = pd.DataFrame()
+    if "data_source" in df.columns:
+        cache = df[df["data_source"].astype(str) == "cache"]
+    else:
+        cache = pd.DataFrame()
 
-    market = df.get("market", "").astype(str)
-    breakdown = market.value_counts().to_dict()
+    if "market" in df.columns:
+        market = df["market"].astype(str)
+        breakdown = market.value_counts().to_dict()
+    else:
+        breakdown = {}
     breakdown_txt = " / ".join([f"{escape(str(k))}:{int(v)}" for k, v in breakdown.items()]) if breakdown else "—"
 
     freshness_lines: list[str] = []
@@ -375,7 +384,7 @@ def render_asset_details(summary_df: pd.DataFrame, per_stock_charts: dict[str, g
     df = reorder_summary_df(summary_df).copy()
     parts: list[str] = []
     plotly_included = False
-    df["_category"] = df.get("category", "").fillna("").astype(str)
+    df["_category"] = df["category"].fillna("").astype(str) if "category" in df.columns else ""
     group_order = ["ai", "auto_oem", "auto_supply"]
     group_label = {
         "ai": "AI 板块",

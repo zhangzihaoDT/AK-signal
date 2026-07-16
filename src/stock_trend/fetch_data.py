@@ -106,28 +106,4 @@ def load_or_fetch_hs300(
     return df
 
 
-def load_or_fetch(
-    symbol: str,
-    raw_dir: Path,
-    cfg: FetchConfig,
-    logger: logging.Logger,
-    force: bool = False,
-) -> pd.DataFrame:
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    raw_path = raw_dir / f"{symbol}.csv"
 
-    if raw_path.exists() and not force:
-        try:
-            df = pd.read_csv(raw_path, parse_dates=["date"])
-            if not df.empty:
-                return df.sort_values("date").reset_index(drop=True)
-        except Exception as e:
-            logger.warning("failed reading cached raw %s: %s", raw_path, e)
-
-    df = fetch_a_share_daily_hist(symbol, cfg)
-    if not df.empty:
-        df.to_csv(raw_path, index=False, encoding="utf-8")
-        logger.info("saved raw data: %s (%d rows)", raw_path, len(df))
-    else:
-        logger.warning("empty data fetched for symbol=%s", symbol)
-    return df

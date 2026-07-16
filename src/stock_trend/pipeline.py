@@ -22,6 +22,7 @@ from . import indicators
 from . import portfolio
 from . import report
 from . import scoring
+from .watchlist import update_watchlist
 
 
 def build_logger(level: str) -> logging.Logger:
@@ -663,11 +664,6 @@ def sort_report_df(df: pd.DataFrame) -> pd.DataFrame:
     return out.reset_index(drop=True)
 
 
-def _save_watchlist(report_df: pd.DataFrame, out_path: Path) -> None:
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    report.reorder_summary_df(report.public_summary_df(report_df)).to_csv(out_path, index=False, encoding="utf-8-sig")
-
-
 def save_skipped_assets(skipped: list[dict[str, str]], reports_dir: Path, report_date: date) -> Path:
     reports_dir.mkdir(parents=True, exist_ok=True)
     path = reports_dir / f"skipped_assets_{report_date:%Y%m%d}.csv"
@@ -888,8 +884,8 @@ def run_stock_trend(
     logger.info("report html saved: %s", html_path)
 
     watchlist_path = root / "data" / "watchlist.csv"
-    _save_watchlist(summary, watchlist_path)
-    logger.info("watchlist saved: %s (%d rows)", watchlist_path, len(summary))
+    update_watchlist(report_date, summary, reports_dir, watchlist_path)
+    logger.info("watchlist saved: %s", watchlist_path)
 
     skipped_path = save_skipped_assets(skipped, reports_dir=reports_dir, report_date=report_date)
     logger.info("skipped assets saved: %s (%d rows)", skipped_path, len(skipped))
