@@ -70,26 +70,33 @@ class TestPaths:
 
 
 class TestRunContext:
-    def test_default_timestamp(self):
+    def test_default_fields(self):
         ctx = RunContext(subsystem="test", run_date=date(2026, 7, 16), status="ok")
-        assert ctx.timestamp != ""
+        assert ctx.run_id != ""
+        assert ctx.schema_version == 1
         assert ctx.subsystem == "test"
         assert ctx.run_date == date(2026, 7, 16)
+        assert ctx.started_at != ""
 
-    def test_to_dict(self):
+    def test_to_dict_contains_all_keys(self):
         ctx = RunContext(
             subsystem="stock_trend",
             run_date=date(2026, 7, 16),
             status="completed",
+            offline=True,
             summary={"count": 5},
-            artifacts=["/path/to/file.csv"],
-            timestamp="2026-07-16T00:00:00Z",
+            artifacts=["outputs/stock_trend/report.csv"],
         )
         d = ctx.to_dict()
+        assert d["schema_version"] == 1
         assert d["subsystem"] == "stock_trend"
         assert d["run_date"] == "2026-07-16"
         assert d["status"] == "completed"
+        assert d["offline"] is True
         assert d["summary"]["count"] == 5
+        assert "run_id" in d
+        assert "started_at" in d
+        assert "finished_at" in d
 
 
 class TestManifest:
@@ -141,6 +148,105 @@ class TestManifest:
             result = find_latest_artifact("stock_trend", "report_*.html")
             assert result is not None
             assert "20260716" in result.name
+        finally:
+            p._ROOT = original_root
+
+    def test_failed_run_does_not_overwrite_success(self, tmp_path):
+        import src.common.paths as p
+        original_root = p._ROOT
+        p._ROOT = tmp_path
+        try:
+            success = RunContext(
+                subsystem="stock_trend", run_date=date(2026, 7, 16), status="completed",
+                artifacts=["outputs/stock_trend/ok.csv"],
+            )
+            write_run_manifest(success)
+
+            failure = RunContext(
+                subsystem="stock_trend", run_date=date(2026, 7, 16), status="failed",
+                artifacts=["outputs/stock_trend/fail.csv"],
+            )
+            write_run_manifest(failure)
+
+            entry = read_subsystem_manifest("stock_trend")
+            assert entry["status"] == "completed"
+            assert "ok.csv" in entry["artifacts"][0]
+        finally:
+            p._ROOT = original_root
+
+    def test_failed_overwrites_failed(self, tmp_path):
+        import src.common.paths as p
+        original_root = p._ROOT
+        p._ROOT = tmp_path
+        try:
+            f1 = RunContext(
+                subsystem="stock_trend", run_date=date(2026, 7, 16), status="failed",
+            )
+            write_run_manifest(f1)
+            f2 = RunContext(
+                subsystem="stock_trend", run_date=date(2026, 7, 16), status="failed",
+            )
+            write_run_manifest(f2)
+            restored = read_latest_run("stock_trend", require_status="failed")
+            assert restored is not None
+        finally:
+            p._ROOT = original_root
+
+    def test_status_filter(self, tmp_path):
+        import src.common.paths as p
+        original_root = p._ROOT
+        p._ROOT = tmp_path
+        try:
+            ctx = RunContext(
+                subsystem="stock_trend", run_date=date(2026, 7, 16), status="failed",
+            )
+            write_run_manifest(ctx)
+
+            good = read_latest_run("stock_trend", require_status="completed")
+            assert good is None
+
+            bad = read_latest_run("stock_trend", require_status={"failed", "partial"})
+            assert bad is not None
+        finally:
+            p._ROOT = original_root
+
+    def test_manifest_atomic_write(self, tmp_path):
+        import src.common.paths as p
+        original_root = p._ROOT
+        p._ROOT = tmp_path
+        try:
+            ctx = RunContext(
+                subsystem="stock_trend", run_date=date(2026, 7, 16), status="completed",
+            )
+            path = write_run_manifest(ctx)
+            assert path.exists()
+            assert not path.with_suffix(".tmp").exists()
+        finally:
+            p._ROOT = original_root
+
+    def test_find_latest_artifact_only_considers_manifest_on_status_filter(self, tmp_path):
+        import src.common.paths as p
+        original_root = p._ROOT
+        p._ROOT = tmp_path
+        try:
+            (tmp_path / "outputs" / "stock_trend").mkdir(parents=True)
+            (tmp_path / "outputs" / "stock_trend" / "good.csv").write_text("")
+            success = RunContext(
+                subsystem="stock_trend", run_date=date(2026, 7, 16), status="completed",
+                artifacts=["outputs/stock_trend/good.csv"],
+            )
+            write_run_manifest(success)
+
+            (tmp_path / "outputs" / "stock_trend" / "latest.csv").write_text("")
+            failure = RunContext(
+                subsystem="stock_trend", run_date=date(2026, 7, 16), status="failed",
+                artifacts=["outputs/stock_trend/latest.csv"],
+            )
+            write_run_manifest(failure)
+
+            result = find_latest_artifact("stock_trend", "*.csv", require_status="completed")
+            assert result is not None
+            assert "good.csv" in result.name
         finally:
             p._ROOT = original_root
 

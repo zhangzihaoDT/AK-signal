@@ -688,6 +688,8 @@ def run_stock_trend(
     plot_last_n: int = 180,
     log_level: str = "INFO",
 ) -> tuple[Path, Path]:
+    from datetime import datetime, timezone
+    _started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     logger = build_logger(log_level)
     report_date = date.today()
 
@@ -896,6 +898,8 @@ def run_stock_trend(
         subsystem="stock_trend",
         run_date=report_date,
         status="completed",
+        offline=offline,
+        started_at=_started_at,
         summary={
             "assets_count": len(summary),
             "online_count": int((ds == "online").sum()),
@@ -903,7 +907,7 @@ def run_stock_trend(
             "failed_count": int((ds == "failed").sum()),
             "strong_count": int((summary.get("watch_level", pd.Series([], dtype=str)).astype(str).isin(["S", "A"]).sum())),
         },
-        artifacts=[str(csv_path), str(html_path), str(watchlist_path)],
+        artifacts=[csv_path, html_path, watchlist_path],
     )
     write_run_manifest(ctx)
     logger.info("manifest updated")

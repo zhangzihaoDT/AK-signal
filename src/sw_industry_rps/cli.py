@@ -270,6 +270,8 @@ def build_rotation_matrix(metrics_df: pd.DataFrame, rotation_days: int = 20) -> 
 
 
 def cmd_report(args: argparse.Namespace) -> None:
+    from datetime import datetime, timezone
+    _started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     logger = build_logger(args.log_level)
     processed_dir = sw_industry_processed_dir()
     reports_dir = sw_industry_rps_output_dir()
@@ -327,12 +329,14 @@ def cmd_report(args: argparse.Namespace) -> None:
         subsystem="sw_industry_rps",
         run_date=latest_date.date(),
         status=metrics_valid.status,
+        offline=True,
+        started_at=_started_at,
         summary={
             "total_industries": len(snapshot),
             "rps15_ge90": int((snapshot["RPS15"] >= 90).sum()) if "RPS15" in snapshot.columns else 0,
             "date": date_str,
         },
-        artifacts=[str(csv_path), str(html_path)],
+        artifacts=[csv_path, html_path],
     )
     write_run_manifest(ctx)
     logger.info("manifest updated")

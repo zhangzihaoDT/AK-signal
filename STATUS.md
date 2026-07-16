@@ -1,27 +1,41 @@
 # 项目状态
 
-## 架构重组 P0-B ✅
+## 运行基础设施标准化 P1 ✅
 
-运行数据/用户输出/项目文档已按职责分离。
+`common/` 公共层建立：`paths.py`（路径单一事实源）、`run_context.py`（运行描述）、`manifest.py`（产物发现契约）。
 
 ### 目录结构
 
 ```text
 AKsignal/
-├── config/                       # 配置（版本控制）
+├── config/
 ├── data/                         # 运行数据与状态（gitignored）
-│   ├── raw/processed/
+│   ├── raw/
+│   ├── processed/
 │   └── state/asset_state.csv
-├── outputs/                      # 用户消费的产物（gitignored）
+├── outputs/                      # 用户消费产物（gitignored）
 │   ├── stock_trend/
-│   └── sw_industry_rps/
-├── docs/                         # 项目设计文档
+│   ├── sw_industry_rps/
+│   └── manifest.json
+├── docs/
 ├── src/
 │   ├── main.py                   # 纯路由
-│   ├── stock_trend/              # 个股趋势监控子系统
-│   └── sw_industry_rps/          # 行业 RPS 子系统
+│   ├── common/                   # 公共层
+│   │   ├── paths.py
+│   │   ├── run_context.py
+│   │   └── manifest.py
+│   ├── stock_trend/
+│   └── sw_industry_rps/
 └── tests/
 ```
+
+### 测试总览
+
+| 模块 | 测试数 |
+|------|--------|
+| 个股趋势监控 | 133 |
+| 申万行业 RPS | 46 |
+| **总计** | **179** |
 
 ---
 
@@ -57,7 +71,6 @@ python src/main.py stock --offline           # 仅缓存
 | 日期范围 | 1999-12-30 至 2026-07-14 |
 
 bootstrap / update / calculate / validate / report / run-day 均已验证。
-46 个测试通过。个股趋势模块无回归。
 
 ### CLI
 
