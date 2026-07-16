@@ -1,20 +1,32 @@
-# A 股技术趋势监控（极简版）
+# AKSignal — A 股技术趋势监控 + 申万行业 RPS
 
-## 项目状态
+## 项目架构
 
-- v0.1 数据链路跑通 ✅
-- 状态总结：AKShare 拉取 → raw 缓存 → 指标计算 → 趋势评分 → HTML/CSV 报告
-- v0.2 相对强度与状态变化 ✅
-- 状态总结：benchmark(沪深300) → relative_strength_20d → change → reason 增强 → HTML/CSV 报告
-- AKSignal v0.3 ✅
-- 状态总结：信号输出 → 趋势观察与行动系统（watch_level / action / portfolio_summary / watchlist）
+```text
+src/
+├── main.py                       # 顶层命令路由
+├── stock_trend/                  # 个股技术趋势监控子系统
+│   ├── cli.py                    # 参数解析（stock 子命令）
+│   ├── pipeline.py               # 业务编排
+│   ├── asset.py                  # Asset 数据类
+│   ├── fetch_data.py             # HS300 + A 股历史行情
+│   ├── data_provider.py          # AKShare 多市场数据提供器
+│   ├── indicators.py             # 技术指标（MA/RSI/MACD）
+│   ├── scoring.py                # 趋势评分（0-100）
+│   ├── portfolio.py              # 组合摘要
+│   ├── report.py                 # HTML/CSV 报告 + Plotly 图表
+│   └── watchlist.py              # 关注名单管理
+└── sw_industry_rps/              # 申万行业 RPS 监控子系统
+    ├── cli.py                    # 行业 CLI（bootstrap/update/...）
+    ├── data_source.py            # 东方财富行业数据源
+    ├── storage.py                # 行业数据存取
+    ├── metrics.py                # RPS 计算
+    ├── regimes.py                # 板块状态识别
+    ├── report.py                 # 行业排名报告
+    └── validator.py              # 数据质量校验
+```
 
-第一版仅监控：
-
-- 寒武纪（688256）
-- 中际旭创（300308）
-- 科大讯飞（002230）
-- 长鑫存储（TBD，待确认代码或替代标的）
+两个互不干扰的独立模块，共用 `.venv` Python 环境和 `data/` 目录规划。
 
 ## 安装
 
@@ -24,29 +36,33 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 运行
+## 个股趋势监控
+
+### 功能简介
+
+AKShare 拉取 → raw 缓存 → 指标计算 → 趋势评分（0-100） → 相对强度(沪深300) → watch_level(S/A/B/C) / action → HTML/CSV 报告 + watchlist
+
+### 运行
 
 ```bash
+# 默认运行（向后兼容）
 python src/main.py
+
+# 显式调用
+python src/main.py stock
+
+# 可选参数
+python src/main.py stock --start-date 20200101 --adjust qfq --plot-last-n 240
+python src/main.py stock --offline                          # 仅缓存模式
+python src/main.py stock --only-symbols CN:510500,CN:518880 # 指定标的
 ```
 
-或：
-
-```bash
-.venv/bin/python src/main.py
-```
-
-可选参数示例：
-
-```bash
-python src/main.py --start-date 20200101 --adjust qfq --plot-last-n 240
-```
-
-## 输出
+### 输出
 
 - 原始数据：`data/raw/{symbol}.csv`
 - 指标数据：`data/processed/{symbol}.csv`
-- 报告：`data/reports/trend_report_YYYYMMDD.html` 与 `trend_report_YYYYMMDD.csv`
+- 报告：`data/reports/trend_report_YYYYMMDD.html` 与 `.csv`
+- 关注名单：`data/watchlist.csv`
 
 ---
 
@@ -93,20 +109,24 @@ pip install -r requirements.txt  # 已包含 pyyaml
 
 ```bash
 # 全部按顺序执行
-python -m src.sw_industry_rps.cli run-day
+python src/main.py industry run-day
 
 # 分步执行
-python -m src.sw_industry_rps.cli bootstrap        # 初始化行业列表 + 历史数据
-python -m src.sw_industry_rps.cli update            # 增量更新行情
-python -m src.sw_industry_rps.cli calculate         # 离线计算指标（不联网）
-python -m src.sw_industry_rps.cli report            # 生成报告（不联网）
-python -m src.sw_industry_rps.cli validate          # 数据质量检查
+python src/main.py industry bootstrap
+python src/main.py industry update
+python src/main.py industry calculate
+python src/main.py industry report
+python src/main.py industry validate
+
+# 或通过 -m 直接调用
+python -m src.sw_industry_rps.cli run-day
 ```
 
-也支持从 `src/main.py` 自动路由：
+旧入口仍可用（向后兼容）：
 
 ```bash
 python src/main.py run-day
+python src/main.py bootstrap|update|calculate|report|validate
 ```
 
 ### 报告位置

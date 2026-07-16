@@ -10,7 +10,7 @@ from typing import Any
 import akshare as ak
 import pandas as pd
 
-from asset import Asset
+from .asset import Asset
 
 
 class DataProvider:
