@@ -117,13 +117,13 @@ def validate_metrics(
 
     if expected_universe_size and latest_industries < expected_universe_size:
         issues.append(
-            f"latest date ({latest.date()}) has {latest_industries}/{expected_universe_size} industries"
+            f"latest date ({latest.date()}) has {latest_industries}/{expected_universe_size} active industries"
         )
         integrity_ok = False
         result.missing_codes = []
         result.missing_names = []
     elif expected_universe_size:
-        stats_notes.append(f"latest date ({latest.date()}): {latest_industries}/{expected_universe_size} industries")
+        stats_notes.append(f"latest date ({latest.date()}): {latest_industries}/{expected_universe_size} active industries")
 
     rps_cols = [c for c in metrics.columns if c.startswith("RPS")]
     for col in rps_cols:

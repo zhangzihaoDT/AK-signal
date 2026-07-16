@@ -17,6 +17,14 @@ AKSignal 顶层命令路由
 from __future__ import annotations
 
 import sys
+from pathlib import Path
+
+# 确保 src/ 和项目根目录均在 sys.path 上，使模块入口和脚本入口一致
+_this_dir = str(Path(__file__).resolve().parent)
+_project_root = str(Path(__file__).resolve().parent.parent)
+for p in [_project_root, _this_dir]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 SW_INDUSTRY_COMMANDS = {
     "bootstrap", "update", "calculate", "report", "validate", "run-day",
@@ -30,24 +38,24 @@ def main() -> None:
         cmd = argv[0]
 
         if cmd in SW_INDUSTRY_COMMANDS:
-            from sw_industry_rps.cli import main as sw_main
+            from src.sw_industry_rps.cli import main as sw_main
             sys.argv = [sys.argv[0], *argv]
             sw_main()
             return
 
         if cmd == "industry":
-            from sw_industry_rps.cli import main as sw_main
+            from src.sw_industry_rps.cli import main as sw_main
             sys.argv = [sys.argv[0], *argv[1:]]
             sw_main()
             return
 
         if cmd == "stock":
-            from stock_trend.cli import main as stock_main
+            from src.stock_trend.cli import main as stock_main
             sys.argv = [sys.argv[0], *argv[1:]]
             stock_main()
             return
 
-    from stock_trend.cli import main as stock_main
+    from src.stock_trend.cli import main as stock_main
     stock_main()
 
 

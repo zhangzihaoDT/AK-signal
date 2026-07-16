@@ -9,7 +9,7 @@ from src.sw_industry_rps.storage import (
     save_industry_raw,
     load_industry_raw,
     merge_incremental,
-    save_metrics,
+    save_metrics_atomically,
     load_metrics,
     save_snapshot,
     save_rotation_matrix,
@@ -91,7 +91,7 @@ def test_metrics_roundtrip(tmp_processed_dir):
         "industry_code": ["A", "A", "A"],
         "RPS15": [50, 60, 70],
     })
-    save_metrics(df, tmp_processed_dir)
+    save_metrics_atomically(df, tmp_processed_dir)
     loaded = load_metrics(tmp_processed_dir)
     assert len(loaded) == 3
 

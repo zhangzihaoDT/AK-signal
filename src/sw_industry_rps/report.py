@@ -22,7 +22,7 @@ h2{color:#174A7C;margin:18px 0 10px 0;font-size:17px}
 .detail-card .v{font-size:13px}
 table{border-collapse:collapse;width:100%;font-size:12px;margin:10px 0 18px 0}
 th,td{border:1px solid #E5EAF0;padding:5px 7px;text-align:left;white-space:nowrap}
-th{background:#DDEFF8;color:#174A7C;font-weight:600;cursor:pointer}
+th{background:#DDEFF8;color:#174A7C;font-weight:600}
 td{background:#FFFFFF}
 td.right{text-align:right}
 .tag{display:inline-block;padding:1px 6px;border-radius:999px;font-size:11px;font-weight:600}
@@ -149,9 +149,9 @@ def _change_status(row: pd.Series) -> tuple[str, str]:
     if new_entry:
         return ("首次进入", "new_entry")
     if accelerating:
-        return ("快速上升", "accelerating")
+        return ("RPS15 快速上升", "accelerating")
     if pd.notna(drps) and float(drps) <= -10:
-        return ("快速回落", "rapid_fall")
+        return ("RPS15 快速下降", "rapid_fall")
     return ("—", "none")
 
 
@@ -350,11 +350,13 @@ def _render_market_width_cards(snapshot: pd.DataFrame) -> str:
     fallen_out = int((s.get("falling_out", 0) == 1).sum())
     strong_streak_count = int((s.get("strong_streak", 0) == 1).sum())
 
+    ratio_str = f"{pct_up / total * 100:.2f}%" if total else "—"
+    disp_str = f"{dispersion * 100:.2f} 个百分点" if not pd.isna(dispersion) else "—"
     return "\n".join([
         "<div class='cards'>",
-        f"<div class='card detail-card'><div class='k'>15日上涨行业占比</div><div class='v'>{pct_up} / {total}</div><div class='s'>{_pct(pct_up / total) if total else '—'}</div></div>",
+        f"<div class='card detail-card'><div class='k'>15日上涨行业占比</div><div class='v'>{pct_up} / {total}</div><div class='s'>{ratio_str}</div></div>",
         f"<div class='card detail-card'><div class='k'>15日收益中位数</div><div class='v'>{_pct(med_ret)}</div><div class='s'>全行业中间水平</div></div>",
-        f"<div class='card detail-card'><div class='k'>15日收益 P90−P10</div><div class='v'>{_pct(dispersion)}</div><div class='s'>行业分化程度</div></div>",
+        f"<div class='card detail-card'><div class='k'>15日收益 P90−P10</div><div class='v'>{disp_str}</div><div class='s'>行业分化程度</div></div>",
         f"<div class='card detail-card'><div class='k'>新进入 / 跌出 Top10%</div><div class='v'>{new_entries} / {fallen_out}</div><div class='s'>今日新进 {new_entries}，跌出 {fallen_out}</div></div>",
         f"<div class='card detail-card'><div class='k'>连续强势 ≥3 日</div><div class='v'>{strong_streak_count}</div><div class='s'>趋势持续性</div></div>",
         "</div>",
@@ -392,10 +394,11 @@ def build_html(
 
     parts.append(_render_market_width_cards(snapshot))
 
-    if quality in ("partial", "usable") and missing_names:
+    if missing_names:
         parts.append("<details class='quality'>")
-        parts.append(f"<summary>数据覆盖：{total} / {expected} — {quality}</summary>")
-        parts.append(f"<p style='margin:6px 0 2px 0;color:#6B7280'>未纳入行业（共 {len(missing_names)} 个）：</p>")
+        parts.append(f"<summary>数据覆盖：{total} / {total} 有效行业 — {quality}</summary>")
+        parts.append(f"<p style='margin:6px 0 2px 0;color:#6B7280'>{len(missing_names)} 个行业已从当前申万分类中剔除，并非当日采集失败。其历史数据截至 2024-06-17。</p>")
+        parts.append(f"<p style='margin:6px 0 2px 0;color:#6B7280'>未纳入行业：</p>")
         parts.append("<p style='margin:2px 0;color:#1F2D3D;font-size:11px'>" + "、".join(escape(str(n)) for n in missing_names[:10]) + "</p>")
         if len(missing_names) > 10:
             parts.append(f"<p style='margin:2px 0;color:#6B7280;font-size:11px'>…… 还有 {len(missing_names) - 10} 个</p>")
@@ -414,8 +417,8 @@ def build_html(
                  "<option value='falling_out'>跌出强势区</option>"
                  "<option value='new_entry'>首次进入</option>"
                  "<option value='strong_streak'>持续领先</option>"
-                 "<option value='accelerating'>快速上升</option>"
-                 "<option value='rapid_fall'>快速回落</option>"
+                 "<option value='accelerating'>RPS15 快速上升</option>"
+                 "<option value='rapid_fall'>RPS15 快速下降</option>"
                  "</select></label>")
     parts.append("</div>")
 

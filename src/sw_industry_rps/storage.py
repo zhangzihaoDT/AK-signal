@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+import json
+import os
+from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
 
+INACTIVE_THRESHOLD_DAYS = 365
+_ACTIVE_SNAPSHOT_FILE = "active_universe.csv"
+
+
 def safe_code(code: str) -> str:
     return code.replace(".", "_")
+
+
+def _raw_path(raw_dir: Path, code: str) -> Path:
+    return raw_dir / f"{safe_code(code)}.csv"
 
 
 def load_master(raw_dir: Path) -> pd.DataFrame:
@@ -19,21 +31,101 @@ def load_master(raw_dir: Path) -> pd.DataFrame:
 def save_master(df: pd.DataFrame, raw_dir: Path) -> Path:
     raw_dir.mkdir(parents=True, exist_ok=True)
     path = raw_dir / "industry_master.csv"
-    df.to_csv(path, index=False, encoding="utf-8-sig")
+    tmp = path.with_suffix(".tmp")
+    df.to_csv(tmp, index=False, encoding="utf-8-sig")
+    os.replace(str(tmp), str(path))
     return path
 
 
+def _active_snapshot_path(raw_dir: Path) -> Path:
+    return raw_dir / _ACTIVE_SNAPSHOT_FILE
+
+
+def load_active_snapshot(raw_dir: Path) -> list[str] | None:
+    path = _active_snapshot_path(raw_dir)
+    if not path.exists():
+        return None
+    try:
+        df = pd.read_csv(path, dtype=str)
+        return df["industry_code"].tolist() if "industry_code" in df.columns else None
+    except Exception:
+        return None
+
+
+def save_active_snapshot(codes: list[str], raw_dir: Path) -> Path:
+    path = _active_snapshot_path(raw_dir)
+    tmp = path.with_suffix(".tmp")
+    pd.DataFrame({"industry_code": codes}).to_csv(tmp, index=False, encoding="utf-8-sig")
+    os.replace(str(tmp), str(path))
+    return path
+
+
+def compute_active_codes(
+    raw_dir: Path,
+    master: pd.DataFrame | None = None,
+) -> tuple[list[str], list[str], bool]:
+    """
+    返回 (stable_active, inactive, universe_changed)。
+
+    stable_active: 优先使用 active snapshot；无 snapshot 时从数据活跃度推断。
+    universe_changed: 数据推断结果与 snapshot 不一致时为 True。
+    """
+    if master is None:
+        master = load_master(raw_dir)
+    if master.empty:
+        return [], [], False
+
+    all_codes = master["industry_code"].tolist()
+    cutoff = date.today() - timedelta(days=INACTIVE_THRESHOLD_DAYS)
+    inferred_active: list[str] = []
+    inferred_inactive: list[str] = []
+    for code in all_codes:
+        last = load_industry_latest_date(raw_dir, code)
+        if last is not None and last >= cutoff:
+            inferred_active.append(code)
+        else:
+            inferred_inactive.append(code)
+
+    snapshot = load_active_snapshot(raw_dir)
+    if snapshot is None:
+        return inferred_active, inferred_inactive, False
+
+    stable_active = snapshot
+    stable_inactive = sorted(set(all_codes) - set(stable_active))
+
+    inferred_set = set(inferred_active)
+    snapshot_set = set(stable_active)
+    universe_changed = (inferred_set != snapshot_set)
+
+    return stable_active, stable_inactive, universe_changed
+
+
 def load_industry_raw(raw_dir: Path, code: str) -> pd.DataFrame:
-    path = raw_dir / f"{safe_code(code)}.csv"
+    path = _raw_path(raw_dir, code)
     if not path.exists():
         return pd.DataFrame()
     return pd.read_csv(path, parse_dates=["trade_date"])
 
 
+def load_industry_latest_date(raw_dir: Path, code: str) -> date | None:
+    path = _raw_path(raw_dir, code)
+    if not path.exists():
+        return None
+    try:
+        df = pd.read_csv(path, usecols=["trade_date"])
+        if df.empty:
+            return None
+        return pd.to_datetime(df["trade_date"]).max().date()
+    except Exception:
+        return None
+
+
 def save_industry_raw(df: pd.DataFrame, raw_dir: Path, code: str) -> Path:
     raw_dir.mkdir(parents=True, exist_ok=True)
-    path = raw_dir / f"{safe_code(code)}.csv"
-    df.to_csv(path, index=False, encoding="utf-8-sig")
+    path = _raw_path(raw_dir, code)
+    tmp = path.with_suffix(".tmp")
+    df.to_csv(tmp, index=False, encoding="utf-8-sig")
+    os.replace(str(tmp), str(path))
     return path
 
 
@@ -56,31 +148,41 @@ def load_metrics(processed_dir: Path) -> pd.DataFrame:
     return pd.read_csv(path, parse_dates=["trade_date"])
 
 
-def save_metrics(df: pd.DataFrame, processed_dir: Path) -> Path:
+def save_metrics_atomically(df: pd.DataFrame, processed_dir: Path) -> Path:
     processed_dir.mkdir(parents=True, exist_ok=True)
     path = processed_dir / "industry_daily_metrics.csv"
-    df.to_csv(path, index=False, encoding="utf-8-sig")
+    tmp = path.with_suffix(".tmp")
+    df.to_csv(tmp, index=False, encoding="utf-8-sig")
+    tmp_df = pd.read_csv(tmp, parse_dates=["trade_date"])
+    assert not tmp_df.empty, "refusing to publish empty metrics"
+    os.replace(str(tmp), str(path))
     return path
 
 
 def save_snapshot(df: pd.DataFrame, processed_dir: Path) -> Path:
     processed_dir.mkdir(parents=True, exist_ok=True)
     path = processed_dir / "latest_snapshot.csv"
-    df.to_csv(path, index=False, encoding="utf-8-sig")
+    tmp = path.with_suffix(".tmp")
+    df.to_csv(tmp, index=False, encoding="utf-8-sig")
+    os.replace(str(tmp), str(path))
     return path
 
 
 def save_rotation_matrix(df: pd.DataFrame, processed_dir: Path) -> Path:
     processed_dir.mkdir(parents=True, exist_ok=True)
     path = processed_dir / "rotation_matrix.csv"
-    df.to_csv(path, index=False, encoding="utf-8-sig")
+    tmp = path.with_suffix(".tmp")
+    df.to_csv(tmp, index=False, encoding="utf-8-sig")
+    os.replace(str(tmp), str(path))
     return path
 
 
 def save_report_csv(df: pd.DataFrame, reports_dir: Path, date_str: str) -> Path:
     reports_dir.mkdir(parents=True, exist_ok=True)
     path = reports_dir / f"sw_industry_rps_{date_str}.csv"
-    df.to_csv(path, index=False, encoding="utf-8-sig")
+    tmp = path.with_suffix(".tmp")
+    df.to_csv(tmp, index=False, encoding="utf-8-sig")
+    os.replace(str(tmp), str(path))
     return path
 
 
@@ -94,3 +196,33 @@ def load_previous_metrics(processed_dir: Path, lookback: int = 5) -> pd.DataFram
     latest_date = df["trade_date"].max()
     cutoff = latest_date - pd.Timedelta(days=lookback * 2)
     return df[df["trade_date"] >= cutoff].copy()
+
+
+# --- Checkpoint for resumable updates ---
+
+def checkpoint_path(raw_dir: Path) -> Path:
+    return raw_dir / "update_checkpoint.json"
+
+
+def save_checkpoint(raw_dir: Path, data: dict[str, Any]) -> Path:
+    path = checkpoint_path(raw_dir)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(str(tmp), str(path))
+    return path
+
+
+def load_checkpoint(raw_dir: Path) -> dict[str, Any] | None:
+    path = checkpoint_path(raw_dir)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def clear_checkpoint(raw_dir: Path) -> None:
+    path = checkpoint_path(raw_dir)
+    if path.exists():
+        path.unlink()
