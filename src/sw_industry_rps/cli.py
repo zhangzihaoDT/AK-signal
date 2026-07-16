@@ -298,6 +298,14 @@ def cmd_report(args: argparse.Namespace) -> None:
     for issue in metrics_valid.issues:
         logger.warning("validation issue: %s", issue)
 
+    if expected_size and not master.empty and "industry_code" in metrics_df.columns:
+        latest_date_in_metrics = metrics_df["trade_date"].max()
+        present = set(metrics_df[metrics_df["trade_date"] == latest_date_in_metrics]["industry_code"].unique())
+        all_codes = set(master["industry_code"].unique())
+        metrics_valid.missing_codes = sorted(all_codes - present)
+        name_map = dict(zip(master["industry_code"], master["industry_name"]))
+        metrics_valid.missing_names = [name_map.get(c, c) for c in metrics_valid.missing_codes]
+
     if metrics_valid.status == "failed":
         logger.error("metrics validation failed, not generating report")
         return

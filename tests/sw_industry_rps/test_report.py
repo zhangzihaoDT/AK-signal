@@ -7,7 +7,8 @@ import pandas as pd
 from src.sw_industry_rps.report import (
     _pct,
     _num,
-    _streak_label,
+    _strength_level,
+    _change_status,
     render_strength_table,
     render_rotation_matrix,
     render_status_changes,
@@ -36,30 +37,42 @@ def test_num_nan():
     assert _num(None) == "—"
 
 
-def test_streak_label_new_entry(sample_snapshot):
+def test_strength_level():
+    assert _strength_level(95) == "极强"
+    assert _strength_level(85) == "强势"
+    assert _strength_level(75) == "观察"
+    assert _strength_level(60) == "中性"
+    assert _strength_level(30) == "弱势"
+    assert _strength_level(float("nan")) == "—"
+
+
+def test_change_status_new_entry(sample_snapshot):
     row = sample_snapshot.iloc[0]
     row["new_entry"] = 1
     row["strong_streak"] = 0
     row["falling_out"] = 0
     row["accelerating"] = 0
-    label = _streak_label(row)
+    label, machine = _change_status(row)
     assert "首次进入" in label
+    assert machine == "new_entry"
 
 
-def test_streak_label_strong_streak(sample_snapshot):
+def test_change_status_strong_streak(sample_snapshot):
     row = sample_snapshot.iloc[0]
+    row["new_entry"] = 1
     row["strong_streak"] = 1
-    label = _streak_label(row)
-    assert "持续强势" in label
+    row["falling_out"] = 0
+    label, machine = _change_status(row)
+    assert "持续领先" in label
 
 
-def test_streak_label_falling_out(sample_snapshot):
+def test_change_status_falling_out(sample_snapshot):
     row = sample_snapshot.iloc[0]
     row["new_entry"] = 0
     row["strong_streak"] = 0
     row["falling_out"] = 1
-    label = _streak_label(row)
-    assert "掉队" in label
+    label, machine = _change_status(row)
+    assert "跌出强势区" in label
 
 
 def test_strength_table_non_empty(sample_snapshot):

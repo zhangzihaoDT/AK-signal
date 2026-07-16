@@ -19,6 +19,7 @@ h2{color:#174A7C;margin:18px 0 10px 0;font-size:17px}
 .card .k{font-size:11px;color:#6B7280;margin-bottom:4px}
 .card .v{font-size:16px;font-weight:600;color:#1F2D3D}
 .card .s{font-size:11px;color:#6B7280;margin-top:4px}
+.detail-card .v{font-size:13px}
 table{border-collapse:collapse;width:100%;font-size:12px;margin:10px 0 18px 0}
 th,td{border:1px solid #E5EAF0;padding:5px 7px;text-align:left;white-space:nowrap}
 th{background:#DDEFF8;color:#174A7C;font-weight:600;cursor:pointer}
@@ -40,6 +41,8 @@ td.right{text-align:right}
 .stats-item .name{font-weight:600;color:#174A7C}
 .stats-item .detail{color:#6B7280;font-size:11px}
 .footer{margin-top:24px;padding-top:12px;border-top:1px solid #E5EAF0;font-size:11px;color:#6B7280}
+details.quality{margin:8px 0 16px 0;padding:6px 10px;border:1px solid #E5EAF0;border-radius:6px;background:#FFFFFF;font-size:12px}
+details.quality summary{cursor:pointer;color:#174A7C;font-weight:600;font-size:13px}
 """
 
 
@@ -95,34 +98,61 @@ def _rotate_color(val: float) -> str:
     return f"background:rgba(222,239,248,{alpha/255})"
 
 
-def _streak_label(row: pd.Series) -> str:
-    rps15 = row.get("RPS15")
-    streak = row.get("streak_90", 0)
+def _strength_level(rps15: Any) -> str:
+    try:
+        v = float(rps15)
+        if pd.isna(v):
+            return "—"
+        if v >= 90:
+            return "极强"
+        if v >= 80:
+            return "强势"
+        if v >= 70:
+            return "观察"
+        if v >= 50:
+            return "中性"
+        return "弱势"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _strength_tag(rps15: Any) -> str:
+    try:
+        v = float(rps15)
+        if pd.isna(v):
+            return "<span class='tag normal'>—</span>"
+        if v >= 90:
+            return "<span class='tag strong'>极强</span>"
+        if v >= 80:
+            return "<span class='tag observe'>强势</span>"
+        if v >= 70:
+            return "<span class='tag normal'>观察</span>"
+        if v < 50:
+            return "<span class='tag' style='background:#ECF0F1;color:#7F8C8D'>弱势</span>"
+        return "<span class='tag' style='background:#F8F9FB;color:#6B7280'>中性</span>"
+    except (TypeError, ValueError):
+        return "<span class='tag normal'>—</span>"
+
+
+def _change_status(row: pd.Series) -> tuple[str, str]:
+    """返回 (中文标签, 机器标签)"""
+    falling_out = row.get("falling_out", 0)
     new_entry = row.get("new_entry", 0)
     strong_streak = row.get("strong_streak", 0)
     accelerating = row.get("accelerating", 0)
-    falling_out = row.get("falling_out", 0)
+    drps = row.get("delta_rps15")
 
-    labels = []
+    if falling_out:
+        return ("跌出强势区", "falling_out")
     if new_entry and strong_streak:
-        labels.append("持续强势")
-    elif strong_streak:
-        labels.append("持续强势")
-    elif new_entry:
-        labels.append("首次进入")
-    elif accelerating:
-        labels.append("加速")
-    elif falling_out:
-        labels.append("掉队")
-
-    if not labels:
-        if pd.notna(rps15) and rps15 >= 80:
-            labels.append("强势")
-        elif pd.notna(rps15) and rps15 >= 70:
-            labels.append("观察")
-        elif pd.notna(rps15):
-            labels.append("弱势")
-    return "，".join(labels) if labels else "—"
+        return ("持续领先", "strong_streak")
+    if new_entry:
+        return ("首次进入", "new_entry")
+    if accelerating:
+        return ("快速上升", "accelerating")
+    if pd.notna(drps) and float(drps) <= -10:
+        return ("快速回落", "rapid_fall")
+    return ("—", "none")
 
 
 def render_strength_table(snapshot: pd.DataFrame, rotation_days: int = 20) -> str:
@@ -147,21 +177,28 @@ def render_strength_table(snapshot: pd.DataFrame, rotation_days: int = 20) -> st
         ("return_15", "15日涨幅"),
         ("delta_rps15", "ΔRPS15"),
         ("streak_90", "连续天数"),
-        ("_status", "状态"),
+        ("_strength", "强度层级"),
+        ("_change", "变化状态"),
         ("short_term_acceleration", "短期动能差"),
     ]
-    visible_cols = [c for c, _ in cols_display if c in df.columns or c == "_status"]
-    header_cols = [h for c, h in cols_display if c in df.columns or c == "_status"]
+    visible_cols = [c for c, _ in cols_display if c in df.columns or c.startswith("_")]
+    header_cols = [h for c, h in cols_display if c in df.columns or c.startswith("_")]
 
     ths = "".join(f"<th>{h}</th>" for h in header_cols)
     rows_html: list[str] = []
 
     for _, r in df.iterrows():
+        ch_label, ch_machine = _change_status(r)
+        data_attr = f" data-status='{ch_machine}'" if ch_machine != "none" else ""
+        tr_attrs = f" style='display:none'" if False else ""
         tds: list[str] = []
         for col, _ in cols_display:
             val = r.get(col)
-            if col == "_status":
-                tds.append(f"<td>{escape(_streak_label(r))}</td>")
+            if col == "_strength":
+                tds.append(f"<td>{_strength_tag(r.get('RPS15'))}</td>")
+                continue
+            if col == "_change":
+                tds.append(f"<td>{escape(ch_label)}</td>")
                 continue
             if col == "industry_code":
                 tds.append(f"<td style='font-family:monospace'>{escape(str(val) if pd.notna(val) else '' )}</td>")
@@ -189,7 +226,7 @@ def render_strength_table(snapshot: pd.DataFrame, rotation_days: int = 20) -> st
                 tds.append(f"<td class='right' style='color:#6B7280'>{int(val)}</td>")
                 continue
             tds.append(f"<td>{escape(str(val) if pd.notna(val) else '—')}</td>")
-        rows_html.append("<tr>" + "".join(tds) + "</tr>")
+        rows_html.append(f"<tr{data_attr}>" + "".join(tds) + "</tr>")
 
     return "\n".join([
         "<table id='strength-table'>",
@@ -256,33 +293,38 @@ def render_status_changes(snapshot: pd.DataFrame) -> str:
     short_down = snapshot[pd.to_numeric(snapshot.get("short_term_acceleration"), errors="coerce") < -10]
 
     sections = [
-        ("今日首次进入强势区", new_entry, "RPS15"),
-        ("连续强势行业", strong_streak, "RPS15"),
-        ("RPS15 上升最快", accelerating, "delta_rps15"),
-        ("今日跌出强势区", falling_out, "RPS15"),
-        ("短期显著走强（RPS5 >> RPS15）", short_up, "short_term_acceleration"),
-        ("短期显著回落（RPS5 << RPS15）", short_down, "short_term_acceleration"),
+        ("今日首次进入强势区", new_entry, "RPS15", False),
+        ("连续强势行业", strong_streak, "RPS15", False),
+        ("ΔRPS15 上升最快", accelerating, "delta_rps15", False),
+        ("今日跌出强势区", falling_out, "RPS15", True),
+        ("短期显著走强（RPS5 >> RPS15）", short_up, "short_term_acceleration", False),
+        ("短期显著回落（RPS5 << RPS15）", short_down, "short_term_acceleration", True),
     ]
 
-    for title, df_section, sort_col in sections:
+    for title, df_section, sort_col, ascending in sections:
         if df_section.empty:
             continue
-        df_sorted = df_section.sort_values(sort_col, ascending=False) if sort_col in df_section.columns else df_section
+        df_sorted = df_section.sort_values(sort_col, ascending=ascending) if sort_col in df_section.columns else df_section
         items: list[str] = []
         for _, r in df_sorted.head(10).iterrows():
             name = r.get("industry_name", "")
             code = r.get("industry_code", "")
-            rps15 = _num(r.get("RPS15"), 1)
-            detail = rps15
+            detail_lines = []
             if sort_col == "delta_rps15":
-                detail = _num(r.get("delta_rps15"), 2)
+                detail_lines.append(f"ΔRPS15：{_num(r.get('delta_rps15'), 2)}")
+                detail_lines.append(f"当前 RPS15：{_num(r.get('RPS15'), 1)}")
             elif sort_col == "short_term_acceleration":
-                detail = _num(r.get("short_term_acceleration"), 2)
+                detail_lines.append(f"短期动能差：{_num(r.get('short_term_acceleration'), 2)}")
+                rps5 = _num(r.get("RPS5"), 1)
+                rps15_v = _num(r.get("RPS15"), 1)
+                detail_lines.append(f"RPS5 / RPS15：{rps5} / {rps15_v}")
+            else:
+                detail_lines.append(f"RPS15：{_num(r.get('RPS15'), 1)}")
             items.append(
                 f"<div class='stats-item'>"
                 f"<span class='name'>{escape(str(name))}</span> "
                 f"<span style='font-family:monospace;color:#6B7280'>{escape(str(code))}</span>"
-                f"<div class='detail'>RPS15: {detail}</div>"
+                + "".join(f"<div class='detail'>{escape(l)}</div>" for l in detail_lines) +
                 f"</div>"
             )
         if items:
@@ -291,6 +333,32 @@ def render_status_changes(snapshot: pd.DataFrame) -> str:
             parts.append("</div></div>")
 
     return "\n".join(parts) if parts else "<p>无显著状态变化</p>"
+
+
+def _render_market_width_cards(snapshot: pd.DataFrame) -> str:
+    if snapshot.empty:
+        return ""
+    s = snapshot.copy()
+
+    total = len(s)
+    pct_up = int((pd.to_numeric(s.get("return_15"), errors="coerce") > 0).sum())
+    med_ret = float(pd.to_numeric(s.get("return_15"), errors="coerce").median()) or 0
+    p10 = float(pd.to_numeric(s.get("return_15"), errors="coerce").quantile(0.10)) or 0
+    p90 = float(pd.to_numeric(s.get("return_15"), errors="coerce").quantile(0.90)) or 0
+    dispersion = p90 - p10
+    new_entries = int((s.get("new_entry", 0) == 1).sum())
+    fallen_out = int((s.get("falling_out", 0) == 1).sum())
+    strong_streak_count = int((s.get("strong_streak", 0) == 1).sum())
+
+    return "\n".join([
+        "<div class='cards'>",
+        f"<div class='card detail-card'><div class='k'>15日上涨行业占比</div><div class='v'>{pct_up} / {total}</div><div class='s'>{_pct(pct_up / total) if total else '—'}</div></div>",
+        f"<div class='card detail-card'><div class='k'>15日收益中位数</div><div class='v'>{_pct(med_ret)}</div><div class='s'>全行业中间水平</div></div>",
+        f"<div class='card detail-card'><div class='k'>15日收益 P90−P10</div><div class='v'>{_pct(dispersion)}</div><div class='s'>行业分化程度</div></div>",
+        f"<div class='card detail-card'><div class='k'>新进入 / 跌出 Top10%</div><div class='v'>{new_entries} / {fallen_out}</div><div class='s'>今日新进 {new_entries}，跌出 {fallen_out}</div></div>",
+        f"<div class='card detail-card'><div class='k'>连续强势 ≥3 日</div><div class='v'>{strong_streak_count}</div><div class='s'>趋势持续性</div></div>",
+        "</div>",
+    ])
 
 
 def build_html(
@@ -308,10 +376,10 @@ def build_html(
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     total = len(snapshot)
-    strong_90 = int((snapshot["RPS15"] >= 90).sum()) if "RPS15" in snapshot.columns else 0
-    strong_80 = int(((snapshot["RPS15"] >= 80) & (snapshot["RPS15"] < 90)).sum()) if "RPS15" in snapshot.columns else 0
-    avg_rps15 = float(snapshot["RPS15"].mean()) if "RPS15" in snapshot.columns else 0
     quality = validator_result.status if validator_result else "unknown"
+    expected = getattr(validator_result, "total_industries", None) or len(snapshot)
+    missing_codes = getattr(validator_result, "missing_codes", [])
+    missing_names = getattr(validator_result, "missing_names", [])
 
     parts: list[str] = []
     parts.append("<!DOCTYPE html><html><head><meta charset='utf-8'>")
@@ -322,12 +390,16 @@ def build_html(
     parts.append(f"<div class='subtitle'>基于申万二级行业指数的日频相对强度与轮动观察</div>")
     parts.append(f"<div class='meta'>报告日期：{report_date} | 生成时间：{now_str} | 数据质量：{quality}</div>")
 
-    parts.append("<div class='cards'>")
-    parts.append(f"<div class='card'><div class='k'>行业总数</div><div class='v'>{total}</div></div>")
-    parts.append(f"<div class='card'><div class='k'>RPS15 ≥ 90</div><div class='v'>{strong_90}</div></div>")
-    parts.append(f"<div class='card'><div class='k'>80 ≤ RPS15 < 90</div><div class='v'>{strong_80}</div></div>")
-    parts.append(f"<div class='card'><div class='k'>平均 RPS15</div><div class='v'>{avg_rps15:.1f}</div></div>")
-    parts.append("</div>")
+    parts.append(_render_market_width_cards(snapshot))
+
+    if quality in ("partial", "usable") and missing_names:
+        parts.append("<details class='quality'>")
+        parts.append(f"<summary>数据覆盖：{total} / {expected} — {quality}</summary>")
+        parts.append(f"<p style='margin:6px 0 2px 0;color:#6B7280'>未纳入行业（共 {len(missing_names)} 个）：</p>")
+        parts.append("<p style='margin:2px 0;color:#1F2D3D;font-size:11px'>" + "、".join(escape(str(n)) for n in missing_names[:10]) + "</p>")
+        if len(missing_names) > 10:
+            parts.append(f"<p style='margin:2px 0;color:#6B7280;font-size:11px'>…… 还有 {len(missing_names) - 10} 个</p>")
+        parts.append("</details>")
 
     parts.append("<div class='filter-bar'>")
     parts.append("<label>搜索行业：<input type='text' id='search' placeholder='代码或名称' oninput='filterTable()'></label>")
@@ -337,12 +409,13 @@ def build_html(
                  "<option value='observe'>≥ 80</option>"
                  "<option value='weak'>< 80</option>"
                  "</select></label>")
-    parts.append("<label>状态筛选：<select id='status-filter' onchange='filterTable()'>"
+    parts.append("<label>变化状态筛选：<select id='status-filter' onchange='filterTable()'>"
                  "<option value='all'>全部</option>"
+                 "<option value='falling_out'>跌出强势区</option>"
                  "<option value='new_entry'>首次进入</option>"
-                 "<option value='strong_streak'>持续强势</option>"
-                 "<option value='accelerating'>加速</option>"
-                 "<option value='falling_out'>掉队</option>"
+                 "<option value='strong_streak'>持续领先</option>"
+                 "<option value='accelerating'>快速上升</option>"
+                 "<option value='rapid_fall'>快速回落</option>"
                  "</select></label>")
     parts.append("</div>")
 
@@ -370,13 +443,13 @@ function filterTable() {
         var code = (cells[1] ? cells[1].textContent.toLowerCase() : '');
         var name = (cells[2] ? cells[2].textContent.toLowerCase() : '');
         var rps15 = parseFloat(cells[5] ? cells[5].textContent : '0');
-        var status = (cells[11] ? cells[11].textContent : '');
+        var status = row.getAttribute('data-status') || '';
         var show = true;
         if (search && !code.includes(search) && !name.includes(search)) show = false;
         if (rpsFilter === 'strong' && rps15 < 90) show = false;
         if (rpsFilter === 'observe' && rps15 < 80) show = false;
         if (rpsFilter === 'weak' && rps15 >= 80) show = false;
-        if (statusFilter !== 'all' && !status.includes(statusFilter)) show = false;
+        if (statusFilter !== 'all' && status !== statusFilter) show = false;
         row.style.display = show ? '' : 'none';
     });
 }

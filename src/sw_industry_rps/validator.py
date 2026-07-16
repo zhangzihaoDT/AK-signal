@@ -21,6 +21,8 @@ class ValidationResult:
     latest_trade_date: str | None = None
     rps_strong_count: int = 0
     report_path: str | None = None
+    missing_codes: list[str] = field(default_factory=list)
+    missing_names: list[str] = field(default_factory=list)
 
 
 def validate_raw_data(
@@ -118,6 +120,8 @@ def validate_metrics(
             f"latest date ({latest.date()}) has {latest_industries}/{expected_universe_size} industries"
         )
         integrity_ok = False
+        result.missing_codes = []
+        result.missing_names = []
     elif expected_universe_size:
         stats_notes.append(f"latest date ({latest.date()}): {latest_industries}/{expected_universe_size} industries")
 
