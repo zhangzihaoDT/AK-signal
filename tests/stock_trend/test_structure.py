@@ -124,7 +124,7 @@ def test_pipeline_has_run_entry():
 
 
 def test_project_root_resolves():
-    from src.stock_trend.pipeline import project_root
+    from src.common.paths import project_root
 
     root = project_root()
     assert (root / "src" / "stock_trend").exists()

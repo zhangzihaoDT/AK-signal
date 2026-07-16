@@ -12,9 +12,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from src.common.paths import project_root
 from src.stock_trend.pipeline import (
     run_stock_trend,
-    project_root,
     load_assets_from_pool,
     load_asset_state,
     build_logger,
@@ -143,8 +143,10 @@ def test_offline_smoke_with_mock_data(tmp_path):
     mock_processed.to_csv(data_dir / "processed" / "CN_000001.csv", index=False, encoding="utf-8")
 
     try:
+        import src.common.paths as common_paths_mod
+        original_root = common_paths_mod._ROOT
+        common_paths_mod._ROOT = root
         import src.stock_trend.pipeline as pipeline_mod
-        pipeline_mod.project_root = lambda: root
         result = pipeline_mod.run_stock_trend(
             start_date="20260101",
             end_date="20260715",
@@ -159,4 +161,4 @@ def test_offline_smoke_with_mock_data(tmp_path):
         assert len(report_df) == 1
         assert "000001" in report_df["symbol"].values
     finally:
-        pass
+        common_paths_mod._ROOT = original_root

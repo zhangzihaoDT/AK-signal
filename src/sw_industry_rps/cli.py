@@ -7,15 +7,16 @@ import random
 import sys
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pandas as pd
 
+from src.common.paths import (
+    project_root, sw_industry_raw_dir, sw_industry_processed_dir,
+    sw_industry_rps_output_dir, sw_industry_rps_config_path,
+)
+from src.common.run_context import RunContext
+from src.common.manifest import write_run_manifest
 from . import data_source, storage, metrics, regimes, validator, report
-
-
-def project_root() -> Path:
-    return Path(__file__).resolve().parents[2]
 
 
 def build_logger(level: str = "INFO") -> logging.Logger:
@@ -31,7 +32,7 @@ def build_logger(level: str = "INFO") -> logging.Logger:
 
 def load_config() -> dict:
     import yaml
-    cfg_path = project_root() / "config" / "sw_industry_rps.yaml"
+    cfg_path = sw_industry_rps_config_path()
     if cfg_path.exists():
         with open(cfg_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
@@ -40,8 +41,7 @@ def load_config() -> dict:
 
 def cmd_bootstrap(args: argparse.Namespace) -> None:
     logger = build_logger(args.log_level)
-    root = project_root()
-    raw_dir = root / "data" / "raw" / "sw_industry"
+    raw_dir = sw_industry_raw_dir()
     cfg = load_config()
 
     started_at = datetime.now(timezone.utc)
@@ -140,8 +140,7 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
 
 def cmd_update(args: argparse.Namespace) -> None:
     logger = build_logger(args.log_level)
-    root = project_root()
-    raw_dir = root / "data" / "raw" / "sw_industry"
+    raw_dir = sw_industry_raw_dir()
     cfg = load_config()
     start_date = cfg.get("bootstrap", {}).get("start_date", "20200101")
 
@@ -182,9 +181,8 @@ def cmd_update(args: argparse.Namespace) -> None:
 
 def cmd_calculate(args: argparse.Namespace) -> None:
     logger = build_logger(args.log_level)
-    root = project_root()
-    raw_dir = root / "data" / "raw" / "sw_industry"
-    processed_dir = root / "data" / "processed" / "sw_industry"
+    raw_dir = sw_industry_raw_dir()
+    processed_dir = sw_industry_processed_dir()
     cfg = load_config()
     windows = cfg.get("rps", {}).get("windows", [5, 10, 15])
 
@@ -273,9 +271,8 @@ def build_rotation_matrix(metrics_df: pd.DataFrame, rotation_days: int = 20) -> 
 
 def cmd_report(args: argparse.Namespace) -> None:
     logger = build_logger(args.log_level)
-    root = project_root()
-    processed_dir = root / "data" / "processed" / "sw_industry"
-    reports_dir = root / "outputs" / "sw_industry_rps"
+    processed_dir = sw_industry_processed_dir()
+    reports_dir = sw_industry_rps_output_dir()
     cfg = load_config()
     rotation_days = cfg.get("report", {}).get("rotation_days", 20)
 
@@ -290,7 +287,7 @@ def cmd_report(args: argparse.Namespace) -> None:
 
     snapshot_file = storage.save_snapshot(snapshot, processed_dir)
 
-    master = storage.load_master(project_root() / "data" / "raw" / "sw_industry")
+    master = storage.load_master(sw_industry_raw_dir())
     expected_size = len(master) if not master.empty else None
 
     metrics_valid = validator.validate_metrics(metrics_df, expected_universe_size=expected_size)
@@ -326,12 +323,25 @@ def cmd_report(args: argparse.Namespace) -> None:
         if rotation_path.exists():
             logger.info("rotation matrix available: %s", rotation_path)
 
+    ctx = RunContext(
+        subsystem="sw_industry_rps",
+        run_date=latest_date.date(),
+        status=metrics_valid.status,
+        summary={
+            "total_industries": len(snapshot),
+            "rps15_ge90": int((snapshot["RPS15"] >= 90).sum()) if "RPS15" in snapshot.columns else 0,
+            "date": date_str,
+        },
+        artifacts=[str(csv_path), str(html_path)],
+    )
+    write_run_manifest(ctx)
+    logger.info("manifest updated")
+
 
 def cmd_validate(args: argparse.Namespace) -> None:
     logger = build_logger(args.log_level)
-    root = project_root()
-    raw_dir = root / "data" / "raw" / "sw_industry"
-    processed_dir = root / "data" / "processed" / "sw_industry"
+    raw_dir = sw_industry_raw_dir()
+    processed_dir = sw_industry_processed_dir()
 
     master = storage.load_master(raw_dir)
     if master.empty:

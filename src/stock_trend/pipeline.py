@@ -15,6 +15,13 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.common.paths import (
+    project_root, stock_pool_path, asset_state_path,
+    raw_dir as common_raw_dir, processed_dir as common_processed_dir,
+    stock_trend_output_dir,
+)
+from src.common.run_context import RunContext
+from src.common.manifest import write_run_manifest
 from .asset import Asset
 from .data_provider import AKShareProvider
 from . import fetch_data
@@ -34,10 +41,6 @@ def build_logger(level: str) -> logging.Logger:
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     logger.addHandler(handler)
     return logger
-
-
-def project_root() -> Path:
-    return Path(__file__).resolve().parents[2]
 
 
 def load_stock_pool(csv_path: Path) -> pd.DataFrame:
@@ -685,12 +688,10 @@ def run_stock_trend(
     plot_last_n: int = 180,
     log_level: str = "INFO",
 ) -> tuple[Path, Path]:
-    root = project_root()
     logger = build_logger(log_level)
     report_date = date.today()
 
-    pool_path = root / "config" / "stock_pool.csv"
-    pool_items = load_assets_from_pool(pool_path)
+    pool_items = load_assets_from_pool(stock_pool_path())
     if only_symbols:
         raw_tokens = [t.strip() for t in only_symbols.split(",") if t.strip()]
         wanted: set[tuple[str | None, str]] = set()
@@ -714,9 +715,9 @@ def run_stock_trend(
         pool_items = filtered
         logger.info("filtered by --only-symbols: %s (%d assets)", ",".join(raw_tokens), len(pool_items))
 
-    raw_dir = root / "data" / "raw"
-    processed_dir = root / "data" / "processed"
-    reports_dir = root / "outputs" / "stock_trend"
+    raw_dir = common_raw_dir()
+    processed_dir = common_processed_dir()
+    reports_dir = stock_trend_output_dir()
 
     eff_end_date = end_date or "22220101"
     fetch_cfg = fetch_data.FetchConfig(start_date=start_date, end_date=eff_end_date, adjust=adjust)
@@ -746,7 +747,7 @@ def run_stock_trend(
     rows: list[dict[str, object]] = []
     charts: dict[str, object] = {}
     skipped: list[dict[str, str]] = []
-    state_path = root / "data" / "state" / "asset_state.csv"
+    state_path = asset_state_path()
     state_df = load_asset_state(state_path)
 
     for item in pool_items:
@@ -883,10 +884,27 @@ def run_stock_trend(
     logger.info("report csv saved: %s", csv_path)
     logger.info("report html saved: %s", html_path)
 
-    watchlist_path = root / "outputs" / "stock_trend" / "watchlist.csv"
+    watchlist_path = stock_trend_output_dir() / "watchlist.csv"
     update_watchlist(report_date, summary, reports_dir, watchlist_path)
     logger.info("watchlist saved: %s", watchlist_path)
 
     skipped_path = save_skipped_assets(skipped, reports_dir=reports_dir, report_date=report_date)
     logger.info("skipped assets saved: %s (%d rows)", skipped_path, len(skipped))
+
+    ds = summary.get("data_source", pd.Series([], dtype=str)).astype(str)
+    ctx = RunContext(
+        subsystem="stock_trend",
+        run_date=report_date,
+        status="completed",
+        summary={
+            "assets_count": len(summary),
+            "online_count": int((ds == "online").sum()),
+            "cache_count": int((ds == "cache").sum()),
+            "failed_count": int((ds == "failed").sum()),
+            "strong_count": int((summary.get("watch_level", pd.Series([], dtype=str)).astype(str).isin(["S", "A"]).sum())),
+        },
+        artifacts=[str(csv_path), str(html_path), str(watchlist_path)],
+    )
+    write_run_manifest(ctx)
+    logger.info("manifest updated")
     return csv_path, html_path
