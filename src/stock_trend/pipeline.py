@@ -716,7 +716,7 @@ def run_stock_trend(
 
     raw_dir = root / "data" / "raw"
     processed_dir = root / "data" / "processed"
-    reports_dir = root / "data" / "reports"
+    reports_dir = root / "outputs" / "stock_trend"
 
     eff_end_date = end_date or "22220101"
     fetch_cfg = fetch_data.FetchConfig(start_date=start_date, end_date=eff_end_date, adjust=adjust)
@@ -746,7 +746,7 @@ def run_stock_trend(
     rows: list[dict[str, object]] = []
     charts: dict[str, object] = {}
     skipped: list[dict[str, str]] = []
-    state_path = root / "data" / "asset_state.csv"
+    state_path = root / "data" / "state" / "asset_state.csv"
     state_df = load_asset_state(state_path)
 
     for item in pool_items:
@@ -883,7 +883,7 @@ def run_stock_trend(
     logger.info("report csv saved: %s", csv_path)
     logger.info("report html saved: %s", html_path)
 
-    watchlist_path = root / "data" / "watchlist.csv"
+    watchlist_path = root / "outputs" / "stock_trend" / "watchlist.csv"
     update_watchlist(report_date, summary, reports_dir, watchlist_path)
     logger.info("watchlist saved: %s", watchlist_path)
 

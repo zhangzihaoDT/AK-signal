@@ -10,18 +10,20 @@ AKsignal/
 ├── data/
 │   ├── raw/                       # 原始 OHLCV 缓存（每标的一 CSV）
 │   ├── processed/                 # 含指标的处理后数据
-│   └── reports/                   # HTML/CSV 报告 + portfolio JSON
+│   └── state/                     # 资产状态追踪
+│       └── asset_state.csv
+├── outputs/                       # 用户消费的运行产物（gitignored）
+│   ├── stock_trend/               # 个股趋势报告
+│   └── sw_industry_rps/           # 行业 RPS 报告
 ├── src/
-│   ├── main.py                    # CLI 入口 & 主流程
-│   ├── asset.py                   # Asset dataclass
-│   ├── data_provider.py           # AKShareProvider（个股行情）
-│   ├── fetch_data.py              # FetchConfig + hs300 / 个股工具
-│   ├── indicators.py              # 技术指标（MA/RSI/MACD/return_20d）
-│   ├── scoring.py                 # 趋势评分 & 风险标志
-│   ├── report.py                  # HTML/CSV 报告生成
-│   ├── portfolio.py               # 组合汇总
-│   └── watchlist.py               # 关注清单管理
-├── .gitignore                     # data/ 已排除
+│   ├── main.py                    # 纯路由入口
+│   ├── stock_trend/               # 个股趋势监控子系统
+│   │   ├── cli.py / pipeline.py / asset.py
+│   │   ├── fetch_data.py / data_provider.py
+│   │   ├── indicators.py / scoring.py
+│   │   ├── portfolio.py / report.py / watchlist.py
+│   └── sw_industry_rps/           # 行业 RPS 子系统
+├── docs/                          # 项目设计文档
 ├── requirements.txt               # pandas, akshare, plotly
 ```
 
@@ -36,7 +38,7 @@ AKsignal/
 | `report.py` - HTML 生成风格 | CSS 框架和表格渲染风格可参照 |
 | `main.py` - `build_logger` / `project_root` | 可直接复用 |
 | `data/` 分层：raw → processed → reports | 沿用统一分层 |
-| `.gitignore` 已排除 `data/` | 无需修改 |
+| `.gitignore` 已排除 `data/` 和 `outputs/` | 无需修改 |
 
 ### 1.3 不应复用或需解耦的部分
 
@@ -98,8 +100,10 @@ AKsignal/
 │   │   ├── industry_daily_metrics.csv
 │   │   ├── latest_snapshot.csv
 │   │   └── rotation_matrix.csv
-│   └── reports/sw_industry_rps/
-├── reports/
+│   └── state/asset_state.csv
+├── outputs/
+│   └── sw_industry_rps/
+├── docs/
 │   ├── SW_INDUSTRY_RPS_PROJECT_DESIGN.md
 │   ├── SW_INDUSTRY_RPS_DATA_SOURCE_AUDIT.md
 │   └── SW_INDUSTRY_RPS_MVP_VERIFICATION.md
@@ -192,9 +196,9 @@ python -m src.sw_industry_rps.cli validate         # 数据质量检查
 每个交易日生成：
 
 ```
-data/reports/sw_industry_rps/sw_industry_rps_YYYYMMDD.html
-data/reports/sw_industry_rps/sw_industry_rps_YYYYMMDD.csv
-data/reports/sw_industry_rps/sw_industry_rps_latest.html  # 最新可用
+outputs/sw_industry_rps/sw_industry_rps_YYYYMMDD.html
+outputs/sw_industry_rps/sw_industry_rps_YYYYMMDD.csv
+outputs/sw_industry_rps/sw_industry_rps_latest.html  # 最新可用
 ```
 
 当数据质量状态 ≠ `usable` 时，不覆盖 `latest`。

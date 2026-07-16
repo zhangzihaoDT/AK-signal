@@ -275,7 +275,7 @@ def cmd_report(args: argparse.Namespace) -> None:
     logger = build_logger(args.log_level)
     root = project_root()
     processed_dir = root / "data" / "processed" / "sw_industry"
-    reports_dir = root / "data" / "reports" / "sw_industry_rps"
+    reports_dir = root / "outputs" / "sw_industry_rps"
     cfg = load_config()
     rotation_days = cfg.get("report", {}).get("rotation_days", 20)
 

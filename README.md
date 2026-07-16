@@ -61,8 +61,8 @@ python src/main.py stock --only-symbols CN:510500,CN:518880 # 指定标的
 
 - 原始数据：`data/raw/{symbol}.csv`
 - 指标数据：`data/processed/{symbol}.csv`
-- 报告：`data/reports/trend_report_YYYYMMDD.html` 与 `.csv`
-- 关注名单：`data/watchlist.csv`
+- 报告：`outputs/stock_trend/trend_report_YYYYMMDD.html` 与 `.csv`
+- 关注名单：`outputs/stock_trend/watchlist.csv`
 
 ---
 
@@ -132,7 +132,7 @@ python src/main.py bootstrap|update|calculate|report|validate
 ### 报告位置
 
 ```
-data/reports/sw_industry_rps/
+outputs/sw_industry_rps/
 ├── sw_industry_rps_YYYYMMDD.html     # 每日报告
 ├── sw_industry_rps_YYYYMMDD.csv      # 每日数据
 └── sw_industry_rps_latest.html       # 最新可用报告（仅数据质量 usable 时更新）

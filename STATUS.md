@@ -1,21 +1,26 @@
 # 项目状态
 
-## 架构重组 P0-A ✅
+## 架构重组 P0-B ✅
 
-个股趋势监控已收拢为 `stock_trend` 子系统；顶层 `main.py` 已降级为双子系统命令路由；指标、评分、数据路径和输出口径保持不变。
+运行数据/用户输出/项目文档已按职责分离。
 
 ### 目录结构
 
 ```text
-src/
-├── main.py                       # 纯路由
-├── stock_trend/                  # 个股趋势监控子系统
-│   ├── cli.py → pipeline.py      # CLI → 业务编排
-│   ├── asset.py / fetch_data.py / data_provider.py
-│   ├── indicators.py / scoring.py
-│   ├── portfolio.py / report.py  # 报告生成
-│   └── watchlist.py
-└── sw_industry_rps/              #（未变更）
+AKsignal/
+├── config/                       # 配置（版本控制）
+├── data/                         # 运行数据与状态（gitignored）
+│   ├── raw/processed/
+│   └── state/asset_state.csv
+├── outputs/                      # 用户消费的产物（gitignored）
+│   ├── stock_trend/
+│   └── sw_industry_rps/
+├── docs/                         # 项目设计文档
+├── src/
+│   ├── main.py                   # 纯路由
+│   ├── stock_trend/              # 个股趋势监控子系统
+│   └── sw_industry_rps/          # 行业 RPS 子系统
+└── tests/
 ```
 
 ---

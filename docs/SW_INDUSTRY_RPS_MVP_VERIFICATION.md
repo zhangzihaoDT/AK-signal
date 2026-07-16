@@ -84,9 +84,9 @@ tests/sw_industry_rps/test_metrics.py
 tests/sw_industry_rps/test_regimes.py
 tests/sw_industry_rps/test_report.py
 tests/sw_industry_rps/test_storage.py
-reports/SW_INDUSTRY_RPS_PROJECT_DESIGN.md
-reports/SW_INDUSTRY_RPS_DATA_SOURCE_AUDIT.md
-reports/SW_INDUSTRY_RPS_MVP_VERIFICATION.md
+docs/SW_INDUSTRY_RPS_PROJECT_DESIGN.md
+docs/SW_INDUSTRY_RPS_DATA_SOURCE_AUDIT.md
+docs/SW_INDUSTRY_RPS_MVP_VERIFICATION.md
 ```
 
 ## 6. 修改文件清单
@@ -102,7 +102,7 @@ requirements.txt     # 增加 pyyaml>=6.0
 ## 7. 报告产物路径
 
 ```
-data/reports/sw_industry_rps/
+data/reports/sw_industry_rps/ (旧路径，已迁移至 outputs/sw_industry_rps/)
 ├── sw_industry_rps_20260619.html    ✅ (1.7MB)
 ├── sw_industry_rps_20260619.csv     ✅ (47KB)
 └── sw_industry_rps_latest.html      ✅ (当数据质量 usable 时更新)
