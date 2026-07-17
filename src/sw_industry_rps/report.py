@@ -279,9 +279,17 @@ def render_rotation_matrix(metrics: pd.DataFrame, rotation_days: int = 20) -> st
     ])
 
 
-def render_status_changes(snapshot: pd.DataFrame) -> str:
+def render_status_changes(
+    snapshot: pd.DataFrame,
+    drilldown_results: list[dict] | None = None,
+) -> str:
     if snapshot.empty:
         return "<p>无数据</p>"
+
+    drilldown_map: dict[str, dict] = {}
+    if drilldown_results:
+        for d in drilldown_results:
+            drilldown_map[d.get("industry_code", "")] = d
 
     parts: list[str] = []
 
@@ -320,6 +328,24 @@ def render_status_changes(snapshot: pd.DataFrame) -> str:
                 detail_lines.append(f"RPS5 / RPS15：{rps5} / {rps15_v}")
             else:
                 detail_lines.append(f"RPS15：{_num(r.get('RPS15'), 1)}")
+
+            # 对首次进入强势区的行业，追加成分股贡献穿透
+            if title == "今日首次进入强势区" and code in drilldown_map:
+                dd = drilldown_map[code]
+                ind_ret = dd.get("industry_return_pct", 0)
+                gap = dd.get("reconstruction_gap_pct", 0)
+                detail_lines.append(f"行业 {dd.get('window', 5)}日涨幅：{ind_ret:+.2f}%（代理 {dd.get('proxy_return_pct', 0):+.2f}%，误差 {gap:+.2f}pp）")
+                pattern = dd.get("pattern_display", "")
+                if pattern:
+                    detail_lines.append(f"驱动模式：{pattern}")
+                contribs = dd.get("top_contributors", [])
+                for i, c in enumerate(contribs[:3], 1):
+                    sign = "+" if c.get("contribution", 0) >= 0 else ""
+                    detail_lines.append(
+                        f"  {i}. {escape(str(c.get('name', '')))} "
+                        f"({c.get('ret', 0):+.2f}%) 贡献{c.get('contribution', 0):+.2f}pp"
+                    )
+
             items.append(
                 f"<div class='stats-item'>"
                 f"<span class='name'>{escape(str(name))}</span> "
@@ -370,6 +396,7 @@ def build_html(
     report_date: str,
     reports_dir: Path,
     rotation_days: int = 20,
+    drilldown_results: list[dict] | None = None,
 ) -> tuple[Path, Path]:
     csv_path = reports_dir / f"sw_industry_rps_{report_date}.csv"
     html_path = reports_dir / f"sw_industry_rps_{report_date}.html"
@@ -429,7 +456,7 @@ def build_html(
     parts.append(render_rotation_matrix(metrics, rotation_days))
 
     parts.append("<h2>状态变化</h2>")
-    parts.append(render_status_changes(snapshot))
+    parts.append(render_status_changes(snapshot, drilldown_results))
 
     parts.append("""
 <script>

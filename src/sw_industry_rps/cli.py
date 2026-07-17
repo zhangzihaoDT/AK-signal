@@ -565,6 +565,52 @@ def cmd_report(args: argparse.Namespace) -> None:
         write_run_manifest(ctx)
         return
 
+    # 为首次进入强势区的行业计算成分股贡献穿透
+    drilldown_results: list[dict] = []
+    new_entry_codes = snapshot[snapshot.get("new_entry", 0) == 1]["industry_code"].tolist()
+    if new_entry_codes:
+        logger.info("computing contribution drilldown for %d new_entry industries ...", len(new_entry_codes))
+        name_map = dict(zip(master["industry_code"], master["industry_name"]))
+        for code in new_entry_codes:
+            const_df = sw_constituents.fetch_constituent_list(code)
+            if const_df.empty:
+                continue
+            ind_hist = storage.load_industry_raw(raw_dir, code)
+            if ind_hist.empty:
+                continue
+            result = sw_contribution.compute_drilldown(
+                industry_code=code,
+                industry_name=name_map.get(code, ""),
+                breakout_date=date_str,
+                constituents=const_df,
+                industry_hist=ind_hist,
+                window=5,
+            )
+            if result.contribution_structure == "数据不足":
+                continue
+            cs = result.contribution_structure
+            bs = result.breadth_structure
+            cl = r"单核主导" if cs == "single_core" else \
+                 r"集中领涨" if cs == "leader_concentrated" else \
+                 r"多龙头带动" if cs == "multi_leader" else \
+                 r"分散上涨" if cs == "distributed" else cs
+            bl = r"广泛上涨" if bs == "broad" else \
+                 r"中度扩散" if bs == "moderate" else \
+                 r"少数带动" if bs == "narrow" else \
+                 r"明显分化" if bs == "divergent" else bs
+            drilldown_results.append({
+                "industry_code": code,
+                "window": result.window,
+                "industry_return_pct": result.industry_return_pct,
+                "proxy_return_pct": result.proxy_return_pct,
+                "reconstruction_gap_pct": result.reconstruction_gap_pct,
+                "pattern_display": f"{cl} × {bl}",
+                "top_contributors": [
+                    {"name": c.stock_name, "ret": c.stock_return_pct, "contribution": c.contribution_pct}
+                    for c in result.top_contributors[:5]
+                ],
+            })
+
     # Build report (staging)
     csv_staging = reports_dir / f".staging_{date_str}.csv"
     html_staging = reports_dir / f".staging_{date_str}.html"
@@ -572,7 +618,9 @@ def cmd_report(args: argparse.Namespace) -> None:
 
     metrics_valid = validator.validate_metrics(metrics_df)
     metrics_valid.missing_codes = inactive_codes
-    name_map = dict(zip(master["industry_code"], master["industry_name"]))
+    # name_map may already be defined above; compute if drilldown was skipped
+    if not new_entry_codes:
+        name_map = dict(zip(master["industry_code"], master["industry_name"]))
     metrics_valid.missing_names = [name_map.get(c, c) for c in inactive_codes]
 
     csv_path, html_path = report.build_html(
@@ -580,6 +628,7 @@ def cmd_report(args: argparse.Namespace) -> None:
         validator_result=metrics_valid,
         report_date=date_str, reports_dir=reports_dir,
         rotation_days=rotation_days,
+        drilldown_results=drilldown_results,
     )
 
     # Verify HTML was produced
