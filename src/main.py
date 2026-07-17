@@ -27,7 +27,7 @@ for p in [_project_root, _this_dir]:
         sys.path.insert(0, p)
 
 SW_INDUSTRY_COMMANDS = {
-    "bootstrap", "update", "calculate", "report", "validate", "run-day",
+    "bootstrap", "update", "calculate", "report", "validate", "run-day", "drilldown",
 }
 
 

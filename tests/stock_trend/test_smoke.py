@@ -83,7 +83,7 @@ def test_main_routes_legacy_run_day():
 
 
 def test_sw_industry_commands_set():
-    expected = {"bootstrap", "update", "calculate", "report", "validate", "run-day"}
+    expected = {"bootstrap", "update", "calculate", "report", "validate", "run-day", "drilldown"}
     assert SW_INDUSTRY_COMMANDS == expected
 
 

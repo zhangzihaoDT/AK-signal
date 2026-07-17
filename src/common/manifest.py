@@ -24,10 +24,10 @@ def write_run_manifest(ctx: RunContext) -> Path:
 
     prev = existing.get(ctx.subsystem, {})
 
-    if ctx.status == "failed":
-        prev_failed = prev.get("status") in ("failed", "partial", None)
-        if not prev_failed:
-            return path
+    # 不覆盖已有 completed 记录
+    prev_completed = prev.get("status") == "completed"
+    if prev_completed and ctx.status in ("failed", "waiting_for_source", "no_new_data", "partial"):
+        return path
 
     existing[ctx.subsystem] = ctx.to_dict()
     raw = json.dumps(existing, ensure_ascii=False, indent=2)

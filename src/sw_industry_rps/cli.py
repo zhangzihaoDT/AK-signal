@@ -17,8 +17,10 @@ import os
 import random
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+from datetime import date as date_type, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -27,8 +29,10 @@ from src.common.paths import (
     sw_industry_rps_output_dir, sw_industry_rps_config_path,
 )
 from src.common.run_context import RunContext
-from src.common.manifest import write_run_manifest
+from src.common.manifest import write_run_manifest, read_latest_run
 from . import data_source, storage, metrics, regimes, validator, report
+from . import constituents as sw_constituents
+from . import contribution as sw_contribution
 
 
 def build_logger(level: str = "INFO") -> logging.Logger:
@@ -53,6 +57,20 @@ def load_config() -> dict:
 
 def _today_str() -> str:
     return datetime.now().strftime("%Y%m%d")
+
+
+@dataclass
+class UpdateResult:
+    status: str                                    # "completed" | "waiting_for_source" | "no_new_data"
+    requested_target_date: str                     # YYYYMMDD
+    source_latest_common_date: str | None           # YYYYMMDD
+    target_ready: bool
+    freshness_probe_performed: bool
+    freshness_probe_code: str                      # 探针行业代码
+    freshness_probe_source_latest_date: str | None  # 上游返回的最新日期
+    freshness_probe_duration_seconds: float
+    raw_covered: int
+    active_count: int
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +141,45 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
 # Update — checkpoint-resumable incremental fetch for active universe
 # ---------------------------------------------------------------------------
 
-def cmd_update(args: argparse.Namespace) -> None:
+def _freshness_probe(
+    raw_dir: Path,
+    active_codes: list[str],
+    target_date_str: str,
+) -> tuple[bool, str, date_type | None, float]:
+    """对上游执行一次真实请求，探测源端最新日期。
+
+    Returns:
+        (performed, probe_code, source_latest_date, duration_seconds)
+        performed=False 表示没有可用的探针行业。
+    """
+    logger = logging.getLogger("sw_industry_rps")
+    if not active_codes:
+        return False, "", None, 0.0
+
+    probe_code = active_codes[0]
+    logger.info("freshness probe: probing %s for target date %s ...", probe_code, target_date_str)
+    t0 = time.monotonic()
+    try:
+        df = data_source.fetch_industry_hist(probe_code, end_date=target_date_str)
+        dur = time.monotonic() - t0
+        if not df.empty:
+            src_latest = df["trade_date"].max().date()
+            src_latest_str = src_latest.strftime("%Y%m%d")
+            logger.info(
+                "freshness probe: %s source_latest=%s (%.1fs)",
+                probe_code, src_latest_str, dur,
+            )
+            return True, probe_code, src_latest, dur
+        else:
+            logger.info("freshness probe: %s returned empty (%.1fs)", probe_code, dur)
+            return True, probe_code, None, dur
+    except Exception as e:
+        dur = time.monotonic() - t0
+        logger.warning("freshness probe failed for %s: %s (%.1fs)", probe_code, e, dur)
+        return True, probe_code, None, dur
+
+
+def cmd_update(args: argparse.Namespace) -> UpdateResult:
     logger = build_logger(args.log_level)
     raw_dir = sw_industry_raw_dir()
     explicit_target = getattr(args, "target_date", "") or _today_str()
@@ -131,7 +187,14 @@ def cmd_update(args: argparse.Namespace) -> None:
     master = storage.load_master(raw_dir)
     if master.empty:
         logger.error("no master data, run bootstrap first")
-        return
+        return UpdateResult(
+            status="failed", requested_target_date=explicit_target,
+            source_latest_common_date=None, target_ready=False,
+            freshness_probe_performed=False, freshness_probe_code="",
+            freshness_probe_source_latest_date=None,
+            freshness_probe_duration_seconds=0.0,
+            raw_covered=0, active_count=0,
+        )
 
     active_codes, inactive_codes, universe_changed = storage.compute_active_codes(raw_dir, master)
     logger.info("universe: master=%d, active=%d, inactive=%d%s",
@@ -151,22 +214,76 @@ def cmd_update(args: argparse.Namespace) -> None:
         name_map = dict(zip(master["industry_code"], master["industry_name"]))
         for code in inactive_codes:
             logger.info("  inactive: %s %s", code, name_map.get(code, ""))
-        return
+        return UpdateResult(
+            status="noop", requested_target_date=explicit_target,
+            source_latest_common_date=None, target_ready=False,
+            freshness_probe_performed=False, freshness_probe_code="",
+            freshness_probe_source_latest_date=None,
+            freshness_probe_duration_seconds=0.0,
+            raw_covered=0, active_count=len(active_codes),
+        )
 
-    # Determine effective target date: the latest date that ALL active industries share
-    dates = [storage.load_industry_latest_date(raw_dir, c) for c in active_codes]
-    valid_dates = [d for d in dates if d is not None]
-    if valid_dates:
-        latest_common = max(valid_dates)
-        min_common = min(valid_dates)
-        target_date = min(latest_common, pd.Timestamp(explicit_target).date())
-    else:
-        target_date = pd.Timestamp(explicit_target).date()
-    target_date_str = target_date.strftime("%Y%m%d") if hasattr(target_date, "strftime") else str(target_date)
+    # ── Freshness probe ──────────────────────────────────────────────
+    probe_performed, probe_code, probe_latest_date_obj, probe_duration = _freshness_probe(
+        raw_dir, active_codes, explicit_target,
+    )
 
-    logger.info("target date: %s (latest_common=%s, explicit=%s)", target_date, max(valid_dates) if valid_dates else "N/A", explicit_target)
+    probe_latest_str = (
+        probe_latest_date_obj.strftime("%Y%m%d")
+        if probe_latest_date_obj is not None else None
+    )
 
-    # Load checkpoint for resume
+    request_date = pd.Timestamp(explicit_target).date()
+
+    # 如果用户显式指定了目标日期，但源端尚未到达，立即停止
+    if getattr(args, "target_date", "") and probe_latest_date_obj is not None and probe_latest_date_obj < request_date:
+        logger.info(
+            "source not ready: probe_latest=%s < requested=%s → waiting_for_source",
+            probe_latest_str, explicit_target,
+        )
+        return UpdateResult(
+            status="waiting_for_source",
+            requested_target_date=explicit_target,
+            source_latest_common_date=probe_latest_str,
+            target_ready=False,
+            freshness_probe_performed=probe_performed,
+            freshness_probe_code=probe_code,
+            freshness_probe_source_latest_date=probe_latest_str,
+            freshness_probe_duration_seconds=round(probe_duration, 2),
+            raw_covered=0, active_count=len(active_codes),
+        )
+
+    # 确定实际目标日期：由 probe 的最新日期决定（最多到 explicit_target）
+    target_date = request_date
+    if probe_latest_date_obj is not None and probe_latest_date_obj < request_date:
+        target_date = probe_latest_date_obj
+    target_date_str = target_date.strftime("%Y%m%d")
+
+    # 检查本地是否已全部覆盖 target_date
+    local_latest_dates = [storage.load_industry_latest_date(raw_dir, c) for c in active_codes]
+    valid_local = [d for d in local_latest_dates if d is not None]
+    local_common = min(valid_local) if valid_local else None
+
+    logger.info(
+        "target date: %s (probe_latest=%s, explicit=%s, local_min=%s)",
+        target_date_str, probe_latest_str, explicit_target,
+        local_common.strftime("%Y%m%d") if local_common else "N/A",
+    )
+
+    if local_common is not None and local_common >= target_date:
+        logger.info("all %d active industries already have data >= %s — skipping fetch", len(active_codes), target_date_str)
+        return UpdateResult(
+            status="completed", requested_target_date=explicit_target,
+            source_latest_common_date=target_date_str,
+            target_ready=True,
+            freshness_probe_performed=probe_performed,
+            freshness_probe_code=probe_code,
+            freshness_probe_source_latest_date=probe_latest_str,
+            freshness_probe_duration_seconds=round(probe_duration, 2),
+            raw_covered=len(active_codes), active_count=len(active_codes),
+        )
+
+    # ── Batch incremental fetch ──────────────────────────────────────
     cp = storage.load_checkpoint(raw_dir)
     if cp and cp.get("target_date") == target_date_str:
         completed = set(cp.get("completed_codes", []))
@@ -214,7 +331,7 @@ def cmd_update(args: argparse.Namespace) -> None:
 
     fetch_elapsed = time.monotonic() - fetch_start
 
-    # Summary
+    # ── Summary ──────────────────────────────────────────────────────
     still_missing = [c for c in active_codes if c not in completed]
     raw_covered = len(active_codes) - len(still_missing)
     logger.info("  completed:         %d", len(completed))
@@ -230,6 +347,26 @@ def cmd_update(args: argparse.Namespace) -> None:
 
     if raw_covered == len(active_codes):
         storage.clear_checkpoint(raw_dir)
+
+    # 最后确认实际达成的共同日期
+    final_latest_dates = [storage.load_industry_latest_date(raw_dir, c) for c in active_codes]
+    final_valid = [d for d in final_latest_dates if d is not None]
+    source_latest = max(final_valid) if final_valid else probe_latest_date_obj
+    source_latest_str = source_latest.strftime("%Y%m%d") if source_latest is not None else None
+    target_ready = source_latest is not None and source_latest >= request_date
+
+    return UpdateResult(
+        status="completed" if target_ready else "waiting_for_source",
+        requested_target_date=explicit_target,
+        source_latest_common_date=source_latest_str,
+        target_ready=target_ready,
+        freshness_probe_performed=probe_performed,
+        freshness_probe_code=probe_code,
+        freshness_probe_source_latest_date=probe_latest_str,
+        freshness_probe_duration_seconds=round(probe_duration, 2),
+        raw_covered=raw_covered,
+        active_count=len(active_codes),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -482,6 +619,196 @@ def cmd_report(args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Drilldown — 强势区突破成分股贡献穿透
+# ---------------------------------------------------------------------------
+
+def cmd_drilldown(args: argparse.Namespace) -> None:
+    logger = build_logger(args.log_level)
+    raw_dir = sw_industry_raw_dir()
+    processed_dir = sw_industry_processed_dir()
+    window = getattr(args, "window", 10)
+    limit = getattr(args, "limit", 10)
+    force_refresh = getattr(args, "force", False)
+
+    import shutil
+    from src.common.market_data import _cache_root as _md_cache_root
+
+    if force_refresh:
+        cache_root = _md_cache_root()
+        if cache_root.exists():
+            shutil.rmtree(str(cache_root))
+            logger.info("forced refresh: cleared stock cache at %s", cache_root)
+
+    master = storage.load_master(raw_dir)
+    if master.empty:
+        logger.error("no master data")
+        return
+
+    metrics_df = storage.load_metrics(processed_dir)
+    if metrics_df.empty:
+        logger.error("no metrics data, run calculate first")
+        return
+
+    latest_date = metrics_df["trade_date"].max()
+    date_str = latest_date.strftime("%Y-%m-%d")
+    snapshot = metrics_df[metrics_df["trade_date"] == latest_date].copy()
+
+    # --retry-failed：清除上次失败的缓存条目
+    retry_failed = getattr(args, "retry_failed", False)
+    if retry_failed and not force_refresh:
+        cache_root = _md_cache_root()
+        date_dir = cache_root / latest_date.strftime("%Y%m%d") / f"window_{window}"
+        if date_dir.exists():
+            removed = 0
+            kept = 0
+            for f in date_dir.iterdir():
+                if f.suffix != ".csv" or "_legulegu" in f.name:
+                    kept += 1
+                    continue
+                df_small = pd.read_csv(f, nrows=1)
+                if df_small.empty or "close" not in df_small.columns or df_small["close"].isna().all():
+                    f.unlink()
+                    removed += 1
+                else:
+                    kept += 1
+            logger.info("retry-failed: removed %d EM cache entries, kept %d (incl. legulegu)", removed, kept)
+
+    name_map = dict(zip(master["industry_code"], master["industry_name"]))
+
+    # 筛选：new_entry 或 accelerating 且 RPS15 >= 80
+    candidates = snapshot[
+        ((snapshot.get("new_entry", 0) == 1) | (snapshot.get("accelerating", 0) == 1))
+        & (snapshot.get("RPS15", 0) >= 80)
+    ].copy()
+
+    if candidates.empty:
+        logger.info("no new_entry or accelerating industries found on %s", date_str)
+        return
+
+    candidates = candidates.sort_values("RPS15", ascending=False).head(limit)
+    logger.info("found %d candidates to drill down on %s", len(candidates), date_str)
+
+    results: list[sw_contribution.DrilldownResult] = []
+    for idx, (_, cand) in enumerate(candidates.iterrows()):
+        if idx > 0:
+            time.sleep(4)
+
+        code = cand["industry_code"]
+        name = name_map.get(code, "")
+        entry_date = latest_date.strftime("%Y%m%d")
+
+        logger.info("[%d/%d] drilling %s (%s) ...", idx + 1, len(candidates), code, name)
+
+        # 加载该行业历史行情
+        ind_hist = storage.load_industry_raw(raw_dir, code)
+        if ind_hist.empty:
+            logger.warning("  no industry history for %s", code)
+            continue
+
+        # 获取成分股
+        const_df = sw_constituents.fetch_constituent_list(code)
+        if const_df.empty:
+            logger.warning("  no constituent data for %s", code)
+            continue
+        logger.info("  constituents: %d stocks", len(const_df))
+
+        # 计算贡献分解
+        result = sw_contribution.compute_drilldown(
+            industry_code=code,
+            industry_name=name,
+            breakout_date=entry_date,
+            constituents=const_df,
+            industry_hist=ind_hist,
+            window=window,
+        )
+        results.append(result)
+
+        # 简要输出
+        ql = result.reconstruction_quality
+        if ql in ("good", "moderate", "poor"):
+            ql = {"good": "良好", "moderate": "一般", "poor": "较差"}.get(ql, ql)
+        logger.info("  industry return (%dd): actual=%.2f%% proxy=%.2f%% gap=%.2fpp quality=%s",
+                     window,
+                     result.industry_return_pct, result.proxy_return_pct,
+                     result.reconstruction_gap_pct, ql)
+        logger.info("  coverage: weight=%.1f%% count=%.1f%% (%d stocks)",
+                     result.weight_coverage * 100, result.count_coverage * 100,
+                     result.num_constituents)
+        cl = r"单核主导" if result.contribution_structure == "single_core" else \
+             r"集中领涨" if result.contribution_structure == "leader_concentrated" else \
+             r"多龙头带动" if result.contribution_structure == "multi_leader" else \
+             r"分散上涨" if result.contribution_structure == "distributed" else result.contribution_structure
+        bl = r"广泛上涨" if result.breadth_structure == "broad" else \
+             r"中度扩散" if result.breadth_structure == "moderate" else \
+             r"少数带动" if result.breadth_structure == "narrow" else \
+             r"明显分化" if result.breadth_structure == "divergent" else result.breadth_structure
+        logger.info("  contribution structure: %s (%s)", cl, result.contribution_structure)
+        logger.info("  breadth structure:      %s (%s)", bl, result.breadth_structure)
+        logger.info("  participation: %d / %d (%.1f%%)",
+                     result.num_positive, result.num_constituents,
+                     result.participation_rate * 100)
+        logger.info("  HHI: %.4f, top1 weight: %.1f%%, top1 share: %.1f%%, top3 share: %.1f%%",
+                     result.hhi, result.top1_weight, result.top1_share * 100, result.top3_share * 100)
+        if result.top_contributors:
+            logger.info("  top contributors:")
+            for i, cr in enumerate(result.top_contributors[:5], 1):
+                logger.info("    %d. %s (%s) w=%.1f%% ret=%.2f%% contrib=%.4f%%",
+                             i, cr.stock_name, cr.stock_code,
+                             cr.weight_pct, cr.stock_return_pct, cr.contribution_pct)
+
+    # 输出汇总表格
+    if results:
+        print("")
+        print("=" * 160)
+        print(f"{'行业':<16} {'实际涨%':<8} {'代理涨%':<8} {'误差pp':<8} {'权覆%':<8} {'数覆%':<8} {'质量':<8} {'贡献结构':<14} {'广度结构':<12}")
+        print("-" * 160)
+        for r in results:
+            cl = r"单核主导" if r.contribution_structure == "single_core" else \
+                 r"集中领涨" if r.contribution_structure == "leader_concentrated" else \
+                 r"多龙头带动" if r.contribution_structure == "multi_leader" else \
+                 r"分散上涨" if r.contribution_structure == "distributed" else r.contribution_structure
+            bl = r"广泛上涨" if r.breadth_structure == "broad" else \
+                 r"中度扩散" if r.breadth_structure == "moderate" else \
+                 r"少数带动" if r.breadth_structure == "narrow" else \
+                 r"明显分化" if r.breadth_structure == "divergent" else r.breadth_structure
+            ql = r.reconstruction_quality
+            if ql in ("good", "moderate", "poor"):
+                ql = {"good": "良好", "moderate": "一般", "poor": "较差"}.get(ql, ql)
+            print(f"{r.industry_name:<16} {r.industry_return_pct:<8.2f} {r.proxy_return_pct:<8.2f} "
+                  f"{r.reconstruction_gap_pct:<+8.2f} {r.weight_coverage:<8.1%} {r.count_coverage:<8.1%} "
+                  f"{ql:<8} {cl:<14} {bl:<12}")
+        print("=" * 160)
+
+    # 可选 CSV 输出
+    reports_dir = sw_industry_rps_output_dir()
+    if results and getattr(args, "output_csv", False):
+        out_path = reports_dir / f"drilldown_{date_str}.csv"
+        rows = []
+        for r in results:
+            for i, cr in enumerate(r.top_contributors, 1):
+                rows.append({
+                    "industry_code": r.industry_code,
+                    "industry_name": r.industry_name,
+                    "breakout_date": r.breakout_date,
+                    "window": r.window,
+                    "industry_return": r.industry_return_pct,
+                    "classification": r.classification,
+                    "participation_rate": r.participation_rate,
+                    "hhi": r.hhi,
+                    "rank": i,
+                    "stock_code": cr.stock_code,
+                    "stock_name": cr.stock_name,
+                    "weight": cr.weight_pct,
+                    "stock_return": cr.stock_return_pct,
+                    "contribution": cr.contribution_pct,
+                    "cum_contribution": cr.cum_contribution_pct,
+                })
+        out_df = pd.DataFrame(rows)
+        out_df.to_csv(out_path, index=False, encoding="utf-8-sig")
+        logger.info("drilldown CSV saved: %s", out_path)
+
+
+# ---------------------------------------------------------------------------
 # Run-day orchestration
 # ---------------------------------------------------------------------------
 
@@ -492,15 +819,92 @@ def cmd_run_day(args: argparse.Namespace) -> None:
     logger.info("=" * 60)
 
     t_start = time.monotonic()
+    requested_target = getattr(args, "target_date", "") or _today_str()
+    force_report = getattr(args, "force_report", False)
 
+    # ── Step 1: Update ────────────────────────────────────────────────
     t0 = time.monotonic()
-    cmd_update(args)
+    result = cmd_update(args)
     fetch_dur = time.monotonic() - t0
 
+    # ── Date gate ────────────────────────────────────────────────────
+    if not result.target_ready:
+        logger.info("")
+        logger.info("─" * 60)
+        logger.info("TARGET NOT READY — stopping pipeline")
+        logger.info("  requested_target_date:  %s", result.requested_target_date)
+        logger.info("  source_latest_common_date: %s", result.source_latest_common_date)
+        logger.info("  freshness_probe_performed: %s", result.freshness_probe_performed)
+        logger.info("  freshness_probe_code:    %s", result.freshness_probe_code)
+        logger.info("  freshness_probe_source_latest_date: %s", result.freshness_probe_source_latest_date)
+        logger.info("  freshness_probe_duration: %.2fs", result.freshness_probe_duration_seconds)
+        logger.info("  target_ready:            false")
+        logger.info("  status:                  %s", result.status)
+        logger.info("  calculate:               skipped")
+        logger.info("  report:                  skipped")
+        logger.info("  manifest_completed:      not updated")
+        logger.info("─" * 60)
+
+        # 写一条非 completed 的 manifest 记录（不覆盖已有 completed）
+        ctx = RunContext(
+            subsystem="sw_industry_rps",
+            run_date=datetime.now().date(),
+            status=result.status,
+            offline=True,
+            started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            summary={
+                "requested_target_date": result.requested_target_date,
+                "source_latest_common_date": result.source_latest_common_date or "",
+                "freshness_probe_performed": result.freshness_probe_performed,
+                "freshness_probe_code": result.freshness_probe_code,
+                "freshness_probe_source_latest_date": result.freshness_probe_source_latest_date or "",
+                "target_ready": False,
+                "status": result.status,
+            },
+            artifacts=[],
+        )
+        write_run_manifest(ctx)
+        return
+
+    # ── 检查是否已有同日期 completed 报告（免重复发布）─────────────
+    if not force_report and result.source_latest_common_date is not None:
+        latest_ctx = read_latest_run("sw_industry_rps", require_status="completed")
+        if latest_ctx is not None:
+            published_date = latest_ctx.run_date.strftime("%Y%m%d")
+            if result.source_latest_common_date <= published_date:
+                logger.info("")
+                logger.info("─" * 60)
+                logger.info("NO NEW DATA — stopping pipeline")
+                logger.info("  source_latest_common_date: %s", result.source_latest_common_date)
+                logger.info("  latest published date:     %s", published_date)
+                logger.info("  status:                    no_new_data")
+                logger.info("  calculate:                 skipped")
+                logger.info("  report:                    skipped")
+                logger.info("  manifest_completed:        not updated")
+                logger.info("  (use --force-report to override)")
+                logger.info("─" * 60)
+
+                ctx = RunContext(
+                    subsystem="sw_industry_rps",
+                    run_date=datetime.now().date(),
+                    status="no_new_data",
+                    offline=True,
+                    started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    summary={
+                        "source_latest_common_date": result.source_latest_common_date,
+                        "latest_published_date": published_date,
+                    },
+                    artifacts=[],
+                )
+                write_run_manifest(ctx)
+                return
+
+    # ── Step 2: Calculate ──────────────────────────────────────────────
     t0 = time.monotonic()
     cmd_calculate(args)
     calc_dur = time.monotonic() - t0
 
+    # ── Step 3: Report ─────────────────────────────────────────────────
     t0 = time.monotonic()
     cmd_report(args)
     report_dur = time.monotonic() - t0
@@ -510,6 +914,8 @@ def cmd_run_day(args: argparse.Namespace) -> None:
     logger.info("")
     logger.info("=" * 60)
     logger.info("RUN-DAY SUMMARY")
+    logger.info("  requested_target_date: %s", requested_target)
+    logger.info("  source_latest_common_date: %s", result.source_latest_common_date)
     logger.info("  fetch:     %.1fs", fetch_dur)
     logger.info("  calculate: %.1fs", calc_dur)
     logger.info("  report:    %.1fs", report_dur)
@@ -545,8 +951,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_validate = sub.add_parser("validate", help="检查数据质量")
     p_validate.add_argument("--log-level", default="INFO")
 
+    p_drill = sub.add_parser("drilldown", help="强势区突破成分股贡献穿透分析")
+    p_drill.add_argument("--window", type=int, default=10, help="贡献分析回看窗口（交易日数，默认 10）")
+    p_drill.add_argument("--limit", type=int, default=10, help="最多分析的行业数")
+    p_drill.add_argument("--force", action="store_true", help="强制刷新所有缓存，重新获取")
+    p_drill.add_argument("--retry-failed", action="store_true", help="仅重试上次失败的股票（不清除成功缓存）")
+    p_drill.add_argument("--output-csv", action="store_true", help="输出 CSV 到 outputs/sw_industry_rps/")
+    p_drill.add_argument("--log-level", default="INFO")
+
     p_run = sub.add_parser("run-day", help="依次执行 update → calculate → report")
     p_run.add_argument("--target-date", default="", help="目标日期 YYYYMMDD（默认今天）")
+    p_run.add_argument("--force-report", action="store_true", help="允许对已有报告的日期重新生成报告")
     p_run.add_argument("--log-level", default="INFO")
 
     return p
@@ -560,6 +975,7 @@ def main() -> None:
         "calculate": cmd_calculate,
         "report": cmd_report,
         "validate": cmd_validate,
+        "drilldown": cmd_drilldown,
         "run-day": cmd_run_day,
     }
     fn = dispatch.get(args.command)

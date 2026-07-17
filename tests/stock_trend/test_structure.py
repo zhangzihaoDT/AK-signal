@@ -104,7 +104,7 @@ def test_main_routes_sw_commands():
     """SW industry commands should be recognized"""
     from src.main import SW_INDUSTRY_COMMANDS
 
-    expected = {"bootstrap", "update", "calculate", "report", "validate", "run-day"}
+    expected = {"bootstrap", "update", "calculate", "report", "validate", "run-day", "drilldown"}
     assert SW_INDUSTRY_COMMANDS == expected
 
 
