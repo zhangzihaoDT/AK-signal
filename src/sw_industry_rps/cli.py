@@ -393,7 +393,7 @@ def cmd_calculate(args: argparse.Namespace) -> None:
     windows = cfg.get("rps", {}).get("windows", [5, 10, 15])
 
     full_rebuild = getattr(args, "full", False)
-    target_date = getattr(args, "date", None)
+    explicit_date = getattr(args, "date", None)
 
     master = storage.load_master(raw_dir)
     if master.empty:
@@ -407,10 +407,12 @@ def cmd_calculate(args: argparse.Namespace) -> None:
     if universe_changed:
         logger.warning("active universe has changed — run bootstrap or --update-universe to confirm")
 
-    if not target_date:
+    if not explicit_date:
         dates = [storage.load_industry_latest_date(raw_dir, c) for c in active_codes]
         valid_dates = [d for d in dates if d is not None]
         target_date = min(valid_dates).strftime("%Y-%m-%d") if valid_dates else _today_str()
+    else:
+        target_date = explicit_date
 
     covered, expected, missing = validate_raw_completeness(raw_dir, target_date, active_codes)
     if covered < expected:
@@ -434,17 +436,19 @@ def cmd_calculate(args: argparse.Namespace) -> None:
 
     result = metrics.compute_all_metrics(combined, windows=windows)
 
-    # Merge with prior metrics: replace target_date partition, keep rest
+    # Merge with prior metrics
     prior_metrics = storage.load_metrics(processed_dir)
     if full_rebuild:
         final = result
-    elif target_date and not prior_metrics.empty:
+    elif explicit_date and not prior_metrics.empty:
+        # 显式 --date：幂等替换单个日期分区
         prior_no_target = prior_metrics[prior_metrics["trade_date"] != pd.Timestamp(target_date)]
         target_rows = result[result["trade_date"] == pd.Timestamp(target_date)]
         final = pd.concat([prior_no_target, target_rows], ignore_index=True)
         final = final.drop_duplicates(subset=["trade_date", "industry_code"], keep="last")
         final = final.sort_values(["trade_date", "industry_code"]).reset_index(drop=True)
     elif not prior_metrics.empty:
+        # 自动计算日期：追加所有新日期（> prior_max），不漏中间交易日
         prior_max = prior_metrics["trade_date"].max()
         new_rows = result[result["trade_date"] > prior_max]
         final = pd.concat([prior_metrics, new_rows], ignore_index=True)
@@ -544,7 +548,15 @@ def cmd_report(args: argparse.Namespace) -> None:
         logger.error("no metrics data, run calculate first")
         return
 
-    latest_date = metrics_df["trade_date"].max()
+    explicit_target = getattr(args, "target_date", "") or ""
+    if explicit_target:
+        target_ts = pd.Timestamp(explicit_target)
+        if target_ts not in metrics_df["trade_date"].values:
+            logger.error("target date %s not found in metrics data", explicit_target)
+            return
+        latest_date = target_ts
+    else:
+        latest_date = metrics_df["trade_date"].max()
     date_str = latest_date.strftime("%Y%m%d")
     snapshot = metrics_df[metrics_df["trade_date"] == latest_date].copy()
 
@@ -623,8 +635,11 @@ def cmd_report(args: argparse.Namespace) -> None:
         name_map = dict(zip(master["industry_code"], master["industry_name"]))
     metrics_valid.missing_names = [name_map.get(c, c) for c in inactive_codes]
 
+    # 限制 metrics 范围到目标日期，使轮动矩阵不展示未来数据
+    report_metrics = metrics_df[metrics_df["trade_date"] <= latest_date].copy() if explicit_target else metrics_df
+
     csv_path, html_path = report.build_html(
-        snapshot=snapshot, metrics=metrics_df,
+        snapshot=snapshot, metrics=report_metrics,
         validator_result=metrics_valid,
         report_date=date_str, reports_dir=reports_dir,
         rotation_days=rotation_days,
@@ -995,6 +1010,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_calc.add_argument("--log-level", default="INFO")
 
     p_report = sub.add_parser("report", help="生成 HTML/CSV 报告（质量门控）")
+    p_report.add_argument("--target-date", default="", help="报告日期 YYYYMMDD（默认最新日期）")
     p_report.add_argument("--log-level", default="INFO")
 
     p_validate = sub.add_parser("validate", help="检查数据质量")
