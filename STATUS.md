@@ -236,129 +236,116 @@ python src/main.py industry drilldown --output-csv # 输出 CSV 到 outputs/sw_i
 
 ---
 
-## ETF 趋势信号 v0.1
-
-### 状态：v0.1 orchestration pipeline — 通过；discovery signal — 待扩充覆盖
+## AKSignal ETF Discovery v0.1（✅ 已完成）
 
 P0 方案见 `docs/AKsignal_ETF_P0_方案.md`。
 
-### 架构
+### 正式版本
 
-```
-                    AKShare 全市场 ETF
-                          │
-                    ┌─────┴─────┐
-                    │  Layer 1  │  全市场资产热度扫描
-                    │           │  按资产桶聚合，不混排
-                    └─────┬─────┘
-                          │  强势资产类别
-                    ┌─────┴─────┐
-                    │  Layer 2  │  国金可交易标的池
-                    │           │  8 道门控管线
-                    └─────┬─────┘
-                          │  可执行标的 + 信号
-                    ┌─────┴─────┐
-                    │  订单计划  │  国金订单卡
-                    │  人工执行  │  成交回写
-                    └───────────┘
+```text
+标签：  v0.1.0-etf-discovery
+状态：
+  orchestration pipeline：PASSED
+  discovery signal：      PASSED
+  historical coverage：   PARTIAL（85.0%）
+  broker coverage：       PARTIAL（116/300 已验证）
 ```
 
-### 目录结构
+### 工作流：从全量 ETF 到候选卡片
 
+```text
+                                        注释
+300 只核心 Universe                      按成交额 + 资产优先级从 1554 只中筛选
+  │
+  ▼
+255 只历史行情成功                        45 只 588xxx 科创板缺失（新浪不覆盖）
+  │
+  ▼
+252 只指标通过                           3 只上市不足 60 日
+  │  计算：return_5d/20d/60d、MA20/60、RPS15/60
+  │        波动率、ATR、距高点距离、最大回撤、成交额变化
+  ▼
+101 只进入活跃池                         151 只 RPS15 < 60 被趋势规则排除
+  │  BUY_CANDIDATE  29 只（RPS15≥80 + 均线多头）
+  │  STRONG_WATCH   22 只（RPS15≥80，均线未多头）
+  │  WATCH          50 只（60≤RPS15<80）
+  │
+  ▼
+101 只国金可交易（116 只白名单覆盖全部活跃池）
+  │  VERIFIED_TRADABLE      101
+  │  UNVERIFIED              0（活跃池全部已验证）
+  │
+  ▼
+101 张完整候选卡片                       含趋势 + 账户 + 风险标记
+  │  complete     101
+  │  flagged       0
+  │  incomplete    0
+  ▼
+outputs/etf_signal/
+├── candidate_cards_{date}.json           完整卡片（含 risk_flags）
+└── watchlist_active_{date}.csv           101 只活跃 ETF 清单
 ```
-src/etf_signal/
-├── cli.py                         # 全流程编排
-├── data_source.py                 # ETF 全市场数据采集
-├── master.py                      # ETF Master 数据管理
-├── classifier.py                  # 资产类别与暴露分类
-├── heat.py                        # 全市场热度和风险偏好
-├── universe.py                    # 数据质量与门控
-├── account.py                     # 国金账户标的映射
-├── signal.py                      # 趋势 Watchlist 生成
-├── sw_enrichment.py               # 行业 ETF SW-RPS 增强
-├── card.py                        # ETF 候选信息卡片
-├── indicators.py                  # 技术指标计算
-├── trend_animal_validation.py     # 趋势动物 Pro 验证
-├── portfolio.py                   # 持仓管理
-├── order_plan.py                  # 订单计划
-└── report.py                      # 日报生成
-```
 
-### 路线图
-
-| 级别 | 目标 | 状态 |
-|------|------|------|
-| **P0** | 生成信号 + 生成可执行订单建议 + **人工下单** | 当前目标 |
-| P1 | 接入条件单 | 待定 |
-| P2 | 接入 QMT/PTrade 自动执行 | 待定 |
-
-### P0 实施阶段
-
-| 阶段 | 交付 | 状态 |
-|------|------|------|
-| P0-A | 全市场 ETF 数据底座 | 骨架完成 |
-| P0-B | 分类与国金可交易池（Layer 2 门控） | 骨架完成 |
-| P0-C | Layer 1 全市场热度 + 具体标的信号 | 骨架完成 |
-| P0-D | 趋势动物 Pro 验证 | 骨架完成 |
-| P0-E | 国金订单卡和持仓回写 | 骨架完成 |
-| P0-F | 回测与影子运行 | 待实现 |
-
-### CLI
+### 命令
 
 ```bash
 # 数据底座
-python src/main.py etf bootstrap    # 初始化 Master + 全量历史
-python src/main.py etf update       # 增量更新日行情
-python src/main.py etf classify     # 资产类别分类
+python src/main.py etf bootstrap           # 初始化 Master + 全量历史
+python src/main.py etf bootstrap-core      # 阶段 A：核心 Universe（推荐）
+python src/main.py etf classify            # 资产类别分类
 
-# 全市场分析
-python src/main.py etf layer1       # 全市场热度分布 + 风险偏好
-python src/main.py etf screen       # 质量门控管线
+# 全链路
+python src/main.py etf calculate           # 计算技术指标 + RPS
+python src/main.py etf pipeline            # watchlist → account → card
 
-# 资产发现链路（P0 主线）
-python src/main.py etf watchlist    # 生成趋势关注池
-python src/main.py etf account      # 映射至国金账户可交易池
-python src/main.py etf card         # 生成 ETF 候选信息卡片
-python src/main.py etf pipeline     # 完整链路：watchlist → account → card
+# 各步骤独立执行
+python src/main.py etf watchlist           # 仅生成趋势关注池
+python src/main.py etf account             # 仅账户映射
+python src/main.py etf card                # 仅生成卡片
 ```
+
+### 模块
+
+| 模块 | 行数 | 职责 |
+|------|------|------|
+| `data_source.py` | 490 | ETF 全市场数据采集（东财 + 同花顺校验 + 新浪备用） |
+| `master.py` | 195 | ETF Master 持久化 + 核心 Universe 筛选 |
+| `classifier.py` | 210 | 资产类别与暴露分类（primary_asset_class / bucket / tags） |
+| `indicators.py` | 130 | 技术指标计算（return / MA / 波动率 / ATR / 成交额变化） |
+| `signal.py` | 155 | 趋势 Watchlist（RPS 排名 + BUY_CANDIDATE / STRONG_WATCH / WATCH） |
+| `account.py` | 110 | 国金账户三态映射（VERIFIED_TRADABLE / UNVERIFIED / VERIFIED_UNTRADABLE） |
+| `card.py` | 280 | ETF 候选卡片 + 验收门控（指标完整性 / 极端值 / 拆分检测） |
+| `heat.py` | 215 | Layer 1 全市场热度 + 风险偏好 |
+| `universe.py` | 160 | 数据质量门控（U0→U1→U2） |
+| `sw_enrichment.py` | 165 | 行业 ETF SW-RPS 增强（预留） |
+| `trend_animal_validation.py` | 120 | 趋势动物 Pro 验证（预留） |
+| `portfolio.py` | 105 | 持仓管理（P1） |
+| `order_plan.py` | 140 | 订单计划（P1） |
+| `report.py` | 125 | 日报生成 |
+| `cli.py` | 1030 | 全流程编排（12 个子命令） |
 
 ### 配置文件
 
 | 文件 | 用途 |
 |------|------|
-| `config/etf_universe.yaml` | Layer 2 门控参数（8 道门） |
-| `config/etf_buckets.yaml` | 资产桶和暴露类型定义 |
-| `config/etf_signal_rules.yaml` | 信号、止盈、退出规则 |
-| `config/guojin_tradable_whitelist.csv` | 国金可交易白名单 |
+| `config/guojin_tradable_whitelist.csv` | 国金账户白名单（116 只，三态） |
+| `config/etf_universe.yaml` | 质量门控参数 |
+| `config/etf_buckets.yaml` | 资产桶定义 |
+| `config/etf_signal_rules.yaml` | 信号规则 |
 
-#### 数据源策略
+### 后续阶段
 
-| 窗口 | 主力源 | 回退策略 | 典型覆盖率 |
-|------|--------|---------|-----------|
-| 5 日（标准） | legulegu.com 返回的近 5 日涨幅 | 东方财富 → 新浪 → 腾讯 | 100% |
-| 其他窗口或缺失 | 东方财富 → 新浪 → 腾讯多源轮询 | 指数退避 5 次重试 | 取决于频率限制 |
+| 阶段 | 交付 | 状态 |
+|------|------|------|
+| P0-D | 趋势动物 Pro 验证 | 预留接口 |
+| P0-F | 回测与影子运行 | 待实现 |
+| P1 | 条件单接入 | 待定 |
+| P2 | QMT/PTrade 自动执行 | 待定 |
 
-数据源模块 `src/common/market_data.py` 从 `stock_trend.data_provider` 抽取，与个股模块共享相同的节流、退避和外层重试逻辑。
+### 已知限制
 
-#### 已知限制
-
-1. **成分股快照时滞**：legulegu.com 返回的是最新成分股，不是突破时刻的历史成分股。权重会因调仓、IPO、增发等事件偏离突破时的真实权重。
-2. **市值口径误差**：使用总市值而非自由流通市值，大股东持股比例高的个股权重会高估。
-3. **非标准窗口行情受限**：10 日等 legulegu 不直接提供的窗口需依赖多源回退，极端情况下权重股仍可能获取失败。
-4. **分类阈值未经验证**：`top1_contrib_share >= 50%`（单核主导）、`top3_share >= 60%`（集中领涨）等边界值为初步设定，需 20~30 个行业样本校准。
-
-#### 0716 日运行示例（市值代理结果）
-
-| 行业 | 窗口 | actual | proxy | gap | 覆盖 | 质量 | 贡献结构 | 广度结构 | 前三大贡献股 |
-|------|--------|-------|-----|------|------|---------|---------|------------|
-| 乘用车 | 5d | 6.02% | 6.66% | +0.64pp | 100% | 良好 | 单核主导 | 广泛上涨 | 比亚迪 5.23%, 长城汽车 0.79%, 上汽集团 0.54% |
-| 影视院线 | 5d | 4.66% | 4.87% | +0.21pp | 100% | 良好 | 多龙头带动 | 广泛上涨 | 光线传媒 2.29%, 幸福蓝海 0.91%, 中国电影 -0.87% |
-
-### CLI
-
-```bash
-python src/main.py industry <command>              # 显式
-python src/main.py run-day                         # 向后兼容
-python src/main.py industry drilldown             # 成分股穿透分析
-python main.py bootstrap|update|...                # 向后兼容
-```
+| 缺口 | 影响 | 方向 |
+|------|------|------|
+| 45 只 588xxx 科创板 ETF 缺少历史行情 | coverage 85% | 寻找第三历史源 |
+| ETF 分类、跟踪指数、exposure 未补齐 | 卡片基础字段为空 | 接入 fund_etf_info_sina |
+| 无历史回测 | 信号有效性未量化 | P0-F |
