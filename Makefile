@@ -11,7 +11,7 @@ SRC_MAIN = src/main.py
 	stock stock-offline test install clean
 
 help: ## 显示帮助信息
-	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | sort | \
+	@grep -E '^[-a-zA-Z_0-9]+:.*## ' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*## "}; {printf "  make %-20s %s\n", $$1, $$2}'
 
 # ── 每日市场扫描（唯一入口） ──────────────────────────────────────
