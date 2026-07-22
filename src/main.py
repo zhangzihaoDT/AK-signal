@@ -3,14 +3,15 @@ AKSignal 顶层命令路由
 
 职责：
   识别用户要执行的子系统，转发到对应的 CLI 入口。
-  不包含个股或行业的业务逻辑。
+  不包含个股、行业或 ETF 的业务逻辑。
 
 用法：
-  python src/main.py                      → 个股趋势监控（默认，向后兼容）
-  python src/main.py --start-date ...     → 个股趋势监控（向后兼容）
-  python src/main.py stock [options]      → 个股趋势监控
-  python src/main.py industry <command>   → 申万行业 RPS
-  python src/main.py run-day              → 申万行业 RPS run-day（向后兼容）
+  python src/main.py                        → 个股趋势监控（默认，向后兼容）
+  python src/main.py --start-date ...       → 个股趋势监控（向后兼容）
+  python src/main.py stock [options]        → 个股趋势监控
+  python src/main.py industry <command>     → 申万行业 RPS
+  python src/main.py etf <command>          → ETF 趋势信号
+  python src/main.py run-day                → 申万行业 RPS run-day（向后兼容）
   python src/main.py bootstrap|update|calculate|report|validate → 申万行业 RPS（向后兼容）
 """
 
@@ -30,12 +31,24 @@ SW_INDUSTRY_COMMANDS = {
     "bootstrap", "update", "calculate", "report", "validate", "run-day", "drilldown",
 }
 
+ETF_COMMANDS = {
+    "bootstrap", "bootstrap-core", "update", "classify", "layer1", "screen",
+    "watchlist", "account", "card", "pipeline",
+    "calculate", "signal", "report", "backtest", "run-day",
+}
+
 
 def main() -> None:
     argv = sys.argv[1:]
 
     if argv:
         cmd = argv[0]
+
+        if cmd == "etf":
+            from src.etf_signal.cli import main as etf_main
+            sys.argv = [sys.argv[0], *argv[1:]]
+            etf_main()
+            return
 
         if cmd in SW_INDUSTRY_COMMANDS:
             from src.sw_industry_rps.cli import main as sw_main

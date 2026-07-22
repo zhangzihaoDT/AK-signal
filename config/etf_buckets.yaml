@@ -1,0 +1,36 @@
+# ETF 资产桶和暴露类型分类规则
+# 参见 docs/AKsignal_ETF_P0_方案.md §6
+
+asset_buckets:
+  cn_equity:
+    label: "A 股权益"
+    exposure_types:
+      - broad_market
+      - industry
+      - theme
+      - factor_style
+
+  hk_overseas_equity:
+    label: "港股及海外权益"
+    exposure_types:
+      - broad_market
+      - region_country
+      - theme
+
+  commodity:
+    label: "商品"
+    exposure_types:
+      - commodity_spot
+      - commodity_futures
+
+  bond:
+    label: "债券"
+    exposure_types:
+      - interest_rate_bond
+      - credit_bond
+      - convertible_bond
+
+  cash:
+    label: "货币与现金管理"
+    exposure_types:
+      - money_market

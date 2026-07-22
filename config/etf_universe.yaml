@@ -1,0 +1,41 @@
+# ETF Universe 门控配置 — Layer 2
+# 参见 docs/AKsignal_ETF_P0_方案.md §7
+
+# 门控顺序：按此处顺序依次执行
+gate_order:
+  - exchange
+  - product_type
+  - account
+  - trading_status
+  - liquidity
+  - fund_size
+  - history
+  - premium_risk
+
+exchange:
+  allowed: ["SSE", "SZSE"]
+
+product_type:
+  allow_etf: true
+  allow_lof: false
+  allow_offshore_fund: false
+
+trading_status:
+  require_active: true
+
+liquidity:
+  min_avg_amount_20d: 10_000_000    # 20 日均成交额 >= 1000 万
+  min_avg_turnover_20d: 0
+
+fund_size:
+  min_fund_size: 100_000_000         # 基金规模 >= 1 亿
+
+history:
+  min_listed_days: 120               # 上市至少 120 个交易日
+  min_valid_history_days: 60
+  min_valid_history_ratio: 0.98
+
+premium_risk:
+  max_qdii_premium: 0.05            # QDII/跨境 ETF 溢价上限 5%
+  max_commodity_premium: 0.03       # 商品 ETF 溢价上限 3%
+  max_normal_premium: 0.02          # 普通 ETF 溢价上限 2%

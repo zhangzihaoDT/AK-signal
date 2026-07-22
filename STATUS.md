@@ -18,6 +18,27 @@ AKsignal/
 │   ├── sw_industry_rps/
 │   └── manifest.json
 ├── docs/
+├── config/
+│   ├── etf_buckets.yaml
+│   ├── etf_signal_rules.yaml
+│   ├── etf_universe.yaml
+│   ├── guojin_tradable_whitelist.csv
+│   ├── stock_pool.csv
+│   └── sw_industry_rps.yaml
+├── data/                         # 运行数据与状态（gitignored）
+│   ├── etf_signal/
+│   ├── processed/
+│   ├── raw/
+│   └── state/
+├── outputs/                      # 用户消费产物（gitignored）
+│   ├── etf_signal/
+│   ├── stock_trend/
+│   ├── sw_industry_rps/
+│   └── manifest.json
+├── docs/
+├── reports/                      # 日报
+│   └── etf_daily/
+├── scripts/
 ├── src/
 │   ├── main.py                   # 纯路由
 │   ├── common/                   # 公共层
@@ -25,17 +46,22 @@ AKsignal/
 │   │   ├── run_context.py
 │   │   └── manifest.py
 │   ├── stock_trend/
-│   └── sw_industry_rps/
+│   ├── sw_industry_rps/
+│   └── etf_signal/               # 新增：ETF 趋势信号
 └── tests/
+    ├── stock_trend/
+    ├── sw_industry_rps/
+    └── etf_signal/                # 新增
 ```
 
 ### 测试总览
 
-| 模块         | 测试数  |
-| ------------ | ------- |
-| 个股趋势监控 | 143     |
-| 申万行业 RPS | 58      |
-| **总计**     | **201** |
+| 模块             | 测试数  |
+| ---------------- | ------- |
+| 个股趋势监控     | 143     |
+| 申万行业 RPS     | 58      |
+| ETF 趋势信号     | 0       |
+| **总计**         | **201** |
 
 ---
 
@@ -202,11 +228,108 @@ contribution_structure × breadth_structure（两维度正交）
 #### 新增命令
 
 ```bash
-python src/main.py industry drilldown             # 分析最新交易日的新进入行业
+python src/main.py industry drilldown             # 强势区成分股贡献分析
 python src/main.py industry drilldown --window 5  # 使用 5 日窗口
 python src/main.py industry drilldown --limit 3   # 最多分析 3 个行业
 python src/main.py industry drilldown --output-csv # 输出 CSV 到 outputs/sw_industry_rps/
 ```
+
+---
+
+## ETF 趋势信号 v0.1
+
+### 状态：v0.1 orchestration pipeline — 通过；discovery signal — 待扩充覆盖
+
+P0 方案见 `docs/AKsignal_ETF_P0_方案.md`。
+
+### 架构
+
+```
+                    AKShare 全市场 ETF
+                          │
+                    ┌─────┴─────┐
+                    │  Layer 1  │  全市场资产热度扫描
+                    │           │  按资产桶聚合，不混排
+                    └─────┬─────┘
+                          │  强势资产类别
+                    ┌─────┴─────┐
+                    │  Layer 2  │  国金可交易标的池
+                    │           │  8 道门控管线
+                    └─────┬─────┘
+                          │  可执行标的 + 信号
+                    ┌─────┴─────┐
+                    │  订单计划  │  国金订单卡
+                    │  人工执行  │  成交回写
+                    └───────────┘
+```
+
+### 目录结构
+
+```
+src/etf_signal/
+├── cli.py                         # 全流程编排
+├── data_source.py                 # ETF 全市场数据采集
+├── master.py                      # ETF Master 数据管理
+├── classifier.py                  # 资产类别与暴露分类
+├── heat.py                        # 全市场热度和风险偏好
+├── universe.py                    # 数据质量与门控
+├── account.py                     # 国金账户标的映射
+├── signal.py                      # 趋势 Watchlist 生成
+├── sw_enrichment.py               # 行业 ETF SW-RPS 增强
+├── card.py                        # ETF 候选信息卡片
+├── indicators.py                  # 技术指标计算
+├── trend_animal_validation.py     # 趋势动物 Pro 验证
+├── portfolio.py                   # 持仓管理
+├── order_plan.py                  # 订单计划
+└── report.py                      # 日报生成
+```
+
+### 路线图
+
+| 级别 | 目标 | 状态 |
+|------|------|------|
+| **P0** | 生成信号 + 生成可执行订单建议 + **人工下单** | 当前目标 |
+| P1 | 接入条件单 | 待定 |
+| P2 | 接入 QMT/PTrade 自动执行 | 待定 |
+
+### P0 实施阶段
+
+| 阶段 | 交付 | 状态 |
+|------|------|------|
+| P0-A | 全市场 ETF 数据底座 | 骨架完成 |
+| P0-B | 分类与国金可交易池（Layer 2 门控） | 骨架完成 |
+| P0-C | Layer 1 全市场热度 + 具体标的信号 | 骨架完成 |
+| P0-D | 趋势动物 Pro 验证 | 骨架完成 |
+| P0-E | 国金订单卡和持仓回写 | 骨架完成 |
+| P0-F | 回测与影子运行 | 待实现 |
+
+### CLI
+
+```bash
+# 数据底座
+python src/main.py etf bootstrap    # 初始化 Master + 全量历史
+python src/main.py etf update       # 增量更新日行情
+python src/main.py etf classify     # 资产类别分类
+
+# 全市场分析
+python src/main.py etf layer1       # 全市场热度分布 + 风险偏好
+python src/main.py etf screen       # 质量门控管线
+
+# 资产发现链路（P0 主线）
+python src/main.py etf watchlist    # 生成趋势关注池
+python src/main.py etf account      # 映射至国金账户可交易池
+python src/main.py etf card         # 生成 ETF 候选信息卡片
+python src/main.py etf pipeline     # 完整链路：watchlist → account → card
+```
+
+### 配置文件
+
+| 文件 | 用途 |
+|------|------|
+| `config/etf_universe.yaml` | Layer 2 门控参数（8 道门） |
+| `config/etf_buckets.yaml` | 资产桶和暴露类型定义 |
+| `config/etf_signal_rules.yaml` | 信号、止盈、退出规则 |
+| `config/guojin_tradable_whitelist.csv` | 国金可交易白名单 |
 
 #### 数据源策略
 

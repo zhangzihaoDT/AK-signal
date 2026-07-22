@@ -1,0 +1,40 @@
+# ETF 信号规则配置
+# 参见 docs/AKsignal_ETF_P0_方案.md §10-12
+
+# 版本
+version: 0.1
+
+# 止盈配置
+take_profit:
+  # 价格偏离中期均线阈值
+  price_deviation_ma_threshold: 0.15
+  # ATR 扩张阈值
+  atr_expansion_threshold: 1.5
+  # RPS 高位连续下降次数
+  rps_decline_streak: 3
+  # 强势广度收缩阈值
+  breadth_contraction_threshold: 0.7
+
+# 退出配置
+exit:
+  # 收盘跌破趋势退出线比例
+  trend_break_threshold: 0.95
+  # MA20 反转窗口
+  ma_reversal_window: 5
+  # RPS 有效区间下限
+  rps_floor: 50
+
+# 分桶参数
+bucket_params:
+  cn_equity:
+    trend_sensitivity: 1.0
+    volatility_stop: 0.15
+  commodity:
+    trend_sensitivity: 0.8
+    volatility_stop: 0.20
+  bond:
+    trend_sensitivity: 0.6
+    volatility_stop: 0.05
+  cash:
+    trend_sensitivity: 0.3
+    volatility_stop: 0.02

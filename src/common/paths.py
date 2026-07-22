@@ -65,6 +65,36 @@ def sw_industry_rps_output_dir() -> Path:
     return outputs_dir() / "sw_industry_rps"
 
 
+# ── ETF Signal ───────────────────────────────────────────────────
+
+def etf_signal_raw_dir() -> Path:
+    return data_dir() / "etf_signal" / "raw"
+
+
+def etf_signal_master_dir() -> Path:
+    return data_dir() / "etf_signal" / "master"
+
+
+def etf_signal_daily_dir() -> Path:
+    return data_dir() / "etf_signal" / "daily"
+
+
+def etf_signal_signals_dir() -> Path:
+    return data_dir() / "etf_signal" / "signals"
+
+
+def etf_signal_positions_dir() -> Path:
+    return data_dir() / "etf_signal" / "positions"
+
+
+def etf_signal_manifests_dir() -> Path:
+    return data_dir() / "etf_signal" / "manifests"
+
+
+def etf_signal_output_dir() -> Path:
+    return outputs_dir() / "etf_signal"
+
+
 def docs_dir() -> Path:
     return project_root() / "docs"
 

@@ -43,6 +43,35 @@ bootstrap: ## 初始化行业列表并拉取全部历史数据
 drilldown: ## 强势区行业成分股贡献穿透分析
 	$(PYTHON) $(SRC_MAIN) industry drilldown
 
+# ── ETF 趋势信号 ─────────────────────────────────────────────────
+
+etf-bootstrap: ## 初始化 ETF Master 并拉取全量历史数据
+	$(PYTHON) $(SRC_MAIN) etf bootstrap
+
+etf-update: ## 增量更新 ETF 日行情
+	$(PYTHON) $(SRC_MAIN) etf update
+
+etf-classify: ## 对 ETF 执行资产桶和暴露类型分类
+	$(PYTHON) $(SRC_MAIN) etf classify
+
+etf-layer1: ## [Layer 1] 全市场资产热度分布
+	$(PYTHON) $(SRC_MAIN) etf layer1
+
+etf-screen: ## [Layer 2] 国金门控管线：筛选可交易标的
+	$(PYTHON) $(SRC_MAIN) etf screen
+
+etf-calculate: ## 计算 ETF 技术指标
+	$(PYTHON) $(SRC_MAIN) etf calculate
+
+etf-signal: ## 生成 ETF 信号状态机
+	$(PYTHON) $(SRC_MAIN) etf signal
+
+etf-report: ## 生成 ETF 日报
+	$(PYTHON) $(SRC_MAIN) etf report
+
+etf-run-day: ## ETF 全流程：update → calculate → signal → report
+	$(PYTHON) $(SRC_MAIN) etf run-day
+
 # ── 开发维护 ──────────────────────────────────────────────────
 
 test: ## 运行全部测试
