@@ -1,10 +1,14 @@
-# AKSignal — A 股技术趋势监控 + 申万行业 RPS
+# AKSignal — A 股技术趋势监控 + 申万行业 RPS + ETF 趋势资产发现
 
 ## 项目架构
 
 ```text
 src/
 ├── main.py                       # 顶层命令路由
+├── common/                       # 公共层
+│   ├── paths.py                  # 路径单一事实源
+│   ├── run_context.py            # 运行上下文
+│   └── manifest.py               # 产物发现契约
 ├── stock_trend/                  # 个股技术趋势监控子系统
 │   ├── cli.py                    # 参数解析（stock 子命令）
 │   ├── pipeline.py               # 业务编排
@@ -16,17 +20,27 @@ src/
 │   ├── portfolio.py              # 组合摘要
 │   ├── report.py                 # HTML/CSV 报告 + Plotly 图表
 │   └── watchlist.py              # 关注名单管理
-└── sw_industry_rps/              # 申万行业 RPS 监控子系统
-    ├── cli.py                    # 行业 CLI（bootstrap/update/...）
-    ├── data_source.py            # 东方财富行业数据源
-    ├── storage.py                # 行业数据存取
-    ├── metrics.py                # RPS 计算
-    ├── regimes.py                # 板块状态识别
-    ├── report.py                 # 行业排名报告
-    └── validator.py              # 数据质量校验
+├── sw_industry_rps/              # 申万行业 RPS 监控子系统
+│   ├── cli.py                    # 行业 CLI（bootstrap/update/...）
+│   ├── data_source.py            # 东方财富行业数据源
+│   ├── storage.py                # 行业数据存取
+│   ├── metrics.py                # RPS 计算
+│   ├── regimes.py                # 板块状态识别
+│   ├── report.py                 # 行业排名报告
+│   └── validator.py              # 数据质量校验
+└── etf_signal/                   # ETF 趋势资产发现子系统（v0.1.0 ✅）
+    ├── cli.py                    # 全流程编排
+    ├── data_source.py            # 多源数据采集（东财 + 同花顺 + 新浪）
+    ├── master.py                 # ETF Master + 核心 Universe 筛选
+    ├── classifier.py             # 资产类别与暴露分类
+    ├── indicators.py             # 技术指标计算
+    ├── signal.py                 # 趋势 Watchlist
+    ├── account.py                # 国金账户三态映射
+    ├── card.py                   # 候选卡片 + 验收门控
+    └── ...（heat/universe/sw_enrichment 等）
 ```
 
-两个互不干扰的独立模块，共用 `.venv` Python 环境和 `data/` 目录规划。
+三个独立业务分支，共用 `.venv` Python 环境和 `data/` 目录规划。
 
 ## 安装
 
@@ -145,9 +159,61 @@ outputs/sw_industry_rps/
 3. 未实现行业成分股联动分析（预留接口）
 4. 行业详情走势图属于 MVP 次优先级
 
-### 与现有个股趋势监控的关系
+## ETF 趋势资产发现
 
-- 互不干扰的独立模块
-- 共用 `.venv` Python 环境和 `data/` 目录规划
-- 共用 `config/` 配置目录
-- 未来可在 "强势行业 → 强势个股" 方向联动
+### 功能定位
+
+基于 AKShare 构建可观察的沪深场内 ETF 数据池，按资产类别分桶计算市场热度，在国金证券可交易范围内生成趋势 Watchlist 和候选信息卡片。
+
+### 版本状态
+
+```text
+v0.1.0-etf-discovery  ✅
+  状态：
+    orchestration pipeline：PASSED
+    discovery signal：      PASSED
+    historical coverage：   PARTIAL（255/300，85.0%）
+    broker coverage：       PARTIAL（116/300 已验证）
+
+  v0.2.0-etf-shadow-validation ⬅ 当前
+    目标：连续记录每日信号，通过回测和影子运行验证信号质量
+```
+
+### 工作流
+
+```text
+300 只核心 Universe → 255 只历史行情 → 252 只指标 → 101 只活跃
+    → 101 只国金可交易 → 101 张候选卡片
+```
+
+### 命令
+
+```bash
+# 数据底座
+python src/main.py etf bootstrap-core
+
+# 全链路（10 分钟）
+python src/main.py etf calculate && python src/main.py etf pipeline
+```
+
+### 输出
+
+```
+outputs/etf_signal/
+├── candidate_cards_{date}.json        # 完整卡片（含风险标记）
+└── watchlist_active_{date}.csv        # 活跃 ETF 清单
+```
+
+详细文档见 `docs/AKsignal_ETF_P0_方案.md`。
+
+---
+
+## 三个业务分支的关系
+
+| 分支 | 职责 | 入口 | 版本 |
+|------|------|------|------|
+| stock_trend | 个股技术趋势监控 | `python src/main.py stock` | v0.3 |
+| sw_industry_rps | 申万行业 RPS 轮动 | `python src/main.py industry <cmd>` | v0.2 |
+| etf_signal | ETF 趋势资产发现 | `python src/main.py etf <cmd>` | v0.1.0 ✅ |
+
+三个独立模块，互不干扰，共用 `.venv` Python 环境、`data/` 和 `config/` 目录规划。未来可在板块联动方向交汇。
