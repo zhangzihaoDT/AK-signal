@@ -3,8 +3,15 @@ SRC_MAIN = src/main.py
 
 .DEFAULT_GOAL = help
 
+.PHONY: help run-day \
+	etf-bootstrap etf-bootstrap-core etf-update etf-calculate \
+	etf-classify etf-layer1 etf-watchlist etf-account etf-card etf-pipeline \
+	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-report \
+	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown \
+	stock stock-offline test install clean
+
 help: ## 显示帮助信息
-	@grep -E '^[a-zA-Z_-]+:.*## ' Makefile | sort | \
+	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*## "}; {printf "  make %-20s %s\n", $$1, $$2}'
 
 # ── 每日市场扫描（唯一入口） ──────────────────────────────────────
@@ -13,8 +20,8 @@ run-day: ## 每日 ETF 全市场信号 + SW-RPS 行业信号
 	$(MAKE) etf-update
 	$(MAKE) sw-rps-update
 	$(MAKE) etf-calculate
-	$(MAKE) etf-pipeline
 	$(MAKE) sw-rps-calculate
+	$(MAKE) etf-pipeline
 	$(MAKE) sw-rps-report
 
 # ── ETF 全市场扫描（主系统） ────────────────────────────────────
