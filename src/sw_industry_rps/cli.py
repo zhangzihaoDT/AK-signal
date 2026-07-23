@@ -55,8 +55,12 @@ def load_config() -> dict:
     return {}
 
 
-def _today_str() -> str:
-    return datetime.now().strftime("%Y%m%d")
+def _default_target_date() -> str:
+    now = datetime.now()
+    if now.hour < 16 or (now.hour == 16 and now.minute < 30):
+        yesterday = now - timedelta(days=1)
+        return yesterday.strftime("%Y%m%d")
+    return now.strftime("%Y%m%d")
 
 
 @dataclass
@@ -182,7 +186,7 @@ def _freshness_probe(
 def cmd_update(args: argparse.Namespace) -> UpdateResult:
     logger = build_logger(args.log_level)
     raw_dir = sw_industry_raw_dir()
-    explicit_target = getattr(args, "target_date", "") or _today_str()
+    explicit_target = getattr(args, "target_date", "") or _default_target_date()
 
     master = storage.load_master(raw_dir)
     if master.empty:
@@ -410,7 +414,7 @@ def cmd_calculate(args: argparse.Namespace) -> None:
     if not explicit_date:
         dates = [storage.load_industry_latest_date(raw_dir, c) for c in active_codes]
         valid_dates = [d for d in dates if d is not None]
-        target_date = min(valid_dates).strftime("%Y-%m-%d") if valid_dates else _today_str()
+        target_date = min(valid_dates).strftime("%Y-%m-%d") if valid_dates else _default_target_date()
     else:
         target_date = explicit_date
 
@@ -883,7 +887,7 @@ def cmd_run_day(args: argparse.Namespace) -> None:
     logger.info("=" * 60)
 
     t_start = time.monotonic()
-    requested_target = getattr(args, "target_date", "") or _today_str()
+    requested_target = getattr(args, "target_date", "") or _default_target_date()
     force_report = getattr(args, "force_report", False)
 
     # ── Step 1: Update ────────────────────────────────────────────────

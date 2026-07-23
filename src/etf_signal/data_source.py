@@ -55,6 +55,122 @@ def _ensure_akshare():
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 错误分类 & 熔断器
+# ═══════════════════════════════════════════════════════════════════
+
+
+class SchemaChangedError(Exception):
+    """EM 接口数据格式变化（字段缺失 / JSON 结构变化 / 解析失败），不可重试。"""
+
+
+class TransientNetworkError(Exception):
+    """网络临时故障（超时 / ConnectionReset / 5xx），可重试。"""
+
+
+_em_circuit_open = False          # SchemaChangedError 熔断
+_em_consecutive_schema_errors = 0
+_EM_SCHEMA_CIRCUIT_LIMIT = 3
+
+_em_rate_limit_hit = False         # rate-limit / connection-refused 熔断
+
+_fetch_stats: dict[str, dict] = {}
+
+EM_REQUEST_INTERVAL = 6            # 历史补缺请求间隔（秒）
+EM_BACKFILL_LIMIT = 30             # 每轮最多补缺 ETF 数量
+
+
+def reset_em_circuit_breakers():
+    global _em_circuit_open, _em_consecutive_schema_errors, _em_rate_limit_hit
+    _em_circuit_open = False
+    _em_consecutive_schema_errors = 0
+    _em_rate_limit_hit = False
+    logger.debug("EM circuit breakers reset")
+
+
+def is_rate_limit_error(e: Exception) -> bool:
+    """判断是否为服务端限流/连接拒绝。"""
+    msg = str(e).lower()
+    if any(k in msg for k in (
+        "remote disconnected", "connection aborted", "connection reset",
+        "connection refused", "eof", "broken pipe",
+    )):
+        return True
+    # 空响应也可能表示限流
+    if isinstance(e, ConnectionError):
+        return True
+    return False
+
+
+def classify_em_error(e: Exception) -> Exception:
+    """将原始异常分类为 SchemaChangedError 或 TransientNetworkError。"""
+    msg = str(e).lower()
+    # 字段缺失 / 列名变化 → 格式变更，不可重试
+    if any(k in msg for k in ("not in index", "not in columns", "keyerror", "column")):
+        return SchemaChangedError(str(e))
+    # 网络层故障
+    if any(k in msg for k in (
+        "connection aborted", "connection reset", "remote disconnected",
+        "timeout", "time out", "eof", "broken pipe",
+    )):
+        return TransientNetworkError(str(e))
+    if isinstance(e, (ConnectionError, TimeoutError)):
+        return TransientNetworkError(str(e))
+    status = _extract_http_status(str(e))
+    if status and status >= 500:
+        return TransientNetworkError(str(e))
+    return SchemaChangedError(str(e))
+
+
+def _extract_http_status(msg: str) -> int | None:
+    """从错误消息中提取 HTTP 状态码。"""
+    import re
+    m = re.search(r'\b(5\d{2})\b', msg)
+    return int(m.group(1)) if m else None
+
+
+def is_kcb(code: str) -> bool:
+    """科创板 ETF：588xxx / 589xxx"""
+    return code.startswith(("588", "589"))
+
+
+def is_sina_viable(code: str) -> bool:
+    """新浪 ETF 历史接口是否可能覆盖该代码。"""
+    if is_kcb(code):
+        return False
+    return True
+
+
+def clear_fetch_stats():
+    global _fetch_stats
+    _fetch_stats = {}
+
+
+def get_fetch_stats() -> dict[str, dict]:
+    return dict(_fetch_stats)
+
+
+def log_fetch_summary():
+    if not _fetch_stats:
+        logger.info("fetch stats: no records")
+        return
+    by_source: dict[str, int] = {}
+    by_error: dict[str, int] = {}
+    no_source: list[str] = []
+    for code, info in _fetch_stats.items():
+        src = info.get("source", "unknown")
+        by_source[src] = by_source.get(src, 0) + 1
+        if err := info.get("primary_error_type"):
+            by_error[err] = by_error.get(err, 0) + 1
+        if src == "none":
+            no_source.append(code)
+    logger.info("fetch stats — source breakdown: %s", by_source)
+    if by_error:
+        logger.info("fetch stats — error breakdown: %s", by_error)
+    if no_source:
+        logger.info("fetch stats — no_source (%d): %s", len(no_source), no_source[:10])
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 1. ETF Master — 主源: 东方财富
 # ═══════════════════════════════════════════════════════════════════
 
@@ -275,46 +391,116 @@ def fetch_etf_hist(
     fund_code: str,
     start_date: str = "20200101",
     end_date: str | None = None,
-    max_retries: int = 5,
-    base_delay: float = 1.0,
-    max_delay: float = 10.0,
 ) -> pd.DataFrame:
     """获取单只 ETF 的历史日行情。
 
     主源：fund_etf_hist_em（东方财富）
     备用：fund_etf_hist_sina（新浪），主源异常时自动回退
 
+    熔断策略：
+      - SchemaChangedError → 不可重试，立即回退或标记
+      - TransientNetworkError → 最多重试 1 次后回退
+      - 连续 3 次 SchemaChangedError → 本轮跳过 EM
+
+    科创板（588xxx）：新浪不覆盖，EM 失败后直接标记待补。
+
     Returns:
         DataFrame: date, open, high, low, close, volume, amount
     """
+    global _em_circuit_open, _em_consecutive_schema_errors, _em_rate_limit_hit
+
     if not _ensure_akshare():
         return pd.DataFrame()
     if end_date is None:
         end_date = datetime.now().strftime("%Y%m%d")
 
-    # 主源
-    df = _fetch_hist_em(fund_code, start_date, end_date, max_retries, base_delay, max_delay)
-    if not df.empty:
-        logger.debug("hist_em ok: %s (%d rows)", fund_code, len(df))
-        return df
+    info: dict[str, Any] = {"code": fund_code}
 
-    # 备用：新浪
-    logger.info("hist_em failed for %s, falling back to hist_sina", fund_code)
-    df = _fetch_hist_sina(fund_code, start_date, end_date)
-    if not df.empty:
-        logger.info("hist_sina fallback ok: %s (%d rows)", fund_code, len(df))
-        return df
+    if is_kcb(fund_code) and not is_sina_viable(fund_code):
+        info["fallback_reason"] = "科创板 — 新浪不覆盖"
+        info["primary_error_type"] = "no_source_for_kcb"
 
+    # ── 主源：EM ──────────────────────────────────────────────
+    df_em = pd.DataFrame()
+    em_attempted = False
+    em_skipped_reason = None
+
+    if _em_rate_limit_hit:
+        em_skipped_reason = "em_rate_limit_circuit"
+    elif _em_circuit_open:
+        em_skipped_reason = "em_schema_circuit"
+
+    if em_skipped_reason:
+        info["primary_error_type"] = em_skipped_reason
+        info["fallback_reason"] = f"EM skipped: {em_skipped_reason}"
+    else:
+        em_attempted = True
+        try:
+            df_em = _fetch_hist_em(fund_code, start_date, end_date)
+        except SchemaChangedError as e:
+            _em_consecutive_schema_errors += 1
+            logger.info("em schema changed for %s (consecutive=%d): %s", fund_code, _em_consecutive_schema_errors, e)
+            if _em_consecutive_schema_errors >= _EM_SCHEMA_CIRCUIT_LIMIT:
+                _em_circuit_open = True
+                logger.warning("EM schema circuit breaker OPEN")
+            info["primary_error_type"] = "SchemaChangedError"
+            info["fallback_reason"] = str(e)
+        except TransientNetworkError as e:
+            info["primary_error_type"] = "TransientNetworkError"
+            info["fallback_reason"] = str(e)
+            if is_rate_limit_error(e):
+                _em_rate_limit_hit = True
+                logger.warning("EM rate-limit circuit breaker OPEN — skipping EM for remaining ETFs this session")
+        except Exception as e:
+            _em_consecutive_schema_errors += 1
+            if _em_consecutive_schema_errors >= _EM_SCHEMA_CIRCUIT_LIMIT:
+                _em_circuit_open = True
+                logger.warning("EM schema circuit breaker OPEN")
+            info["primary_error_type"] = type(e).__name__
+            info["fallback_reason"] = str(e)
+
+    if not df_em.empty:
+        info["source"] = "em"
+        _fetch_stats[fund_code] = info
+        logger.debug("hist_em ok: %s (%d rows)", fund_code, len(df_em))
+        return df_em
+
+    if em_attempted:
+        _em_consecutive_schema_errors = 0  # 有数据或非 schema 错误时重置
+
+    # ── 备用：新浪 ─────────────────────────────────────────────
+    if is_sina_viable(fund_code):
+        df = _fetch_hist_sina(fund_code, start_date, end_date)
+        if not df.empty:
+            info["source"] = "sina"
+            info["fallback_reason"] = info.get("fallback_reason", "em_failed")
+            _fetch_stats[fund_code] = info
+            logger.info("hist_sina fallback ok: %s (%d rows)", fund_code, len(df))
+            return df
+        if "primary_error_type" not in info:
+            info["primary_error_type"] = "sina_failed"
+        info["fallback_reason"] = "sina_failed"
+    else:
+        if "primary_error_type" not in info:
+            info["primary_error_type"] = "no_source_for_kcb"
+        info["fallback_reason"] = "科创板无可用源"
+
+    info["source"] = "none"
+    _fetch_stats[fund_code] = info
     logger.warning("all hist sources exhausted: %s", fund_code)
     return pd.DataFrame()
 
 
 def _fetch_hist_em(
     fund_code: str, start_date: str, end_date: str,
-    max_retries: int = 5, base_delay: float = 0.5, max_delay: float = 5.0,
+    max_retries: int = 1, base_delay: float = 1.0, max_delay: float = 3.0,
 ) -> pd.DataFrame:
-    """东方财富历史日行情。"""
-    for attempt in range(1, max_retries + 1):
+    """东方财富历史日行情。
+
+    - SchemaChangedError 立即抛出（不可重试）。
+    - TransientNetworkError 最多重试 1 次后抛出。
+    """
+    for attempt in range(1, max_retries + 2):
         try:
             df = ak.fund_etf_hist_em(
                 symbol=fund_code,
@@ -322,15 +508,23 @@ def _fetch_hist_em(
                 start_date=start_date,
                 end_date=end_date,
             )
-            if not df.empty:
-                return _normalise_etf_hist(df, fund_code)
+            if df.empty:
+                raise SchemaChangedError(f"fund_etf_hist_em returned empty DataFrame for {fund_code}")
+            return _normalise_etf_hist(df, fund_code)
+        except (SchemaChangedError, TransientNetworkError):
+            raise
         except Exception as e:
+            classified = classify_em_error(e)
+            if isinstance(classified, SchemaChangedError):
+                raise classified from e
             logger.warning(
-                "fund_etf_hist_em attempt %d/%d %s: %s",
-                attempt, max_retries, fund_code, e,
+                "fund_etf_hist_em attempt %d/2 %s: %s",
+                attempt, fund_code, classified,
             )
-            if attempt < max_retries:
+            if attempt <= max_retries:
                 time.sleep(min(base_delay * (2 ** (attempt - 1)), max_delay))
+            else:
+                raise classified from e
     return pd.DataFrame()
 
 
@@ -362,7 +556,12 @@ def _fetch_hist_sina(fund_code: str, start_date: str, end_date: str) -> pd.DataF
 
 
 def _normalise_etf_hist(raw: pd.DataFrame, fund_code: str) -> pd.DataFrame:
-    """标准化日行情列名。"""
+    """标准化日行情列名。
+
+    兼容两种输入格式：
+      - 东方财富（中文列名）：日期、开盘、收盘、最高、最低、成交量、成交额
+      - 新浪（英文列名）：date、open、high、low、close、volume、amount
+    """
     cols_lower = {c.lower(): c for c in raw.columns}
 
     def _col(*keys: str) -> str | None:
@@ -379,11 +578,11 @@ def _normalise_etf_hist(raw: pd.DataFrame, fund_code: str) -> pd.DataFrame:
         logger.warning("no date column in ETF hist: %s", fund_code)
         return pd.DataFrame()
 
-    rename = {}
+    rename = {date_col: "date"}
     for src, dst in [("开盘", "open"), ("最高", "high"), ("最低", "low"),
                      ("收盘", "close"), ("成交量", "volume"), ("成交额", "amount")]:
         c = _col(src)
-        if c:
+        if c and c != date_col:
             rename[c] = dst
 
     df = raw.rename(columns=rename)

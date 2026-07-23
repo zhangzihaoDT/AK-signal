@@ -82,6 +82,13 @@ def build_logger(level: str = "INFO") -> logging.Logger:
 def _today_str() -> str:
     return datetime.now().strftime("%Y%m%d")
 
+def _default_target_date() -> str:
+    now = datetime.now()
+    if now.hour < 16 or (now.hour == 16 and now.minute < 30):
+        yesterday = now - timedelta(days=1)
+        return yesterday.strftime("%Y%m%d")
+    return now.strftime("%Y%m%d")
+
 
 # ---------------------------------------------------------------------------
 # P0-A: Bootstrap — 初始化 ETF Master 并拉取全量历史
@@ -280,7 +287,7 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
     logger = build_logger(args.log_level)
     raw_dir = etf_signal_raw_dir()
     master_dir = etf_signal_master_dir()
-    explicit_target = getattr(args, "target_date", "") or _today_str()
+    explicit_target = getattr(args, "target_date", "") or _default_target_date()
 
     master = etf_master.load_master(master_dir)
     if master.empty:
@@ -292,13 +299,23 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
     codes = master["fund_code"].tolist()
     logger.info("updating %d ETFs for target %s...", len(codes), explicit_target)
 
+    data_source.clear_fetch_stats()
+    data_source.reset_em_circuit_breakers()
     request_date = pd.Timestamp(explicit_target).date()
     success = 0
+    backfill_count = 0
+    skipped_backfill = 0
     for code in codes:
         df = _load_etf_raw(raw_dir, code)
         last_date = df["date"].max().date() if not df.empty and "date" in df.columns else None
         if last_date is not None and last_date >= request_date:
             success += 1
+            continue
+
+        is_backfill = df.empty  # 无本地数据 → 历史补缺
+
+        if is_backfill and backfill_count >= data_source.EM_BACKFILL_LIMIT:
+            skipped_backfill += 1
             continue
 
         inc_start = (last_date + timedelta(days=1)).strftime("%Y%m%d") if last_date else "20200101"
@@ -310,10 +327,19 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
                 success += 1
         except Exception as e:
             logger.warning("update failed for %s: %s", code, e)
-        time.sleep(random.uniform(0.3, 0.8))
+
+        if is_backfill:
+            backfill_count += 1
+            delay = data_source.EM_REQUEST_INTERVAL + random.uniform(-1, 1)
+        else:
+            delay = random.uniform(0.3, 0.8)
+        time.sleep(max(delay, 0.3))
 
     target_ready = success == len(codes)
     logger.info("update: %d/%d covered, ready=%s", success, len(codes), target_ready)
+    if backfill_count:
+        logger.info("backfill: %d attempted, %d skipped (limit=%d)", backfill_count, skipped_backfill, data_source.EM_BACKFILL_LIMIT)
+    data_source.log_fetch_summary()
 
     return UpdateResult(
         status="completed" if target_ready else "partial",
@@ -872,7 +898,7 @@ def cmd_report(args: argparse.Namespace) -> None:
     reports_dir = project_root() / "reports" / "etf_daily"
 
     master = etf_master.load_master(master_dir)
-    date_str = getattr(args, "target_date", "") or _today_str()
+    date_str = getattr(args, "target_date", "") or _default_target_date()
 
     signal_files = sorted(signals_dir.glob(f"signals_{date_str}.parquet"))
     if not signal_files:
