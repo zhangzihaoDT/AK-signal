@@ -384,6 +384,81 @@ def _safe_float(row: pd.Series, col: str | None) -> float | None:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 1c. ETF 全市场快照 → 当日 OHLCV
+# ═══════════════════════════════════════════════════════════════════
+
+def fetch_ohlcv_from_spot() -> pd.DataFrame:
+    """从 EM 全市场快照批量获取当日 OHLCV。
+
+    fund_etf_spot_em() 一次返回全市场 ETF 的实时行情，
+    包含开盘价、最高价、最低价、最新价、成交量、成交额、数据日期。
+
+    收盘后调用：1 次请求 ≈ 全市场 1500+ 只 ETF 的当日日线。
+
+    Returns:
+        DataFrame: date, open, high, low, close, volume, amount, fund_code
+    """
+    if not _ensure_akshare():
+        return pd.DataFrame()
+
+    try:
+        spot = ak.fund_etf_spot_em()
+    except Exception as e:
+        logger.error("fund_etf_spot_em failed: %s", e)
+        return pd.DataFrame()
+
+    if spot.empty:
+        logger.warning("fund_etf_spot_em returned empty")
+        return pd.DataFrame()
+
+    cols_lower = {c.lower(): c for c in spot.columns}
+    def _col(*keys: str) -> str | None:
+        for k in keys:
+            if k in cols_lower:
+                return cols_lower[k]
+        return None
+
+    code_c = _col("代码")
+    open_c = _col("开盘价")
+    high_c = _col("最高价")
+    low_c = _col("最低价")
+    close_c = _col("最新价")
+    volume_c = _col("成交量")
+    amount_c = _col("成交额")
+    date_c = _col("数据日期")
+
+    required = [code_c, open_c, high_c, low_c, close_c, volume_c, amount_c]
+    if not all(required):
+        missing = [n for n, c in zip(["代码","开盘价","最高价","最低价","最新价","成交量","成交额"], required) if not c]
+        logger.warning("spot missing columns: %s", missing)
+        return pd.DataFrame()
+
+    rows = []
+    for _, row in spot.iterrows():
+        code = str(row.get(code_c, ""))
+        if not code:
+            continue
+        d = row.get(date_c)
+        if d is None or pd.isna(d):
+            continue
+        rows.append({
+            "date": pd.Timestamp(d),
+            "open": _safe_float(row, open_c),
+            "high": _safe_float(row, high_c),
+            "low": _safe_float(row, low_c),
+            "close": _safe_float(row, close_c),
+            "volume": _safe_float(row, volume_c),
+            "amount": _safe_float(row, amount_c),
+            "fund_code": code,
+        })
+
+    result = pd.DataFrame(rows)
+    logger.info("spot OHLCV: %d ETFs, date=%s", len(result),
+                result["date"].iloc[0].strftime("%Y-%m-%d") if not result.empty else "?")
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 2. ETF 历史日行情 — 主源: 东方财富 + 备用: 新浪
 # ═══════════════════════════════════════════════════════════════════
 

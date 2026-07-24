@@ -6,6 +6,7 @@ SRC_MAIN = src/main.py
 .PHONY: help run-day \
 	etf-bootstrap etf-bootstrap-core etf-update etf-calculate \
 	etf-classify etf-layer1 etf-watchlist etf-account etf-card etf-pipeline \
+	etf-retry-uncovered \
 	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-report \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown \
 	stock stock-offline test install clean
@@ -13,6 +14,11 @@ SRC_MAIN = src/main.py
 help: ## 显示帮助信息
 	@grep -E '^[-a-zA-Z_0-9]+:.*## ' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*## "}; {printf "  make %-20s %s\n", $$1, $$2}'
+
+# ── 专项重试 ─────────────────────────────────────────────────
+
+etf-retry-uncovered: ## 专项重试未覆盖 ETF（分批+熔断器重置）
+	$(PYTHON) $(SRC_MAIN) etf retry-uncovered
 
 # ── 每日市场扫描（唯一入口） ──────────────────────────────────────
 

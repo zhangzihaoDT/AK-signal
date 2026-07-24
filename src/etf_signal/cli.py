@@ -297,36 +297,73 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
                             raw_covered=0, active_count=0)
 
     codes = master["fund_code"].tolist()
-    logger.info("updating %d ETFs for target %s...", len(codes), explicit_target)
+    request_date = pd.Timestamp(explicit_target).date()
 
     data_source.clear_fetch_stats()
+
+    # ── Phase 1: EM spot 全市场快照（1 次请求） ──────────────
+    spot_ohlcv = data_source.fetch_ohlcv_from_spot()
+    spot_codes: set[str] = set()
+    spot_date: date_type | None = None
+    spot_covered = 0
+    if not spot_ohlcv.empty:
+        spot_date = spot_ohlcv["date"].iloc[0].date()
+        spot_date_str = spot_date.strftime("%Y-%m-%d")
+        logger.info("Phase 1 — spot batch: %d ETFs, date=%s", len(spot_ohlcv), spot_date_str)
+
+        for code, grp in spot_ohlcv.groupby("fund_code"):
+            existing = _load_etf_raw(raw_dir, code)
+            combined = _merge_incremental(existing, grp)
+            _save_etf_raw(combined, raw_dir, code)
+            spot_codes.add(str(code))
+
+        if spot_date >= request_date:
+            code_set = set(codes)
+            spot_covered = len(spot_codes & code_set)
+            extra_in_spot = spot_codes - code_set
+            if extra_in_spot:
+                logger.info("  spot has %d codes not in master: %s", len(extra_in_spot), sorted(extra_in_spot)[:5])
+        else:
+            logger.info("  spot date %s < target %s — counting individually",
+                        spot_date_str, explicit_target)
+    else:
+        logger.warning("Phase 1 spot empty — falling back to history-only")
+
+    # ── Phase 2: History 残余补缺 ────────────────────────────
+    logger.info("Phase 2 — history residual: %d total, %d from spot, %d remaining",
+                len(codes), spot_covered, max(0, len(codes) - spot_covered))
+
     data_source.reset_em_circuit_breakers()
-    request_date = pd.Timestamp(explicit_target).date()
-    success = 0
+    success = spot_covered
     backfill_count = 0
     skipped_backfill = 0
+
     for code in codes:
+        cs = str(code)
+        if cs in spot_codes and spot_date is not None and spot_date >= request_date:
+            continue  # already covered by spot
+
+        # reload to get latest (spot may have added data)
         df = _load_etf_raw(raw_dir, code)
         last_date = df["date"].max().date() if not df.empty and "date" in df.columns else None
         if last_date is not None and last_date >= request_date:
             success += 1
             continue
 
-        is_backfill = df.empty  # 无本地数据 → 历史补缺
-
+        is_backfill = df.empty
         if is_backfill and backfill_count >= data_source.EM_BACKFILL_LIMIT:
             skipped_backfill += 1
             continue
 
         inc_start = (last_date + timedelta(days=1)).strftime("%Y%m%d") if last_date else "20200101"
         try:
-            df_new = data_source.fetch_etf_hist(code, start_date=inc_start, end_date=explicit_target)
+            df_new = data_source.fetch_etf_hist(cs, start_date=inc_start, end_date=explicit_target)
             if not df_new.empty:
                 combined = _merge_incremental(df, df_new)
                 _save_etf_raw(combined, raw_dir, code)
                 success += 1
         except Exception as e:
-            logger.warning("update failed for %s: %s", code, e)
+            logger.warning("update failed for %s: %s", cs, e)
 
         if is_backfill:
             backfill_count += 1
@@ -336,7 +373,8 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
         time.sleep(max(delay, 0.3))
 
     target_ready = success == len(codes)
-    logger.info("update: %d/%d covered, ready=%s", success, len(codes), target_ready)
+    logger.info("update: %d/%d covered, ready=%s  (spot=%d, history=%d, backfill_skipped=%d)",
+                success, len(codes), target_ready, spot_covered, success - spot_covered, skipped_backfill)
     if backfill_count:
         logger.info("backfill: %d attempted, %d skipped (limit=%d)", backfill_count, skipped_backfill, data_source.EM_BACKFILL_LIMIT)
     data_source.log_fetch_summary()
@@ -982,6 +1020,345 @@ def cmd_run_day(args: argparse.Namespace) -> None:
     logger.info("=" * 60)
 
 
+# ═══════════════════════════════════════════════════════════════════
+# 专项重试：retry-uncovered
+# ═══════════════════════════════════════════════════════════════════
+
+def _load_diagnosis_csv(path: Path) -> pd.DataFrame:
+    df = pd.read_csv(path, encoding="utf-8-sig", dtype={"code": str})
+    return df
+
+
+def _run_em_probe(logger: logging.Logger, target_date_str: str) -> dict[str, str]:
+    """执行三根 EM 探针，判断东财历史接口当前状态。
+
+    探针标的：
+      - 510050（普通主流）
+      - 588000（科创板/EM-only）
+      - 520690（问题品种/港股通）
+
+    每只只请求最近 5 天。返回 {code: "ok"|fail_reason}。
+    """
+    PROBE_CODES = ["510050", "588000", "520690"]
+    probe_end = target_date_str
+    probe_start = (pd.Timestamp(target_date_str) - timedelta(days=10)).strftime("%Y%m%d")
+
+    logger.info("EM probe — testing %s with window %s ~ %s",
+                PROBE_CODES, probe_start, probe_end)
+
+    data_source.clear_fetch_stats()
+    data_source.reset_em_circuit_breakers()
+
+    results: dict[str, str] = {}
+    for code in PROBE_CODES:
+        try:
+            df = data_source.fetch_etf_hist(code, start_date=probe_start, end_date=probe_end)
+            if not df.empty:
+                results[code] = "ok"
+                logger.info("  probe [%s] ✓  (%d rows, %s ~ %s)",
+                            code, len(df),
+                            df["date"].min().strftime("%Y-%m-%d"),
+                            df["date"].max().strftime("%Y-%m-%d"))
+            else:
+                results[code] = "empty_response"
+                logger.warning("  probe [%s] ✗ empty", code)
+        except Exception as e:
+            results[code] = str(e)[:60]
+            logger.warning("  probe [%s] ✗ %s: %s", code, type(e).__name__, str(e)[:80])
+        time.sleep(1.5 + random.uniform(-0.3, 0.5))
+    data_source.clear_fetch_stats()
+    return results
+
+
+def cmd_retry_uncovered(args: argparse.Namespace) -> None:
+    """专项重试目标日未覆盖 ETF。
+
+    流程：
+      1. EM 探针（510050 / 588000 / 520690）→ 评估接口状态
+      2. 两阶段回填：小窗口 10 天探测 → 确认可用后拉 400 天
+      3. 冷却退避：批内连续失败时指数退避
+
+    优先级排序：
+      1. core universe NOFILE（45 只）
+      2. 已有本地数据但未到目标日
+      3. 科创板 588/589（新浪不覆盖，只走 EM）
+      4. 其余非 core NOFILE
+
+    完成后输出 CSV 明细到 diagnostics/。
+    """
+    logger = build_logger(args.log_level)
+    raw_dir = etf_signal_raw_dir()
+    master_dir = etf_signal_master_dir()
+    diag_dir = etf_signal_signals_dir().parent / "diagnostics"
+    diag_dir.mkdir(parents=True, exist_ok=True)
+
+    target_date_str = getattr(args, "target_date", "") or _default_target_date()
+    target_date = pd.Timestamp(target_date_str).date()
+
+    # ── 参数 ──
+    BATCH_SIZE = getattr(args, "batch_size", 10)
+    BATCH_PAUSE = getattr(args, "batch_pause", 30)
+    REQUEST_INTERVAL = getattr(args, "interval", 2.0)
+    HISTORY_LOOKBACK_DAYS = 400
+
+    # ── Phase 0: EM 探针 ──────────────────────────────────
+    logger.info("=" * 60)
+    logger.info("RETRY-UNCOVERED — Phase 0: EM Probe")
+    probe_results = _run_em_probe(logger, target_date_str)
+
+    all_ok = all(v == "ok" for v in probe_results.values())
+    mainstream_ok = probe_results.get("510050") == "ok"
+    kcb_ok = probe_results.get("588000") == "ok"
+
+    if not mainstream_ok:
+        logger.info("")
+        logger.info("✗ EM history API appears unavailable (510050 also failed).")
+        logger.info("  This is NOT a per-code issue — deferring entire retry session.")
+        logger.info("  Suggestion: run again at a different time window")
+        logger.info("    - Tonight 20:30 CST")
+        logger.info("    - Tomorrow 06:30 CST before market open")
+        logger.info("  Also check: env | grep -i proxy")
+        logger.info("=" * 60)
+        return
+
+    if not kcb_ok:
+        logger.warning("  ⚠ STAR board (588000) probe failed — may need secid check")
+
+    logger.info("  probe verdict: all_ok=%s, mainstream=%s, kcb=%s",
+                all_ok, mainstream_ok, kcb_ok)
+    logger.info("")
+
+    # ── 读取诊断 CSV（已不需要，改为直接从 master 扫描） ──
+    master = etf_master.load_master(master_dir)
+    core = pd.read_parquet(master_dir / "core_universe.parquet")
+    core_codes = set(core["fund_code"])
+
+    # 扫描当前实际未覆盖
+    raw_codes = {f.stem for f in raw_dir.glob("*.parquet")}
+    uncovered_codes: list[dict] = []
+    for _, row in master.iterrows():
+        code = str(row["fund_code"])
+        f = raw_dir / f"{code}.parquet"
+        if f.exists():
+            df = pd.read_parquet(f)
+            last_date = df["date"].max().date() if not df.empty and "date" in df.columns else None
+            if last_date is not None and last_date >= target_date:
+                continue
+            latest_str = str(last_date) if last_date else "EMPTY"
+            row_count = len(df)
+        else:
+            latest_str = "NOFILE"
+            row_count = 0
+        uncovered_codes.append({
+            "code": code,
+            "name": row.get("fund_name", ""),
+            "is_core": code in core_codes,
+            "is_kcb": code.startswith(("588", "589")),
+            "has_file": f.exists(),
+            "latest_before": latest_str,
+            "row_count": row_count,
+        })
+
+    if not uncovered_codes:
+        logger.info("All ETFs already covered for target %s — nothing to retry.", target_date_str)
+        return
+
+    # ── 排序：优先级 ──
+    def priority(r):
+        if r["is_core"] and not r["has_file"]:
+            return 0
+        if r["has_file"]:
+            return 1
+        if r["is_kcb"]:
+            return 2
+        return 3
+
+    uncovered_codes.sort(key=lambda r: (priority(r), r["code"]))
+    total = len(uncovered_codes)
+
+    logger.info("=" * 60)
+    logger.info("RETRY-UNCOVERED — Phase 1: %d ETFs to retry for target %s", total, target_date_str)
+    logger.info("  batch_size=%d  batch_pause=%ds  interval=%.1fs",
+                BATCH_SIZE, BATCH_PAUSE, REQUEST_INTERVAL)
+    logger.info("  priority: core(NOFILE) → partial → STAR → other")
+
+    # ── 参数 ──
+    BACKFILL_START = (target_date - timedelta(days=HISTORY_LOOKBACK_DAYS)).strftime("%Y%m%d")
+    PROBE_WINDOW = 10  # 小窗口探测天数
+    PROBE_START = (target_date - timedelta(days=PROBE_WINDOW)).strftime("%Y%m%d")
+
+    total_batches = (total + BATCH_SIZE - 1) // BATCH_SIZE
+    covered_count = 0
+    confirmed_no_data = 0
+    transient_fail = 0
+    deferred_count = 0
+    result_rows: list[dict] = []
+
+    for batch_idx in range(total_batches):
+        batch = uncovered_codes[batch_idx * BATCH_SIZE : (batch_idx + 1) * BATCH_SIZE]
+        data_source.reset_em_circuit_breakers()
+
+        logger.info("[Batch %d/%d] %d codes", batch_idx + 1, total_batches, len(batch))
+        batch_fail = 0
+        batch_aborted = False
+
+        for item in batch:
+            if batch_aborted:
+                deferred_count += 1
+                continue
+
+            code = item["code"]
+            existing = _load_etf_raw(raw_dir, code)
+            is_backfill = existing.empty
+
+            # ── 阶段 A: 小窗口探测（10 天） ──
+            logger.info("  [%s] probe %d days...", code, PROBE_WINDOW)
+            try:
+                df_probe = data_source.fetch_etf_hist(code, start_date=PROBE_START, end_date=target_date_str)
+            except Exception as e:
+                df_probe = pd.DataFrame()
+                logger.warning("  [%s] probe exception: %s", code, e)
+
+            if df_probe.empty:
+                batch_fail += 1
+                logger.warning("  [%s] ✗ probe failed (consecutive=%d)", code, batch_fail)
+                final_status = _finalize_retry_status(code, existing, target_date, data_source)
+                result_rows.append(_make_retry_row(item, existing, data_source, final_status, 0, "probe_failed"))
+                if batch_fail >= 3:
+                    logger.warning("  → 3 consecutive probe failures, aborting batch %d", batch_idx + 1)
+                    batch_aborted = True
+                time.sleep(REQUEST_INTERVAL + random.uniform(-0.3, 0.5))
+                continue
+
+            # 探测成功，重置失败计数
+            batch_fail = 0
+            probe_rows = len(df_probe)
+            logger.info("  [%s] probe ✓ (%d rows)", code, probe_rows)
+
+            # ── 阶段 B: 全量回填（400 天） ──
+            if is_backfill:
+                logger.info("  [%s] backfill %d days...", code, HISTORY_LOOKBACK_DAYS)
+                try:
+                    df_full = data_source.fetch_etf_hist(code, start_date=BACKFILL_START, end_date=target_date_str)
+                except Exception as e:
+                    df_full = pd.DataFrame()
+                    logger.warning("  [%s] backfill exception: %s", code, e)
+
+                if not df_full.empty:
+                    combined = _merge_incremental(existing, df_full)
+                    _save_etf_raw(combined, raw_dir, code)
+                    covered_count += 1
+                    logger.info("  [%s] ✓ backfilled (+%d rows)", code, len(df_full))
+                    final_status = "covered"
+                else:
+                    # probe 成功但全量失败 → 只保存探测数据
+                    combined = _merge_incremental(existing, df_probe)
+                    _save_etf_raw(combined, raw_dir, code)
+                    transient_fail += 1
+                    logger.warning("  [%s] partial (probe ok, backfill failed)", code)
+                    final_status = "partial_backfill"
+            else:
+                # 增量更新
+                start = (existing["date"].max().date() + timedelta(days=1)).strftime("%Y%m%d")
+                try:
+                    df_inc = data_source.fetch_etf_hist(code, start_date=start, end_date=target_date_str)
+                except Exception as e:
+                    df_inc = pd.DataFrame()
+                    logger.warning("  [%s] incremental exception: %s", code, e)
+                if not df_inc.empty:
+                    combined = _merge_incremental(existing, df_inc)
+                    _save_etf_raw(combined, raw_dir, code)
+                    covered_count += 1
+                    final_status = "covered"
+                else:
+                    transient_fail += 1
+                    final_status = "incremental_failed"
+
+            rows_total = len(df_probe) if is_backfill and not existing.empty else len(df_full) if not is_backfill else 0
+            result_rows.append(_make_retry_row(item, existing, data_source, final_status,
+                                               rows_total, ""))
+
+            time.sleep(REQUEST_INTERVAL + random.uniform(-0.3, 0.5))
+
+        # 批次间冷却
+        if batch_idx < total_batches - 1:
+            actual_pause = BATCH_PAUSE * (1 + batch_fail)  # 失败越多，冷却越长
+            logger.info("  batch %d done — pause %.0fs", batch_idx + 1, actual_pause)
+            time.sleep(actual_pause)
+
+    # ── 汇总 ──
+    core_covered = sum(1 for r in result_rows if r["is_core"] and r["final_status"] == "covered")
+    core_total = sum(1 for r in result_rows if r["is_core"])
+
+    logger.info("=" * 60)
+    logger.info("RETRY-UNCOVERED SUMMARY")
+    logger.info("  total attempted       : %d", len(result_rows))
+    logger.info("  successfully covered  : %d", covered_count)
+    logger.info("  transient failure     : %d", transient_fail)
+    logger.info("  no data confirmed     : %d", confirmed_no_data)
+    logger.info("  deferred (batch break) : %d", deferred_count)
+    logger.info("  core covered          : %d / %d", core_covered, core_total)
+
+    status_counts = {}
+    for r in result_rows:
+        s = r["final_status"]
+        status_counts[s] = status_counts.get(s, 0) + 1
+    for s, c in sorted(status_counts.items()):
+        logger.info("    %-30s : %d", s, c)
+
+    out_path = diag_dir / f"etf_retry_uncovered_{target_date_str}.csv"
+    out_df = pd.DataFrame(result_rows)
+    out_cols = ["code","name","is_core","is_kcb","local_latest_before",
+                "retry_source","retry_result","rows_fetched","latest_after",
+                "final_status","error_type"]
+    out_df[out_cols].to_csv(out_path, index=False, encoding="utf-8-sig")
+    logger.info("detail CSV: %s", out_path)
+    logger.info("=" * 60)
+
+
+def _make_retry_row(item: dict, existing: pd.DataFrame,
+                    ds: Any, final_status: str, rows_fetched: int,
+                    error_type: str) -> dict:
+    latest_before = "NOFILE"
+    if not existing.empty and "date" in existing.columns:
+        d = existing["date"].max()
+        latest_before = str(d.date()) if pd.notna(d) else "EMPTY"
+    latest_after = latest_before
+    if final_status == "covered":
+        df_tmp = _load_etf_raw(etf_signal_raw_dir(), item["code"])
+        if not df_tmp.empty:
+            latest_after = str(df_tmp["date"].max().date())
+    return {
+        "code": item["code"],
+        "name": item.get("name", ""),
+        "is_core": item["is_core"],
+        "is_kcb": item["is_kcb"],
+        "local_latest_before": latest_before,
+        "retry_source": ds.get_fetch_stats().get(item["code"], {}).get("source", ""),
+        "retry_result": "covered" if "covered" in final_status else ("partial" if final_status.startswith("partial") else "failed"),
+        "rows_fetched": rows_fetched,
+        "latest_after": latest_after,
+        "final_status": final_status,
+        "error_type": error_type or ds.get_fetch_stats().get(item["code"], {}).get("primary_error_type", ""),
+    }
+
+
+def _finalize_retry_status(code: str, existing: pd.DataFrame,
+                           target_date: date_type, ds: Any) -> str:
+    """根据现有数据和 fetch_stats 判定最终状态。"""
+    if not existing.empty and "date" in existing.columns:
+        d = existing["date"].max()
+        if pd.notna(d) and d.date() >= target_date:
+            return "already_covered"
+    stats = ds.get_fetch_stats().get(code, {})
+    err = stats.get("primary_error_type", "")
+    if err == "no_source_for_kcb":
+        return "star_board_em_also_failed"
+    if err in ("em_rate_limit_circuit", "em_schema_circuit"):
+        return "em_circuit_still_active"
+    return "no_data_confirmed"
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -1043,6 +1420,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--target-date", default="", help="目标日期 YYYYMMDD")
     p_run.add_argument("--log-level", default="INFO")
 
+    p_retry = sub.add_parser("retry-uncovered", help="专项重试目标日未覆盖 ETF（分批+熔断器重置）")
+    p_retry.add_argument("--target-date", default="", help="目标日期 YYYYMMDD")
+    p_retry.add_argument("--batch-size", type=int, default=10, help="每批数量")
+    p_retry.add_argument("--batch-pause", type=int, default=30, help="批次间暂停秒数")
+    p_retry.add_argument("--interval", type=float, default=2.0, help="单只请求间隔秒数")
+    p_retry.add_argument("--log-level", default="INFO")
+
     return p
 
 
@@ -1064,6 +1448,7 @@ def main() -> None:
         "report": cmd_report,
         "backtest": cmd_backtest,
         "run-day": cmd_run_day,
+        "retry-uncovered": cmd_retry_uncovered,
     }
     fn = dispatch.get(args.command)
     if fn:
