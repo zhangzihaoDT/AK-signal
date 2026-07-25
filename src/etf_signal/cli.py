@@ -53,6 +53,7 @@ from datetime import date as date_type, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from src.common.paths import (
@@ -1080,7 +1081,7 @@ def cmd_retry_uncovered(args: argparse.Namespace) -> None:
 
     优先级排序：
       1. core universe NOFILE（45 只）
-      2. 已有本地数据但未到目标日
+      2. 已有本地数据但行数不足或未到目标日
       3. 科创板 588/589（新浪不覆盖，只走 EM）
       4. 其余非 core NOFILE
 
@@ -1094,6 +1095,7 @@ def cmd_retry_uncovered(args: argparse.Namespace) -> None:
 
     target_date_str = getattr(args, "target_date", "") or _default_target_date()
     target_date = pd.Timestamp(target_date_str).date()
+    min_rows = getattr(args, "min_rows", 60)
 
     # ── 参数 ──
     BATCH_SIZE = getattr(args, "batch_size", 10)
@@ -1133,54 +1135,128 @@ def cmd_retry_uncovered(args: argparse.Namespace) -> None:
     core = pd.read_parquet(master_dir / "core_universe.parquet")
     core_codes = set(core["fund_code"])
 
-    # 扫描当前实际未覆盖
-    raw_codes = {f.stem for f in raw_dir.glob("*.parquet")}
+    # ── 扫描：互斥分类，只重试真正有修复价值的 ──
+    BUFFER = 8  # 容忍 A 股假期与 weekend_count 估算误差
+    all_stats: list[dict] = []
     uncovered_codes: list[dict] = []
     for _, row in master.iterrows():
         code = str(row["fund_code"])
         f = raw_dir / f"{code}.parquet"
+        is_kcb = code.startswith(("588", "589"))
+        is_core = code in core_codes
+
         if f.exists():
             df = pd.read_parquet(f)
             last_date = df["date"].max().date() if not df.empty and "date" in df.columns else None
-            if last_date is not None and last_date >= target_date:
-                continue
-            latest_str = str(last_date) if last_date else "EMPTY"
             row_count = len(df)
+            is_covered = last_date is not None and last_date >= target_date
+            hist_ok = row_count >= min_rows
+            if is_covered and hist_ok:
+                all_stats.append({"code": code, "is_core": is_core, "covered": True, "hist_ok": True, "rows": row_count, "reason": ""})
+                continue
+
+            first_date = df["date"].min().date() if not df.empty and "date" in df.columns else None
+            has_first = first_date is not None
+            if has_first and last_date is not None:
+                cal_days = (target_date - first_date).days
+                weekday_count = int(np.busday_count(first_date, target_date)) if cal_days >= 0 else 0
+            else:
+                weekday_count = 0
+
+            latest_str = str(last_date) if last_date else "EMPTY"
         else:
             latest_str = "NOFILE"
             row_count = 0
+            is_covered = False
+            hist_ok = False
+            weekday_count = 0
+            has_first = False
+
+        # 互斥分类（判断顺序不可调换）
+        if row_count == 0:
+            reason = "no_file"
+        elif is_kcb and not kcb_ok:
+            reason = "source_unavailable"
+        elif has_first and weekday_count < min_rows + BUFFER:
+            reason = "newly_listed"
+        else:
+            reason = "source_limit"
+
+        should_retry = reason in ("source_limit", "no_file")
+
+        all_stats.append({"code": code, "is_core": is_core, "covered": is_covered, "hist_ok": hist_ok, "rows": row_count, "reason": reason})
         uncovered_codes.append({
             "code": code,
             "name": row.get("fund_name", ""),
-            "is_core": code in core_codes,
-            "is_kcb": code.startswith(("588", "589")),
+            "is_core": is_core,
+            "is_kcb": is_kcb,
+            "reason": reason,
+            "should_retry": should_retry,
             "has_file": f.exists(),
             "latest_before": latest_str,
             "row_count": row_count,
         })
 
-    if not uncovered_codes:
-        logger.info("All ETFs already covered for target %s — nothing to retry.", target_date_str)
-        return
+    # ── 统计快照（互斥校验） ──
+    total_etfs = len(master)
+    fresh_covered = sum(1 for s in all_stats if s["covered"])
+    hist_ok = sum(1 for s in all_stats if s["hist_ok"])
+    reason_counts = {}
+    for s in all_stats:
+        r = s["reason"]
+        if r:
+            reason_counts[r] = reason_counts.get(r, 0) + 1
+    core_hist_ng = sum(1 for s in all_stats if s["is_core"] and not s["hist_ok"])
 
-    # ── 排序：优先级 ──
+    classified_total = hist_ok + sum(reason_counts.values())
+    if classified_total != total_etfs:
+        logger.warning("分类合计 %d ≠ Master %d，请检查 reason 互斥性", classified_total, total_etfs)
+
+    logger.info("")
+    logger.info("  %-35s : %d / %d", "当日行情覆盖", fresh_covered, total_etfs)
+    logger.info("  %-35s : %d", f"历史深度达标 (≥{min_rows}行)", hist_ok)
+    for reason in ("newly_listed", "source_unavailable", "source_limit", "no_file"):
+        cnt = reason_counts.get(reason, 0)
+        label = {"newly_listed": "上市不足（weekday_count < min_rows + BUFFER）",
+                 "source_unavailable": "数据源不可用（EM-only + EM 探针失败）",
+                 "source_limit": "数据源能力上限",
+                 "no_file": "无本地文件"}.get(reason, reason)
+        logger.info("  %-35s : %d", f"  ├ {label}", cnt)
+    logger.info("  %-35s : %d", "core 历史不足", core_hist_ng)
+    retry_count = sum(1 for u in uncovered_codes if u["should_retry"])
+    logger.info("  %-35s : %d", "当前可重试 (source_limit+no_file)", retry_count)
+
+    # 筛选真实重试队列
+    retry_queue = [u for u in uncovered_codes if u["should_retry"]]
+
+    if not retry_queue:
+        logger.info("")
+        if uncovered_codes:
+            logger.info("存在历史不足标的，但均属合理原因 — 无需执行历史回填。")
+            logger.info("  待 EM 恢复后 EM-only 标的自会进入重试队列；")
+            logger.info("  上市不足标的随交易日推移自动满足条件。")
+        else:
+            logger.info("所有 ETF 均已覆盖且历史深度达标 — 无需执行历史回填。")
+        return
+    
+    uncovered_codes = retry_queue
+
+    # ── 排序：优先级（仅含 should_retry 标的） ──
     def priority(r):
-        if r["is_core"] and not r["has_file"]:
+        if r["is_core"] and r["reason"] == "no_file":
             return 0
-        if r["has_file"]:
+        if r["reason"] == "no_file":
             return 1
-        if r["is_kcb"]:
-            return 2
-        return 3
+        return 2  # source_limit
 
     uncovered_codes.sort(key=lambda r: (priority(r), r["code"]))
     total = len(uncovered_codes)
 
     logger.info("=" * 60)
-    logger.info("RETRY-UNCOVERED — Phase 1: %d ETFs to retry for target %s", total, target_date_str)
+    logger.info("RETRY-UNCOVERED — Phase 1: %d ETFs to retry (min_rows=%d) for target %s", total, min_rows, target_date_str)
     logger.info("  batch_size=%d  batch_pause=%ds  interval=%.1fs",
                 BATCH_SIZE, BATCH_PAUSE, REQUEST_INTERVAL)
-    logger.info("  priority: core(NOFILE) → partial → STAR → other")
+    logger.info("  priority: core(no_file) → no_file → source_limit")
 
     # ── 参数 ──
     BACKFILL_START = (target_date - timedelta(days=HISTORY_LOOKBACK_DAYS)).strftime("%Y%m%d")
@@ -1209,7 +1285,7 @@ def cmd_retry_uncovered(args: argparse.Namespace) -> None:
 
             code = item["code"]
             existing = _load_etf_raw(raw_dir, code)
-            is_backfill = existing.empty
+            is_backfill = existing.empty or len(existing) < min_rows
 
             # ── 阶段 A: 小窗口探测（10 天） ──
             logger.info("  [%s] probe %d days...", code, PROBE_WINDOW)
@@ -1250,6 +1326,7 @@ def cmd_retry_uncovered(args: argparse.Namespace) -> None:
                     covered_count += 1
                     logger.info("  [%s] ✓ backfilled (+%d rows)", code, len(df_full))
                     final_status = "covered"
+                    rows_total = len(df_full)
                 else:
                     # probe 成功但全量失败 → 只保存探测数据
                     combined = _merge_incremental(existing, df_probe)
@@ -1257,6 +1334,7 @@ def cmd_retry_uncovered(args: argparse.Namespace) -> None:
                     transient_fail += 1
                     logger.warning("  [%s] partial (probe ok, backfill failed)", code)
                     final_status = "partial_backfill"
+                    rows_total = len(df_probe)
             else:
                 # 增量更新
                 start = (existing["date"].max().date() + timedelta(days=1)).strftime("%Y%m%d")
@@ -1270,11 +1348,12 @@ def cmd_retry_uncovered(args: argparse.Namespace) -> None:
                     _save_etf_raw(combined, raw_dir, code)
                     covered_count += 1
                     final_status = "covered"
+                    rows_total = len(df_inc)
                 else:
                     transient_fail += 1
                     final_status = "incremental_failed"
+                    rows_total = 0
 
-            rows_total = len(df_probe) if is_backfill and not existing.empty else len(df_full) if not is_backfill else 0
             result_rows.append(_make_retry_row(item, existing, data_source, final_status,
                                                rows_total, ""))
 
@@ -1422,6 +1501,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     p_retry = sub.add_parser("retry-uncovered", help="专项重试目标日未覆盖 ETF（分批+熔断器重置）")
     p_retry.add_argument("--target-date", default="", help="目标日期 YYYYMMDD")
+    p_retry.add_argument("--min-rows", type=int, default=60, help="最低历史行数要求（默认 60，与 RPS60 对齐）")
     p_retry.add_argument("--batch-size", type=int, default=10, help="每批数量")
     p_retry.add_argument("--batch-pause", type=int, default=30, help="批次间暂停秒数")
     p_retry.add_argument("--interval", type=float, default=2.0, help="单只请求间隔秒数")
