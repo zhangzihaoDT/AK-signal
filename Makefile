@@ -59,7 +59,7 @@ etf-account: ## 映射至国金账户可交易池
 etf-card: ## 生成 ETF 候选信息卡片
 	$(PYTHON) $(SRC_MAIN) etf card
 
-etf-pipeline: ## 完整发现链路：watchlist → account → card
+etf-pipeline: ## 完整发现链路：watchlist → account → card → JSON+CSV+HTML
 	$(PYTHON) $(SRC_MAIN) etf pipeline
 
 # ── SW-RPS 行业信号模块（ETF 子模块） ──────────────────────────
