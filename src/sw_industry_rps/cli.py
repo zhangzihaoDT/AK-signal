@@ -65,16 +65,17 @@ def _default_target_date() -> str:
 
 @dataclass
 class UpdateResult:
-    status: str                                    # "completed" | "waiting_for_source" | "no_new_data"
+    status: str                                    # "completed" | "completed_provisional" | "waiting_for_source"
     requested_target_date: str                     # YYYYMMDD
     source_latest_common_date: str | None           # YYYYMMDD
     target_ready: bool
-    freshness_probe_performed: bool
-    freshness_probe_code: str                      # 探针行业代码
-    freshness_probe_source_latest_date: str | None  # 上游返回的最新日期
-    freshness_probe_duration_seconds: float
-    raw_covered: int
-    active_count: int
+    update_source: str = ""                        # "analysis_daily" | "realtime" | "hist_sw"
+    freshness_probe_performed: bool = False
+    freshness_probe_code: str = ""                 # 探针标识
+    freshness_probe_source_latest_date: str | None = None
+    freshness_probe_duration_seconds: float = 0.0
+    raw_covered: int = 0
+    active_count: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -145,42 +146,97 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
 # Update — checkpoint-resumable incremental fetch for active universe
 # ---------------------------------------------------------------------------
 
-def _freshness_probe(
-    raw_dir: Path,
-    active_codes: list[str],
+def _probe_analysis_daily(
     target_date_str: str,
-) -> tuple[bool, str, date_type | None, float]:
-    """对上游执行一次真实请求，探测源端最新日期。
+) -> tuple[str, date_type | None, float]:
+    """Layer 1 probe: 用 analysis_daily 一次探测目标日期是否有正式数据。
 
     Returns:
-        (performed, probe_code, source_latest_date, duration_seconds)
-        performed=False 表示没有可用的探针行业。
+        (status, source_date, duration_seconds)
+        status = "confirmed"  (source_date == target_date)
+               | "stale"      (source_date < target_date, 上游尚未更新)
+               | ""           (无数据或异常)
     """
     logger = logging.getLogger("sw_industry_rps")
-    if not active_codes:
-        return False, "", None, 0.0
-
-    probe_code = active_codes[0]
-    logger.info("freshness probe: probing %s for target date %s ...", probe_code, target_date_str)
+    request_date = pd.Timestamp(target_date_str).date()
+    logger.info("freshness probe L1: index_analysis_daily_sw for target %s ...", target_date_str)
     t0 = time.monotonic()
     try:
-        df = data_source.fetch_industry_hist(probe_code, end_date=target_date_str)
+        df = data_source.fetch_industry_analysis_daily(
+            symbol="二级行业",
+            start_date=target_date_str,
+            end_date=target_date_str,
+        )
         dur = time.monotonic() - t0
         if not df.empty:
             src_latest = df["trade_date"].max().date()
-            src_latest_str = src_latest.strftime("%Y%m%d")
-            logger.info(
-                "freshness probe: %s source_latest=%s (%.1fs)",
-                probe_code, src_latest_str, dur,
-            )
-            return True, probe_code, src_latest, dur
-        else:
-            logger.info("freshness probe: %s returned empty (%.1fs)", probe_code, dur)
-            return True, probe_code, None, dur
+            count = df["industry_code"].nunique()
+            if src_latest == request_date:
+                logger.info("  L1 confirmed: %d industries, date=%s (%.1fs)", count, src_latest, dur)
+                return "confirmed", src_latest, dur
+            else:
+                logger.warning("  L1 stale: requested=%s, source=%s (%d industries, %.1fs)",
+                               target_date_str, src_latest, count, dur)
+                return "stale", src_latest, dur
+        logger.info("  L1 empty: no data for %s (%.1fs)", target_date_str, dur)
+        return "", None, dur
     except Exception as e:
         dur = time.monotonic() - t0
-        logger.warning("freshness probe failed for %s: %s (%.1fs)", probe_code, e, dur)
-        return True, probe_code, None, dur
+        logger.warning("  L1 failed: %s (%.1fs)", e, dur)
+        return "", None, dur
+
+
+def _probe_realtime() -> tuple[str, date_type | None, float]:
+    """Layer 2 probe: 用 realtime 获取实时行情（收盘后判断是否完整）。"""
+    logger = logging.getLogger("sw_industry_rps")
+    logger.info("freshness probe L2: index_realtime_sw ...")
+    t0 = time.monotonic()
+    try:
+        df = data_source.fetch_industry_realtime(symbol="二级行业")
+        dur = time.monotonic() - t0
+        if not df.empty:
+            count = df["industry_code"].nunique()
+            logger.info("  L2 probe: %d industries (%.1fs)", count, dur)
+            return "realtime", None, dur
+        logger.info("  L2 probe: empty response (%.1fs)", dur)
+        return "", None, dur
+    except Exception as e:
+        dur = time.monotonic() - t0
+        logger.warning("  L2 probe failed: %s (%.1fs)", e, dur)
+        return "", None, dur
+
+
+def _log_reconciliation(raw_dir: Path, active_codes: list[str], target_date_str: str) -> None:
+    """比较正式数据到来前 provisional 与现有正式数据的 close 差异。"""
+    logger = logging.getLogger("sw_industry_rps")
+    target = pd.Timestamp(target_date_str)
+    diffs: list[float] = []
+    replaced_count = 0
+    for code in active_codes:
+        df = storage.load_industry_raw(raw_dir, code)
+        if df.empty:
+            continue
+        prov = df[(df["trade_date"] == target) & (df.get("data_status", "") == "provisional")]
+        if prov.empty:
+            continue
+        # 跟上一笔正式日线比
+        prev = df[(df["trade_date"] < target) & (df.get("data_status", "") != "provisional")]
+        if prev.empty:
+            continue
+        prev_close = prev.sort_values("trade_date").iloc[-1]["close"]
+        prov_close = prov.iloc[0]["close"]
+        if pd.notna(prev_close) and pd.notna(prov_close) and prev_close != 0:
+            diff_pct = abs(prov_close / prev_close - 1) * 100
+            diffs.append(diff_pct)
+        replaced_count += 1
+    if diffs:
+        diffs_sorted = sorted(diffs)
+        logger.info("  reconciliation: %d industries replaced", replaced_count)
+        logger.info("    max close diff:   %.4f%%", max(diffs))
+        logger.info("    median close diff: %.4f%%", diffs_sorted[len(diffs_sorted) // 2])
+        logger.info("    industries > 0.05%%: %d", sum(1 for d in diffs if d > 0.05))
+    elif replaced_count > 0:
+        logger.info("  reconciliation: %d industries replaced (close diff N/A)", replaced_count)
 
 
 def cmd_update(args: argparse.Namespace) -> UpdateResult:
@@ -191,14 +247,7 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
     master = storage.load_master(raw_dir)
     if master.empty:
         logger.error("no master data, run bootstrap first")
-        return UpdateResult(
-            status="failed", requested_target_date=explicit_target,
-            source_latest_common_date=None, target_ready=False,
-            freshness_probe_performed=False, freshness_probe_code="",
-            freshness_probe_source_latest_date=None,
-            freshness_probe_duration_seconds=0.0,
-            raw_covered=0, active_count=0,
-        )
+        return UpdateResult(status="failed", requested_target_date=explicit_target)
 
     active_codes, inactive_codes, universe_changed = storage.compute_active_codes(raw_dir, master)
     logger.info("universe: master=%d, active=%d, inactive=%d%s",
@@ -218,157 +267,191 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
         name_map = dict(zip(master["industry_code"], master["industry_name"]))
         for code in inactive_codes:
             logger.info("  inactive: %s %s", code, name_map.get(code, ""))
-        return UpdateResult(
-            status="noop", requested_target_date=explicit_target,
-            source_latest_common_date=None, target_ready=False,
-            freshness_probe_performed=False, freshness_probe_code="",
-            freshness_probe_source_latest_date=None,
-            freshness_probe_duration_seconds=0.0,
-            raw_covered=0, active_count=len(active_codes),
-        )
-
-    # ── Freshness probe ──────────────────────────────────────────────
-    probe_performed, probe_code, probe_latest_date_obj, probe_duration = _freshness_probe(
-        raw_dir, active_codes, explicit_target,
-    )
-
-    probe_latest_str = (
-        probe_latest_date_obj.strftime("%Y%m%d")
-        if probe_latest_date_obj is not None else None
-    )
+        return UpdateResult(status="noop", requested_target_date=explicit_target)
 
     request_date = pd.Timestamp(explicit_target).date()
 
-    # 如果用户显式指定了目标日期，但源端尚未到达，立即停止
-    if getattr(args, "target_date", "") and probe_latest_date_obj is not None and probe_latest_date_obj < request_date:
-        logger.info(
-            "source not ready: probe_latest=%s < requested=%s → waiting_for_source",
-            probe_latest_str, explicit_target,
-        )
-        return UpdateResult(
-            status="waiting_for_source",
-            requested_target_date=explicit_target,
-            source_latest_common_date=probe_latest_str,
-            target_ready=False,
-            freshness_probe_performed=probe_performed,
-            freshness_probe_code=probe_code,
-            freshness_probe_source_latest_date=probe_latest_str,
-            freshness_probe_duration_seconds=round(probe_duration, 2),
-            raw_covered=0, active_count=len(active_codes),
-        )
+    # ═══════════════════════════════════════════════════════════════════
+    # Phase 1: index_analysis_daily_sw — 一次获取全部行业 single call
+    # ═══════════════════════════════════════════════════════════════════
+    probe_status, probe_date, probe_dur = _probe_analysis_daily(explicit_target)
+    update_source = ""
+    target_ready = False
+    target_date_str = explicit_target
 
-    # 确定实际目标日期：由 probe 的最新日期决定（最多到 explicit_target）
-    target_date = request_date
-    if probe_latest_date_obj is not None and probe_latest_date_obj < request_date:
-        target_date = probe_latest_date_obj
-    target_date_str = target_date.strftime("%Y%m%d")
+    if probe_status == "confirmed":
+        # ── Reconciliation: 比较正式数据与 provisional 差异 ─────────────────
+        _log_reconciliation(raw_dir, active_codes, target_date_str)
 
-    # 检查本地是否已全部覆盖 target_date
-    local_latest_dates = [storage.load_industry_latest_date(raw_dir, c) for c in active_codes]
-    valid_local = [d for d in local_latest_dates if d is not None]
-    local_common = min(valid_local) if valid_local else None
-
-    logger.info(
-        "target date: %s (probe_latest=%s, explicit=%s, local_min=%s)",
-        target_date_str, probe_latest_str, explicit_target,
-        local_common.strftime("%Y%m%d") if local_common else "N/A",
-    )
-
-    if local_common is not None and local_common >= target_date:
-        logger.info("all %d active industries already have data >= %s — skipping fetch", len(active_codes), target_date_str)
-        return UpdateResult(
-            status="completed", requested_target_date=explicit_target,
-            source_latest_common_date=target_date_str,
-            target_ready=True,
-            freshness_probe_performed=probe_performed,
-            freshness_probe_code=probe_code,
-            freshness_probe_source_latest_date=probe_latest_str,
-            freshness_probe_duration_seconds=round(probe_duration, 2),
-            raw_covered=len(active_codes), active_count=len(active_codes),
-        )
-
-    # ── Batch incremental fetch ──────────────────────────────────────
-    cp = storage.load_checkpoint(raw_dir)
-    if cp and cp.get("target_date") == target_date_str:
-        completed = set(cp.get("completed_codes", []))
-        failed_map = cp.get("failed_codes", {})
-        logger.info("resuming from checkpoint: %d completed, %d failed", len(completed), len(failed_map))
-    else:
-        completed = set()
-        failed_map: dict[str, int] = {}
-
-    codes_to_fetch = [c for c in active_codes if c not in completed]
-    random.shuffle(codes_to_fetch)
-
-    fetch_start = time.monotonic()
-    for code in codes_to_fetch:
-        last_date = storage.load_industry_latest_date(raw_dir, code)
-        if last_date is not None and last_date >= target_date:
-            completed.add(code)
-            continue
-
-        cached = storage.load_industry_raw(raw_dir, code)
-        inc_start = (last_date + timedelta(days=1)).strftime("%Y%m%d") if last_date is not None else "20200101"
+        # 上游已有目标交易日 → 正式数据，一次拉取全部行业
+        logger.info("L1 confirmed: batch fetching via index_analysis_daily_sw ...")
+        t0 = time.monotonic()
         try:
-            time.sleep(random.uniform(0.5, 1.5))
-            df_new = data_source.fetch_industry_hist(code, start_date=inc_start, end_date=target_date_str)
-            if not df_new.empty:
-                merged = storage.merge_incremental(cached, df_new)
-                storage.save_industry_raw(merged, raw_dir, code)
-                completed.add(code)
-                failed_map.pop(code, None)
+            df_all = data_source.fetch_industry_analysis_daily(
+                symbol="二级行业",
+                start_date=target_date_str,
+                end_date=target_date_str,
+            )
+            if not df_all.empty:
+                # 只保留 active universe 中的行业
+                df_active = df_all[df_all["industry_code"].isin(active_codes)].copy()
+                saved, errors = storage.batch_save_industry_data(df_active, raw_dir, target_date_str)
+                logger.info("  saved: %d / %d active industries (errors=%d, fetch=%.1fs)",
+                            saved, len(active_codes), errors, time.monotonic() - t0)
+
+                if saved >= len(active_codes) * 0.9:
+                    update_source = "analysis_daily"
+                    storage.save_update_status(raw_dir, "confirmed", target_date_str, "analysis_daily",
+                                               confirmed_date=target_date_str)
+                    target_ready = True
+                    storage.clear_checkpoint(raw_dir)
+                    logger.info("  status: confirmed")
+                else:
+                    logger.warning("  coverage insufficient (%d/%d), falling back to hist_sw", saved, len(active_codes))
             else:
+                logger.warning("  analysis_daily returned empty, falling back")
+        except Exception as e:
+            logger.warning("  analysis_daily batch fetch failed: %s", e)
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Phase 2: index_realtime_sw — provisional fallback
+    # ═══════════════════════════════════════════════════════════════════
+    if not target_ready:
+        # 收盘后门控：仅允许在 15:10 CST 之后将 realtime 最新价视为收盘候选
+        now_cst = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=8)))
+        market_closed = now_cst.hour > 15 or (now_cst.hour == 15 and now_cst.minute >= 10)
+        if not market_closed:
+            logger.warning("  L2 skipped: market still open (CST %s), realtime cannot proxy close", now_cst.strftime("%H:%M"))
+        else:
+            _, _, rt_dur = _probe_realtime()
+            logger.info("L2 provisional: fetching via index_realtime_sw ...")
+            t0 = time.monotonic()
+            try:
+                df_rt = data_source.fetch_industry_realtime(symbol="二级行业")
+                if not df_rt.empty:
+                    df_rt_active = df_rt[df_rt["industry_code"].isin(active_codes)].copy()
+                    active_count = df_rt_active["industry_code"].nunique()
+
+                    # 数据质量校验
+                    coverage_ok = active_count >= len(active_codes) * 0.9
+                    close_ok = df_rt_active["close"].notna().all() and (df_rt_active["close"] > 0).all()
+                    prev_close_ok = df_rt_active["prev_close"].notna().all() and (df_rt_active["prev_close"] > 0).all()
+
+                    if coverage_ok and close_ok and prev_close_ok:
+                        # 注入上下文日期 — realtime 接口无日期字段
+                        df_rt_active["trade_date"] = pd.Timestamp(request_date)
+                        df_rt_active["source"] = "swsresearch_realtime"
+                        df_rt_active["data_status"] = "provisional"
+                        df_rt_active["fetched_at"] = datetime.now(timezone.utc).isoformat()
+
+                        saved, errors = storage.batch_save_industry_data(df_rt_active, raw_dir, target_date_str)
+                        logger.info("  saved: %d/%d active, close_ok=%s prev_close_ok=%s (fetch=%.1fs)",
+                                    saved, len(active_codes), close_ok, prev_close_ok,
+                                    time.monotonic() - t0)
+
+                        if saved >= len(active_codes) * 0.9:
+                            update_source = "realtime"
+                            storage.save_update_status(raw_dir, "provisional", target_date_str, "realtime",
+                                                       confirmed_date=None)
+                            target_ready = True
+                            storage.clear_checkpoint(raw_dir)
+                            logger.info("  status: provisional, assigned_date=%s", target_date_str)
+                        else:
+                            logger.warning("  realtime save coverage insufficient (%d/%d)", saved, len(active_codes))
+                    else:
+                        logger.warning("  realtime data quality failed: coverage=%s close_ok=%s prev_close_ok=%s",
+                                       coverage_ok, close_ok, prev_close_ok)
+                else:
+                    logger.warning("  realtime returned empty")
+            except Exception as e:
+                logger.warning("  realtime fetch failed: %s", e)
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Phase 3: final fallback via index_hist_sw (逐行业, legacy path)
+    # ═══════════════════════════════════════════════════════════════════
+    if not target_ready:
+        logger.info("L3 fallback: per-industry index_hist_sw (legacy path) ...")
+        target_date_str = explicit_target
+
+        cp = storage.load_checkpoint(raw_dir)
+        if cp and cp.get("target_date") == target_date_str:
+            completed = set(cp.get("completed_codes", []))
+            failed_map = cp.get("failed_codes", {})
+        else:
+            completed = set()
+            failed_map: dict[str, int] = {}
+
+        codes_to_fetch = [c for c in active_codes if c not in completed]
+        random.shuffle(codes_to_fetch)
+        fetch_start = time.monotonic()
+        for code in codes_to_fetch:
+            last_date = storage.load_industry_latest_date(raw_dir, code)
+            if last_date is not None and last_date >= pd.Timestamp(target_date_str).date():
+                completed.add(code)
+                continue
+            cached = storage.load_industry_raw(raw_dir, code)
+            inc_start = (last_date + timedelta(days=1)).strftime("%Y%m%d") if last_date is not None else "20200101"
+            try:
+                time.sleep(random.uniform(0.5, 1.5))
+                df_new = data_source.fetch_industry_hist(code, start_date=inc_start, end_date=target_date_str)
+                if not df_new.empty:
+                    merged = storage.merge_incremental(cached, df_new)
+                    storage.save_industry_raw(merged, raw_dir, code)
+                    completed.add(code)
+                    failed_map.pop(code, None)
+                else:
+                    failed_map.setdefault(code, 0)
+                    failed_map[code] += 1
+            except Exception as e:
+                logger.warning("fetch failed for %s: %s", code, e)
                 failed_map.setdefault(code, 0)
                 failed_map[code] += 1
-        except Exception as e:
-            logger.warning("fetch failed for %s: %s", code, e)
-            failed_map.setdefault(code, 0)
-            failed_map[code] += 1
+            storage.save_checkpoint(raw_dir, {
+                "target_date": target_date_str,
+                "active_count": len(active_codes),
+                "completed_codes": sorted(completed),
+                "failed_codes": {k: v for k, v in failed_map.items()},
+                "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            })
 
-        storage.save_checkpoint(raw_dir, {
-            "target_date": target_date_str,
-            "active_count": len(active_codes),
-            "completed_codes": sorted(completed),
-            "failed_codes": {k: v for k, v in failed_map.items()},
-            "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        })
+        raw_covered = len([c for c in active_codes if c in completed])
+        if raw_covered >= len(active_codes) * 0.9:
+            update_source = "hist_sw"
+            storage.save_update_status(raw_dir, "confirmed", target_date_str, "hist_sw",
+                                       confirmed_date=target_date_str)
+            target_ready = True
+            storage.clear_checkpoint(raw_dir)
+        else:
+            still_missing = [c for c in active_codes if c not in completed]
+            logger.info("  L3 still missing: %d / %d", len(still_missing), len(active_codes))
 
-    fetch_elapsed = time.monotonic() - fetch_start
-
-    # ── Summary ──────────────────────────────────────────────────────
-    still_missing = [c for c in active_codes if c not in completed]
-    raw_covered = len(active_codes) - len(still_missing)
-    logger.info("  completed:         %d", len(completed))
-    logger.info("  still_missing:     %d", len(still_missing))
-    logger.info("  raw_covered:       %d / %d", raw_covered, len(active_codes))
-    logger.info("  fetch_duration:    %.1fs", fetch_elapsed)
-    if still_missing:
-        name_map = dict(zip(master["industry_code"], master["industry_name"]))
-        logger.info("  missing codes:")
-        for c in still_missing[:10]:
-            logger.info("    %s %s", c, name_map.get(c, ""))
-    logger.info("=" * 60)
-
-    if raw_covered == len(active_codes):
-        storage.clear_checkpoint(raw_dir)
-
-    # 最后确认实际达成的共同日期
+    # ── 汇总 ──────────────────────────────────────────────────────────
     final_latest_dates = [storage.load_industry_latest_date(raw_dir, c) for c in active_codes]
     final_valid = [d for d in final_latest_dates if d is not None]
-    source_latest = max(final_valid) if final_valid else probe_latest_date_obj
+    source_latest = max(final_valid) if final_valid else None
     source_latest_str = source_latest.strftime("%Y%m%d") if source_latest is not None else None
-    target_ready = source_latest is not None and source_latest >= request_date
 
+    status = "completed" if update_source in ("analysis_daily", "hist_sw") else (
+        "completed_provisional" if target_ready else "waiting_for_source"
+    )
+
+    logger.info("update complete: source=%s, status=%s, covered=%d/%d",
+                update_source, status,
+                sum(1 for d in final_latest_dates if d is not None and d >= request_date),
+                len(active_codes))
+
+    # 汇总写入：用 target_date_str（本次目标日期），而非文件扫描的 source_latest
+    confirmed_date_for_status = target_date_str if update_source in ("analysis_daily", "hist_sw") else None
+    available_date_for_status = target_date_str if target_ready else (source_latest_str or "")
+    storage.save_update_status(raw_dir, status, available_date_for_status, update_source,
+                               confirmed_date=confirmed_date_for_status)
     return UpdateResult(
-        status="completed" if target_ready else "waiting_for_source",
+        status=status,
         requested_target_date=explicit_target,
         source_latest_common_date=source_latest_str,
         target_ready=target_ready,
-        freshness_probe_performed=probe_performed,
-        freshness_probe_code=probe_code,
-        freshness_probe_source_latest_date=probe_latest_str,
-        freshness_probe_duration_seconds=round(probe_duration, 2),
-        raw_covered=raw_covered,
+        update_source=update_source,
+        raw_covered=len([d for d in final_latest_dates if d is not None and d >= request_date]),
         active_count=len(active_codes),
     )
 
@@ -642,12 +725,18 @@ def cmd_report(args: argparse.Namespace) -> None:
     # 限制 metrics 范围到目标日期，使轮动矩阵不展示未来数据
     report_metrics = metrics_df[metrics_df["trade_date"] <= latest_date].copy() if explicit_target else metrics_df
 
+    # 判断数据是否为 provisional
+    update_status = storage.load_update_status(raw_dir)
+    is_provisional = update_status.get("status", "") in ("provisional", "completed_provisional") and \
+                     update_status.get("source", "") == "realtime"
+
     csv_path, html_path = report.build_html(
         snapshot=snapshot, metrics=report_metrics,
         validator_result=metrics_valid,
         report_date=date_str, reports_dir=reports_dir,
         rotation_days=rotation_days,
         drilldown_results=drilldown_results,
+        provisional_suffix="_provisional" if is_provisional else "",
     )
 
     # Verify HTML was produced
@@ -662,8 +751,12 @@ def cmd_report(args: argparse.Namespace) -> None:
         write_run_manifest(ctx)
         return
 
-    report.save_latest_html(html_path, reports_dir)
-    logger.info("report published: %s", html_path)
+    if is_provisional:
+        report.save_latest_html(html_path, reports_dir, latest_name="sw_industry_rps_latest_provisional.html")
+        logger.info("report published (provisional): %s", html_path)
+    else:
+        report.save_latest_html(html_path, reports_dir)
+        logger.info("report published: %s", html_path)
 
     # Cleanup staging
     for p in [csv_staging, html_staging]:
@@ -896,10 +989,17 @@ def cmd_run_day(args: argparse.Namespace) -> None:
     fetch_dur = time.monotonic() - t0
 
     # ── Date gate ────────────────────────────────────────────────────
-    if not result.target_ready:
-        logger.info("")
-        logger.info("─" * 60)
-        logger.info("TARGET NOT READY — stopping pipeline")
+    allow_provisional = getattr(args, "allow_provisional", False)
+
+    if result.status == "completed_provisional":
+        logger.info("  update_source:           %s (provisional)", result.update_source)
+        logger.info("  source_latest_common_date: %s", result.source_latest_common_date)
+        if not allow_provisional:
+            logger.info("  provisional data available — use --allow-provisional to proceed with calculate/report")
+            logger.info("  latest_confirmed_date: %s",
+                        storage.load_update_status(sw_industry_raw_dir()).get("latest_confirmed_date", ""))
+
+    if not result.target_ready or (result.status == "completed_provisional" and not allow_provisional):
         logger.info("  requested_target_date:  %s", result.requested_target_date)
         logger.info("  source_latest_common_date: %s", result.source_latest_common_date)
         logger.info("  freshness_probe_performed: %s", result.freshness_probe_performed)
@@ -1006,11 +1106,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_update.add_argument("--target-date", default="", help="目标日期 YYYYMMDD（默认今天）")
     p_update.add_argument("--list-industries", action="store_true", help="列出 active/inactive 行业")
     p_update.add_argument("--update-universe", action="store_true", help="确认并更新 active universe snapshot")
+    p_update.add_argument("--allow-provisional", action="store_true", help="允许使用 realtime provisional 数据")
     p_update.add_argument("--log-level", default="INFO")
 
     p_calc = sub.add_parser("calculate", help="计算 RPS 指标（幂等替换目标日期分区）")
     p_calc.add_argument("--date", default="", help="目标日期 YYYY-MM-DD（默认最新）")
     p_calc.add_argument("--full", action="store_true", help="全量重建（慎用）")
+    p_calc.add_argument("--allow-provisional", action="store_true", help="允许对 provisional 数据计算指标")
     p_calc.add_argument("--log-level", default="INFO")
 
     p_report = sub.add_parser("report", help="生成 HTML/CSV 报告（质量门控）")
@@ -1031,6 +1133,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_run = sub.add_parser("run-day", help="依次执行 update → calculate → report")
     p_run.add_argument("--target-date", default="", help="目标日期 YYYYMMDD（默认今天）")
     p_run.add_argument("--force-report", action="store_true", help="允许对已有报告的日期重新生成报告")
+    p_run.add_argument("--allow-provisional", action="store_true", help="允许使用 provisional 数据运行完整 pipeline")
     p_run.add_argument("--log-level", default="INFO")
 
     return p

@@ -67,8 +67,14 @@ etf-pipeline: ## 完整发现链路：watchlist → account → card
 sw-rps-run-day: ## SW-RPS 全流程：更新→计算→报告
 	$(PYTHON) $(SRC_MAIN) industry run-day
 
+sw-rps-run-day-provisional: ## SW-RPS 全流程（允许 provisional 数据）
+	$(PYTHON) $(SRC_MAIN) industry run-day --allow-provisional
+
 sw-rps-update: ## 增量拉取行业行情
 	$(PYTHON) $(SRC_MAIN) industry update
+
+sw-rps-update-provisional: ## 增量拉取行业行情（允许 provisional）
+	$(PYTHON) $(SRC_MAIN) industry update --allow-provisional
 
 sw-rps-calculate: ## 计算行业 RPS
 	$(PYTHON) $(SRC_MAIN) industry calculate

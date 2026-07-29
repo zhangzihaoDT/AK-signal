@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -196,6 +196,89 @@ def load_previous_metrics(processed_dir: Path, lookback: int = 5) -> pd.DataFram
     latest_date = df["trade_date"].max()
     cutoff = latest_date - pd.Timedelta(days=lookback * 2)
     return df[df["trade_date"] >= cutoff].copy()
+
+
+# --- Update status (confirmed / provisional) ---
+
+_UPDATE_STATUS_FILE = "update_status.json"
+
+
+def load_update_status(raw_dir: Path) -> dict[str, Any]:
+    path = raw_dir / _UPDATE_STATUS_FILE
+    default = {"latest_available_date": "", "latest_confirmed_date": "",
+               "status": "", "source": ""}
+    if not path.exists():
+        return default
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        # 兼容遗留字段 latest_date → latest_confirmed_date
+        if "latest_confirmed_date" not in raw or not raw.get("latest_confirmed_date"):
+            raw["latest_confirmed_date"] = raw.get("latest_date", "")
+        if "latest_available_date" not in raw or not raw.get("latest_available_date"):
+            raw["latest_available_date"] = raw.get("latest_date", "")
+        for k in default:
+            raw.setdefault(k, "")
+        return raw
+    except Exception:
+        return default
+
+
+def save_update_status(
+    raw_dir: Path,
+    status: str,
+    available_date: str,
+    source: str,
+    confirmed_date: str | None = None,
+) -> Path:
+    """写入更新状态，同时记录 available（含 provisional）和 confirmed 两个日期。
+
+    Args:
+        status: "confirmed" | "provisional" | "completed_provisional" | "waiting_for_source"
+        available_date: 当前可获得的最新日期（含 provisional）
+        source: 数据来源
+        confirmed_date: 正式确认的最新日期（覆盖旧值），None 时保留旧值
+    """
+    existing = load_update_status(raw_dir)
+    prev_confirmed = existing.get("latest_confirmed_date", "")
+    path = raw_dir / _UPDATE_STATUS_FILE
+    data = {
+        "latest_available_date": available_date,
+        "latest_confirmed_date": confirmed_date if confirmed_date else prev_confirmed,
+        "status": status,
+        "source": source,
+        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(str(tmp), str(path))
+    return path
+
+
+def batch_save_industry_data(
+    df: pd.DataFrame,
+    raw_dir: Path,
+    date_str: str,
+) -> tuple[int, int]:
+    """将批量数据按行业代码拆分写入每个行业的 CSV。
+
+    df 必须包含 trade_date, industry_code, close 等列。
+    每个行业的现有数据会与新增数据 merge（按 trade_date 去重）。
+
+    Returns:
+        (saved_count, error_count)
+    """
+    saved = 0
+    errors = 0
+    for code, group in df.groupby("industry_code"):
+        group = group.drop(columns=["industry_code"], errors="ignore")
+        cached = load_industry_raw(raw_dir, code)
+        merged = merge_incremental(cached, group)
+        try:
+            save_industry_raw(merged, raw_dir, code)
+            saved += 1
+        except Exception:
+            errors += 1
+    return saved, errors
 
 
 # --- Checkpoint for resumable updates ---

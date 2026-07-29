@@ -397,9 +397,11 @@ def build_html(
     reports_dir: Path,
     rotation_days: int = 20,
     drilldown_results: list[dict] | None = None,
+    provisional_suffix: str = "",
 ) -> tuple[Path, Path]:
-    csv_path = reports_dir / f"sw_industry_rps_{report_date}.csv"
-    html_path = reports_dir / f"sw_industry_rps_{report_date}.html"
+    suffix = provisional_suffix  # e.g. "_provisional"
+    csv_path = reports_dir / f"sw_industry_rps_{report_date}{suffix}.csv"
+    html_path = reports_dir / f"sw_industry_rps_{report_date}{suffix}.html"
 
     snapshot.to_csv(csv_path, index=False, encoding="utf-8-sig")
 
@@ -416,7 +418,8 @@ def build_html(
     parts.append(f"<style>{CSS}</style>")
     parts.append("</head><body>")
     parts.append("<h1>申万二级行业 RPS 监控</h1>")
-    parts.append(f"<div class='subtitle'>基于申万二级行业指数的日频相对强度与轮动观察</div>")
+    provisional_tag = "（临时数据 · 仅供参考）" if suffix else ""
+    parts.append(f"<div class='subtitle'>基于申万二级行业指数的日频相对强度与轮动观察{provisional_tag}</div>")
     parts.append(f"<div class='meta'>报告日期：{report_date} | 生成时间：{now_str} | 数据质量：{quality}</div>")
 
     parts.append(_render_market_width_cards(snapshot))
@@ -495,8 +498,8 @@ function filterTable() {
     return csv_path, html_path
 
 
-def save_latest_html(html_path: Path, reports_dir: Path) -> Path:
-    latest_path = reports_dir / "sw_industry_rps_latest.html"
+def save_latest_html(html_path: Path, reports_dir: Path, latest_name: str = "sw_industry_rps_latest.html") -> Path:
+    latest_path = reports_dir / latest_name
     if html_path.exists():
         content = html_path.read_text(encoding="utf-8")
         latest_path.write_text(content, encoding="utf-8")

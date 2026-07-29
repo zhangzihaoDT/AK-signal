@@ -419,7 +419,7 @@ def cmd_classify(args: argparse.Namespace) -> None:
         return
 
     logger.info("classifying %d ETFs...", len(master))
-    cfg = classifier.load_bucket_config(config_dir())
+    cfg = classifier.load_config(config_dir())
     classified = classifier.classify_all(master, cfg)
     etf_master.save_master(classified, master_dir)
 
@@ -903,9 +903,11 @@ def cmd_signal(args: argparse.Namespace) -> None:
     for _, row in indicators_df.iterrows():
         code = row["fund_code"]
 
-        state = sig_mod.determine_initial_state(
-            rps20=row.get("rps20", 50.0) if "rps20" in indicators_df.columns else 50.0,
-            rps60=row.get("rps60", 50.0) if "rps60" in indicators_df.columns else 50.0,
+        state = sig_mod.compute_trend_state(
+            rps15=row.get("rps15", 50.0),
+            rps60=row.get("rps60", 50.0),
+            return_5d=row.get("return_5d", 0.0),
+            return_20d=row.get("return_20d", 0.0),
             above_ma20=row.get("ma20", 0) > 0 and row.get("price", 0) > row.get("ma20", 0),
             above_ma60=row.get("ma60", 0) > 0 and row.get("price", 0) > row.get("ma60", 0),
         )
@@ -933,27 +935,66 @@ def cmd_signal(args: argparse.Namespace) -> None:
 def cmd_report(args: argparse.Namespace) -> None:
     logger = build_logger(args.log_level)
     master_dir = etf_signal_master_dir()
+    daily_dir = etf_signal_daily_dir()
     signals_dir = etf_signal_signals_dir()
-    reports_dir = project_root() / "reports" / "etf_daily"
+    reports_dir = project_root() / "outputs" / "etf_signal" / "reports"
 
     master = etf_master.load_master(master_dir)
     date_str = getattr(args, "target_date", "") or _default_target_date()
 
-    signal_files = sorted(signals_dir.glob(f"signals_{date_str}.parquet"))
-    if not signal_files:
-        logger.warning("no signals for %s, checking latest...", date_str)
-        signal_files = sorted(signals_dir.glob("signals_*.parquet"), reverse=True)[:1]
-
-    if not signal_files:
-        logger.error("no signals found — run signal first")
-        return
-
-    signals_df = pd.read_parquet(signal_files[0])
-    logger.info("generating reports for %s...", date_str)
-
+    # ── 热度地图：从 indicators + master 构建 ─────────────────────
     heat_map = pd.DataFrame()
+    indicators_path = daily_dir / "daily_indicators.parquet"
+    if indicators_path.exists() and not master.empty:
+        daily_df = pd.read_parquet(indicators_path)
+        if not daily_df.empty and "fund_code" in daily_df.columns and "asset_bucket" in master.columns:
+            merged = daily_df.merge(
+                master[["fund_code", "asset_bucket"]].drop_duplicates(subset=["fund_code"]),
+                on="fund_code", how="inner",
+            )
+            merged = merged[merged["asset_bucket"].notna() & (merged["asset_bucket"] != "")]
+            if not merged.empty:
+                rows = []
+                for bucket, group in merged.groupby("asset_bucket"):
+                    rps = group["rps15"].dropna()
+                    if len(rps) < 2:
+                        continue
+                    strong_ratio = (rps >= 80).mean()
+                    median_rps = rps.median()
+                    heat_change = "高位" if median_rps >= 85 and strong_ratio >= 0.5 else "平稳"
+                    asset_class = "权益"
+                    if bucket in ("commodity_gold", "commodity_futures"):
+                        asset_class = "商品"
+                    elif bucket in ("bond_treasury", "bond_credit", "bond_convertible"):
+                        asset_class = "债券"
+                    elif bucket in ("money_market",):
+                        asset_class = "现金"
+                    rows.append({
+                        "asset_class": asset_class,
+                        "asset_bucket": bucket,
+                        "bucket_label": bucket,
+                        "etf_count": int(group["fund_code"].nunique()),
+                        "strong_ratio": round(strong_ratio, 4),
+                        "median_rps": round(median_rps, 2),
+                        "heat_change": heat_change,
+                        "description": heat_change,
+                    })
+                if rows:
+                    heat_map = pd.DataFrame(rows)
+
+    # ── 候选列表：从 account_candidates 读取 ──────────────────────
+    candidates_files = sorted(signals_dir.glob(f"account_candidates_{date_str}.parquet"))
+    if not candidates_files:
+        logger.warning("no account_candidates for %s, checking latest...", date_str)
+        candidates_files = sorted(signals_dir.glob("account_candidates_*.parquet"), reverse=True)[:1]
+
     candidates = pd.DataFrame()
+    if candidates_files:
+        candidates = pd.read_parquet(candidates_files[0])
+
     order_plan = pd.DataFrame()
+
+    logger.info("generating reports for %s...", date_str)
 
     try:
         paths = etf_report.write_daily_reports(heat_map, candidates, order_plan, reports_dir, date_str)

@@ -31,17 +31,16 @@ def build_heat_report(
 
     lines = [f"# ETF 市场热度地图 — {report_date}\n"]
 
-    for bucket in heat_map["asset_bucket"].unique():
-        bucket_data = heat_map[heat_map["asset_bucket"] == bucket]
-        lines.append(f"\n## {bucket}\n")
-        lines.append("| 暴露类型 | ETF 数量 | 强势占比 | RPS20 中位数 | 热度状态 |")
-        lines.append("| --- | --- | --- | --- | --- |")
-        for _, row in bucket_data.iterrows():
-            lines.append(
-                f"| {row['exposure_type']} | {row['etf_count']} | "
-                f"{row['strong_ratio']:.1%} | {row['median_rps20']:.1f} | "
-                f"{row['heat_state']} |"
-            )
+    lines.append("\n## 全市场热度分布\n")
+    lines.append("| 资产大类 | 资产桶 | ETF 数量 | 强势占比 | RPS 中位数 | 热度变化 | 状态描述 |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- |")
+    for _, row in heat_map.iterrows():
+        lines.append(
+            f"| {row.get('asset_class', '')} | {row.get('bucket_label', row.get('asset_bucket', ''))} | "
+            f"{row['etf_count']} | {row['strong_ratio']:.1%} | "
+            f"{row['median_rps']:.1f} | {row.get('heat_change', '')} | "
+            f"{row.get('description', '')} |"
+        )
 
     return "\n".join(lines)
 
@@ -54,14 +53,20 @@ def build_candidate_report(
     if candidates.empty:
         return f"# 国金候选列表 — {report_date}\n\n无候选\n"
 
+    active = candidates[candidates["trend_state"] != "OUT_OF_SCOPE"]
+    if active.empty:
+        return f"# 国金候选列表 — {report_date}\n\n无非活跃候选\n"
+
     lines = [f"# 国金候选列表 — {report_date}\n"]
-    lines.append("| 代码 | 名称 | 资产桶 | 暴露 | 状态 | 置信度 | 风险 |")
-    lines.append("| --- | --- | --- | --- | --- | --- | --- |")
-    for _, row in candidates.iterrows():
+    lines.append(f"\n### 活跃趋势候选（{len(active)} 只）\n")
+    lines.append("| 代码 | 名称 | 趋势状态 | RPS15 | RPS60 | 5日收益 | 20日收益 | 趋势变化 | 账户状态 |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for _, row in active.iterrows():
         lines.append(
-            f"| {row['fund_code']} | {row['fund_name']} | {row['asset_bucket']} | "
-            f"{row['exposure_name']} | {row.get('final_state', '')} | "
-            f"{row.get('confidence', 0.0):.2f} | {row.get('risk_flags', '')} |"
+            f"| {row['fund_code']} | {row['fund_name']} | {row['trend_state']} | "
+            f"{row['rps15']:.1f} | {row['rps60']:.1f} | "
+            f"{row['return_5d']:+.2f}% | {row['return_20d']:+.2f}% | "
+            f"{row.get('trend_change', '')} | {row.get('account_status_label', '')} |"
         )
 
     return "\n".join(lines)
@@ -101,7 +106,7 @@ def write_daily_reports(
         heat_map: 热度地图 DataFrame
         candidates: 候选列表 DataFrame
         order_plan: 订单计划 DataFrame
-        reports_dir: 报告目录（reports/etf_daily/）
+        reports_dir: 报告目录（outputs/etf_signal/reports/）
         report_date: 报告日期 YYYYMMDD
 
     Returns:

@@ -122,6 +122,7 @@ def classify_etf(fund_name: str, tracking_index: str = "") -> dict[str, Any]:
             bucket_def = BUCKET_DEFINITIONS.get(bucket, {})
             result["primary_asset_class"] = bucket_def.get("asset_class", "")
             result["primary_bucket"] = bucket
+            result["asset_bucket"] = bucket
             result["exposure_tags"] = rule["tags"]
             result["exposure_type"] = bucket_def.get("label", "")
             result["exposure_name"] = rule["tags"][0] if rule["tags"] else fund_name
@@ -131,11 +132,21 @@ def classify_etf(fund_name: str, tracking_index: str = "") -> dict[str, Any]:
 
 
 def classify_all(master: pd.DataFrame, config: dict | None = None) -> pd.DataFrame:
-    """对 Master 中所有未分类的 ETF 执行自动分类。"""
+    """对 Master 中所有未分类的 ETF 执行自动分类。
+
+    同时回填历史数据中 primary_bucket 已赋值但 asset_bucket 为空的情况。
+    """
     if master.empty:
         return master
 
     df = master.copy()
+
+    # 回填：primary_bucket 有值但 asset_bucket 为空 → 用 primary_bucket
+    if "asset_bucket" in df.columns and "primary_bucket" in df.columns:
+        empty_asset = df["asset_bucket"].isna() | (df["asset_bucket"] == "")
+        has_primary = df["primary_bucket"].notna() & (df["primary_bucket"] != "")
+        df.loc[empty_asset & has_primary, "asset_bucket"] = df.loc[empty_asset & has_primary, "primary_bucket"]
+
     for idx, row in df.iterrows():
         if row.get("primary_bucket"):
             continue
