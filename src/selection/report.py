@@ -1,5 +1,5 @@
 """
-Layer 3 — 交易候选 HTML 可视化
+Layer ③ — 交易候选 HTML 可视化
 
 候选资产对象（JSON）的只读视图，不承担任何筛选逻辑。
 """
@@ -67,7 +67,7 @@ def render_selection_html(candidates: dict[str, Any], output_dir: Path, date_str
         f"<title>③ 交易标的筛选 · {date_str}</title>",
         f"<style>{CSS}</style></head><body><div class='container'>",
         "<h1>③ 交易标的筛选与表达方式选择</h1>",
-        f"<div class='subtitle'>报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · Layer 3 只回答「买什么」，买多少/何时买卖由 Layer 4 决定</div>",
+        f"<div class='subtitle'>报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · Layer ③ 只回答「买什么」，买多少/何时买卖由 Layer 4 决定</div>",
     ]
 
     # 方向门控
@@ -125,7 +125,7 @@ def render_selection_html(candidates: dict[str, Any], output_dir: Path, date_str
 
     parts.append('</div>')
 
-    parts.append(f'<hr><div style="text-align:center;font-size:12px;color:var(--zh-muted);padding:20px 0">AKsignal · Layer 3 交易标的筛选 · 报告自动生成于 {now_str}</div>')
+    parts.append(f'<hr><div style="text-align:center;font-size:12px;color:var(--zh-muted);padding:20px 0">AKsignal · Layer ③ 交易标的筛选 · 报告自动生成于 {now_str}</div>')
     parts.append("</div></body></html>")
 
     html_path.write_text("\n".join(parts), encoding="utf-8")

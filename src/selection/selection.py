@@ -1,5 +1,5 @@
 """
-Layer 3 — 交易标的筛选与表达方式选择（Tradable Selection）
+Layer ③ — 交易标的筛选与表达方式选择（Tradable Selection）
 
 定位：执行对象压缩层，不是又一层强弱排名。
 职责：把 Layer ①（ETF 轮动）与 Layer ②（行业确认）的结论，压缩成
@@ -378,7 +378,7 @@ def build_candidates(
     universe_items: list[Any],
     trend_df: pd.DataFrame,
 ) -> dict[str, Any]:
-    """构建 Layer 3 候选资产对象（结构化 dict，可直接落 JSON）。"""
+    """构建 Layer ③ 候选资产对象（结构化 dict，可直接落 JSON）。"""
     direction = evaluate_direction(rotation_df, confirmation_df)
     subthemes = evaluate_subthemes(confirmation_df)
 

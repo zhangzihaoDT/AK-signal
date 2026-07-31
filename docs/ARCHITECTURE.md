@@ -52,7 +52,7 @@
 
 **信号主链**：A股全市场 ETF 轮动（① 发现）→ 申万二级行业确认（② 确认）→ 交易标的筛选（③ 执行对象压缩）→ 最终判断
 
-**Trend Engine**：selection 的内部依赖（原 stock_trend 底层能力重组），不对外暴露独立业务入口；Layer 4 Portfolio（仓位/买卖时点）为未来扩展，不在 Layer 3 职责内。
+**Trend Engine**：selection 的内部依赖（原 stock_trend 底层能力重组），不对外暴露独立业务入口；Layer 4 Portfolio（仓位/买卖时点）为未来扩展，不在 Layer ③ 职责内。
 
 **并行接入**：美股 AI/半导体局部观察池，不参与主链驱动，只辅助最终判断
 

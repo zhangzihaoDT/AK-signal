@@ -103,12 +103,12 @@ sw-rps-drilldown: ## 强势区成分股贡献穿透分析
 sw-rps-confirm: ## [Layer ②] AI/科技/半导体 行业群确认
 	$(PYTHON) $(SRC_MAIN) industry confirm
 
-# ── Layer 3 交易标的筛选（selection 内部调用 trend_engine） ──────
+# ── Layer ③ 交易标的筛选（selection 内部调用 trend_engine） ──────
 
-select: ## Layer 3 交易标的筛选（读 Layer①/② + trend_engine → 候选对象 JSON + HTML）
+select: ## Layer ③ 交易标的筛选（读 Layer①/② + trend_engine → 候选对象 JSON + HTML）
 	$(PYTHON) $(SRC_MAIN) select run
 
-select-offline: ## Layer 3 交易候选（仅用缓存行情，不联网）
+select-offline: ## Layer ③ 交易候选（仅用缓存行情，不联网）
 	$(PYTHON) $(SRC_MAIN) select run --offline
 
 # ── 开发维护 ──────────────────────────────────────────────────

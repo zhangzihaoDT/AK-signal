@@ -1,5 +1,5 @@
 """
-Layer 3 selection CLI — 交易标的筛选与表达方式选择
+Layer ③ selection CLI — 交易标的筛选与表达方式选择
 
 子命令：
   run        构建交易候选（读 Layer①/② + universe + 个股趋势 → 输出候选对象 JSON + HTML）
@@ -47,7 +47,7 @@ def _load_latest_parquet(directory: Path, pattern: str) -> pd.DataFrame:
 def cmd_run(args: argparse.Namespace) -> None:
     logger = build_logger(args.log_level)
     logger.info("=" * 60)
-    logger.info("LAYER 3: 交易标的筛选与表达方式选择")
+    logger.info("LAYER ③: 交易标的筛选与表达方式选择")
     logger.info("=" * 60)
 
     date_str = date.today().strftime("%Y%m%d")
@@ -113,7 +113,7 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Layer 3 交易标的筛选与表达方式选择")
+    p = argparse.ArgumentParser(description="Layer ③ 交易标的筛选与表达方式选择")
     sub = p.add_subparsers(dest="command")
     p_run = sub.add_parser("run", help="构建交易候选（读 Layer①/② + 调 Trend Engine → 输出候选对象）")
     p_run.add_argument("--offline", action="store_true", help="仅用缓存行情，不联网")

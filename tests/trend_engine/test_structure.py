@@ -1,5 +1,5 @@
 """
-结构级测试：验证 trend_engine（引擎）与 selection（Layer 3）的包结构、导入和 CLI 路由。
+结构级测试：验证 trend_engine（引擎）与 selection（Layer ③）的包结构、导入和 CLI 路由。
 """
 
 from __future__ import annotations

@@ -1,11 +1,11 @@
 """
-trend_engine — 趋势分析引擎（Layer 3 的内部依赖）
+trend_engine — 趋势分析引擎（Layer ③ 的内部依赖）
 
 定位：纯引擎，不承担任何业务决策。
 职责：给定一组资产，获取行情 → 计算技术指标 → 输出趋势评分。
 
 本模块是原 stock_trend 底层能力（行情获取/缓存/多源回退/限流/指标/评分）
-的保留与重组；业务层（CLI、报告、watchlist）已移除，由 Layer 3 selection 调用。
+的保留与重组；业务层（CLI、报告、watchlist）已移除，由 Layer ③ selection 调用。
 """
 
 from __future__ import annotations

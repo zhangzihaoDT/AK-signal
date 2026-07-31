@@ -27,7 +27,7 @@
   python src/main.py etf account-blacklist list
   ```
 
-## Layer 3 交易标的筛选（selection）
+## Layer ③ 交易标的筛选（selection）
 
 - **定位**：执行对象压缩层——把 Layer①/② 结论压缩成「这个已确认方向用哪只 ETF、哪类股票交易」；不回答买多少/何时买卖（Layer 4）
 - **核心输出是结构化候选对象**（JSON），HTML 只是可视化
@@ -49,7 +49,7 @@
 make run-day          # 每日全流程
 make etf-pipeline     # 仅 ETF 发现链路
 make sw-rps-run-day   # SW-RPS 全流程：update(含probe)→calculate→report→confirm
-make select           # Layer 3 交易候选（调用 trend_engine）
+make select           # Layer ③ 交易候选（调用 trend_engine）
 make test             # 全部测试
 ```
 
@@ -59,4 +59,4 @@ make test             # 全部测试
 - ETF 轮动数据：`data/etf_signal/daily/rotation_{date}.parquet`（全市场横截面 RPS15/20/60 + 5日排名变动）
 - SW-RPS：`outputs/sw_industry_rps/sw_industry_rps_{date}.html`（+ `_latest.html` 指向最新）
 - Layer ② 行业确认：`outputs/sw_industry_rps/sw_industry_confirmation_{date}.html` + `data/processed/sw_industry/confirmation_{date}.parquet`（AI/科技/半导体 10 个重点行业群共振/龙头广度/背离）
-- Layer 3 交易候选：`outputs/selection/tradable_candidates_{date}.json`（结构化候选对象）+ `.html`（可视化）
+- Layer ③ 交易候选：`outputs/selection/tradable_candidates_{date}.json`（结构化候选对象）+ `.html`（可视化）

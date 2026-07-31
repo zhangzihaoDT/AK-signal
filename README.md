@@ -43,7 +43,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Layer 3 交易标的筛选（selection）
+## Layer ③ 交易标的筛选（selection）
 
 ### 功能简介
 
