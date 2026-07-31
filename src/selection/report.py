@@ -111,14 +111,14 @@ def render_selection_html(candidates: dict[str, Any], output_dir: Path, date_str
             if not items:
                 parts.append("<div class='empty'>—</div>")
                 continue
-            parts.append("<table><tr><th>代码</th><th>名称</th><th class='num'>RPS15</th><th class='num'>RPS20</th><th class='num'>RPS60</th><th class='num'>5日收益</th><th>趋势</th><th>说明</th></tr>")
+            parts.append("<table><tr><th>代码</th><th>名称</th><th class='num'>RPS15</th><th class='num'>RPS20</th><th class='num'>RPS60</th><th class='num'>趋势分</th><th>趋势</th><th>说明</th></tr>")
             for it in items:
                 parts.append(
                     f"<tr><td>{it.get('code', '')}</td><td>{it.get('name', '')}</td>"
                     f"<td class='num'>{_num(it.get('rps15'))}</td>"
                     f"<td class='num'>{_num(it.get('rps20'))}</td>"
                     f"<td class='num'>{_num(it.get('rps60'))}</td>"
-                    f"<td class='num'>{_num(it.get('return_5d'))}</td>"
+                    f"<td class='num'>{_num(it.get('score_trend'))}</td>"
                     f"<td>{it.get('trend_status', '')}</td>"
                     f"<td>{it.get('reason', '')}</td></tr>")
             parts.append("</table>")

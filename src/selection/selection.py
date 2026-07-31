@@ -86,9 +86,10 @@ class AssetCandidate:
     return_5d: float | None = None
     return_20d: float | None = None
     trend_status: str = ""
+    score_trend: float | None = None   # 0-100 趋势分（个股来自 trend_engine）
     rank_change_5d: float | None = None
     liquidity: float | None = None   # 成交额（元）
-    tradable: bool = False
+    tradable: bool = True
     selection_score: float | None = None
     reason: str = ""
 
@@ -317,15 +318,23 @@ def select_stock_candidates(
         if role is None:
             continue
 
+        def _tv(col: str, default: Any = None) -> Any:
+            if trend_row is None:
+                return default
+            v = trend_row.get(col)
+            return default if v is None or (isinstance(v, float) and pd.isna(v)) else v
+
         cand = AssetCandidate(
             code=item.asset.symbol,
             name=item.asset.name,
             role=role,
             asset_type="stock",
             subtheme=subtheme,
-            rps15=_round(trend_row.get("relative_strength_20d") if trend_row is not None else None),
-            trend_status=str(trend_row.get("watch_level", "")) if trend_row is not None else "",
-            reason=str(trend_row.get("action", "")) if trend_row is not None else "",
+            rps15=_round(_tv("relative_strength_20d")),
+            score_trend=_round(_tv("score_trend")),
+            trend_status=str(_tv("watch_level", "")),
+            tradable=True,  # 黑名单机制：未确认不可交易即默认可交易
+            reason=str(_tv("action", "")),
         )
         if role == "LEADER":
             leaders.append(cand)
