@@ -67,18 +67,28 @@ AKsignal/
 
 ## 个股技术趋势监控
 
-### AKSignal v0.3 ✅
+### AKSignal v0.4.0 ✅
 
-AKShare 拉取 → raw 缓存 → 指标计算 → 趋势评分 → 相对强度(沪深300) → watch_level / action / portfolio_summary / watchlist → HTML/CSV 报告
+三层决策信号链 + Trend Engine：
 
-监控标的：寒武纪、中际旭创、科大讯飞；理想汽车(US/HK)、蔚来、小鹏汽车(US/HK)；上汽集团；宁德时代、德赛西威、韦尔股份、Mobileye、速腾聚创、地平线；中证500ETF、黄金ETF
+```
+Layer ① ETF 发现（etf_signal）→ Layer ② 行业确认（sw_industry_rps confirm）
+    → Layer ③ 交易候选（selection）→ Candidate JSON → Layer ④ Portfolio（未来）
+Trend Engine（trend_engine）：selection 内部依赖，无独立入口
+```
+
+- Layer ①：全市场横截面 RPS15/20/60 + 5 日排名变动 → `etf_rotation_{date}.html`
+- Layer ②：10 重点行业群共振 + 子主题（ai_core/TMT/智能制造）+ 龙头广度 → `sw_industry_confirmation_{date}.html`
+- Layer ③：表达方式决策（ETF vs 个股）+ 执行对象压缩 → `tradable_candidates_{date}.json/.html`
+- 国金账户：黑名单机制（默认可交易，确认不可交易才加入）
 
 ### CLI
 
 ```bash
-python src/main.py                          # 默认（向后兼容）
-python src/main.py stock [options]           # 显式
-python src/main.py stock --offline           # 仅缓存
+python src/main.py select run            # Layer ③ 交易候选（调用 trend_engine）
+python src/main.py etf <cmd>             # Layer ①
+python src/main.py industry <cmd>        # Layer ②
+make run-day                             # 每日全流程（① ETF + ② SW-RPS）
 ```
 
 ---
