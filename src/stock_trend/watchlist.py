@@ -9,6 +9,11 @@ import pandas as pd
 WATCHLIST_COLUMNS = [
     "ts_code",
     "name",
+    "market",
+    "theme",
+    "theme_label",
+    "tier",
+    "tier_label",
     "first_seen",
     "last_seen",
     "max_score",
@@ -103,6 +108,11 @@ def update_watchlist(
             idx = wl.index[wl["ts_code"].astype(str) == sym][0]
             prev_last_seen = str(wl.at[idx, "last_seen"])
             wl.at[idx, "name"] = name
+            wl.at[idx, "market"] = str(row.get("market", ""))
+            wl.at[idx, "theme"] = str(row.get("theme", ""))
+            wl.at[idx, "theme_label"] = str(row.get("theme_label", ""))
+            wl.at[idx, "tier"] = str(row.get("tier", ""))
+            wl.at[idx, "tier_label"] = str(row.get("tier_label", ""))
             wl.at[idx, "last_seen"] = today_str
             wl.at[idx, "current_score"] = str(score)
             wl.at[idx, "status"] = status
@@ -125,6 +135,11 @@ def update_watchlist(
                             {
                                 "ts_code": sym,
                                 "name": name,
+                                "market": str(row.get("market", "")),
+                                "theme": str(row.get("theme", "")),
+                                "theme_label": str(row.get("theme_label", "")),
+                                "tier": str(row.get("tier", "")),
+                                "tier_label": str(row.get("tier_label", "")),
                                 "first_seen": today_str,
                                 "last_seen": today_str,
                                 "max_score": str(score),

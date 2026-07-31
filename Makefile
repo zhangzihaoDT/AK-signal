@@ -5,11 +5,11 @@ SRC_MAIN = src/main.py
 
 .PHONY: help run-day \
 	etf-bootstrap etf-bootstrap-core etf-update etf-calculate \
-	etf-classify etf-layer1 etf-watchlist etf-account etf-card etf-pipeline \
+	etf-classify etf-layer1 etf-watchlist etf-account etf-account-blacklist etf-card etf-pipeline \
 	etf-retry-uncovered \
-	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-report \
+	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-report sw-rps-confirm \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown \
-	stock stock-offline test install clean
+	stock stock-offline select test install clean
 
 help: ## 显示帮助信息
 	@grep -E '^[-a-zA-Z_0-9]+:.*## ' $(MAKEFILE_LIST) | sort | \
@@ -29,6 +29,7 @@ run-day: ## 每日 ETF 全市场信号 + SW-RPS 行业信号
 	$(MAKE) sw-rps-calculate
 	$(MAKE) etf-pipeline
 	$(MAKE) sw-rps-report
+	$(MAKE) sw-rps-confirm
 
 # ── ETF 全市场扫描（主系统） ────────────────────────────────────
 
@@ -56,6 +57,9 @@ etf-watchlist: ## 生成趋势 Watchlist
 etf-account: ## 映射至国金账户可交易池
 	$(PYTHON) $(SRC_MAIN) etf account
 
+etf-account-blacklist: ## 维护国金不可交易黑名单（add/remove/list）
+	$(PYTHON) $(SRC_MAIN) etf account-blacklist
+
 etf-card: ## 生成 ETF 候选信息卡片
 	$(PYTHON) $(SRC_MAIN) etf card
 
@@ -63,9 +67,14 @@ etf-pipeline: ## 完整发现链路：watchlist → account → card → JSON+CS
 	$(PYTHON) $(SRC_MAIN) etf pipeline
 
 # ── SW-RPS 行业信号模块（ETF 子模块） ──────────────────────────
+# 结构：confirm 是 calculate 的下游，复用 calculate 产出的 RPS/指标，
+#       不维护第二套指标计算逻辑。
 
-sw-rps-run-day: ## SW-RPS 全流程：更新→计算→报告
-	$(PYTHON) $(SRC_MAIN) industry run-day
+sw-rps-run-day: ## SW-RPS 全流程：update→calculate→report→confirm
+	$(MAKE) sw-rps-update      # 1. 获取行情（内置 freshness probe）
+	$(MAKE) sw-rps-calculate   # 2. 计算全量申万二级 RPS
+	$(MAKE) sw-rps-report      # 3. 原有全市场行业报告
+	$(MAKE) sw-rps-confirm     # 4. Layer ② 行业群确认（下游复用指标）
 
 sw-rps-run-day-provisional: ## SW-RPS 全流程（允许 provisional 数据）
 	$(PYTHON) $(SRC_MAIN) industry run-day --allow-provisional
@@ -91,13 +100,19 @@ sw-rps-validate: ## 校验行业数据质量
 sw-rps-drilldown: ## 强势区成分股贡献穿透分析
 	$(PYTHON) $(SRC_MAIN) industry drilldown
 
-# ── 个股趋势监控（独立观察项目，非每日任务） ──────────────────
+sw-rps-confirm: ## [Layer ②] AI/科技/半导体 行业群确认
+	$(PYTHON) $(SRC_MAIN) industry confirm
 
-stock: ## 运行个股趋势分析
-	$(PYTHON) $(SRC_MAIN) stock
+# ── Layer ③ 个股/科技 ETF 趋势监控（非每日任务） ──────────────────
+
+stock: ## 运行 Layer ③ 分层趋势扫描（config/stock_universe.yaml）
+	$(PYTHON) $(SRC_MAIN) stock run
 
 stock-offline: ## 缓存模式（不联网）
-	$(PYTHON) $(SRC_MAIN) stock --offline
+	$(PYTHON) $(SRC_MAIN) stock run --offline
+
+select: ## Layer 3 交易标的筛选（读 Layer①/② + universe → 候选对象 JSON + HTML）
+	$(PYTHON) $(SRC_MAIN) select run
 
 # ── 开发维护 ──────────────────────────────────────────────────
 

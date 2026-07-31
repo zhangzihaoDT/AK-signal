@@ -67,15 +67,11 @@ def compute_indicators(
                 indicators[f"ma{ma}_slope"] = np.nan
 
         # 收益率
-        for period, label in [(5, "5d"), (20, "20d"), (60, "60d")]:
+        for period, label in [(5, "5d"), (10, "10d"), (15, "15d"), (20, "20d"), (60, "60d")]:
             if len(prices) >= period:
                 indicators[f"return_{label}"] = (prices[-1] / prices[-period] - 1) * 100
             else:
                 indicators[f"return_{label}"] = np.nan
-
-        # 截面排名用原始收益率（非百分比）
-        if len(prices) >= 20:
-            indicators["return"] = prices[-1] / prices[-20] - 1
 
         # 成交额变化（最近 5 日 vs 前 5 日均值）
         if "amount" in group.columns:

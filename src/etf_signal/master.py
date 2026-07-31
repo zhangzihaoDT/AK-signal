@@ -41,7 +41,6 @@ CORE_UNIVERSE_CONFIG = {
     "min_fund_size": 0,             # 阶段 A 暂不设规模门控，后续收紧
     "max_count": 500,
     "min_count": 200,
-    "guojin_boost": True,
 }
 
 
@@ -96,9 +95,12 @@ def build_core_universe(
     3. 排序：按 (优先级, 成交额, 规模) 降序
     4. 截断：最多保留 max_count 只
 
+    注：国金可交易采用黑名单机制（默认全部可交易），
+        故核心 Universe 构建不再依赖国金白名单加分。
+
     Args:
         master: 全量 ETF Master（需含 amount, fund_size, primary_bucket 等字段）
-        whitelist_path: 国金白名单路径（用于加分）
+        whitelist_path: 已废弃（保留参数以兼容旧调用）
         config: 配置参数
 
     Returns:
@@ -128,17 +130,6 @@ def build_core_universe(
     size_col = df.get("fund_size", pd.Series(0, index=df.index))
     df["_fund_size"] = size_col.fillna(0).astype(float)
 
-    # 国金白名单加分
-    if whitelist_path and whitelist_path.exists() and cfg["guojin_boost"]:
-        try:
-            wl = pd.read_csv(whitelist_path, dtype={"fund_code": str})
-            tradable = set(wl[wl.get("tradable", False) == True]["fund_code"])
-            df["_guojin"] = df["fund_code"].isin(tradable).astype(int)
-        except Exception:
-            df["_guojin"] = 0
-    else:
-        df["_guojin"] = 0
-
     # 首批：同时满足金额 + 规模门控
     passed_amount = df["_amount"] >= min_amount
     passed_size = df["_fund_size"] >= min_fund_size
@@ -150,8 +141,8 @@ def build_core_universe(
         need = min_count - len(tier1)
         tier2 = df[~(passed_amount & passed_size)].copy()
         tier2 = tier2.sort_values(
-            ["_bucket_rank", "_amount", "_fund_size", "_guojin"],
-            ascending=[True, False, False, False],
+            ["_bucket_rank", "_amount", "_fund_size"],
+            ascending=[True, False, False],
         ).head(need)
         candidates = pd.concat([tier1, tier2], ignore_index=True)
     else:
@@ -159,8 +150,8 @@ def build_core_universe(
 
     # 排序并截断
     candidates = candidates.sort_values(
-        ["_bucket_rank", "_guojin", "_amount", "_fund_size"],
-        ascending=[True, False, False, False],
+        ["_bucket_rank", "_amount", "_fund_size"],
+        ascending=[True, False, False],
     )
     core = candidates.head(max_count).reset_index(drop=True)
 

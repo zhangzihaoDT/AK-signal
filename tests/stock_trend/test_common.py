@@ -5,7 +5,7 @@ from datetime import date
 from pathlib import Path
 
 from src.common.paths import (
-    project_root, config_dir, stock_pool_path,
+    project_root, config_dir, stock_pool_path, stock_universe_path,
     sw_industry_rps_config_path, data_dir, raw_dir, processed_dir,
     sw_industry_raw_dir, sw_industry_processed_dir, state_dir,
     asset_state_path, outputs_dir, stock_trend_output_dir,
@@ -22,14 +22,14 @@ class TestPaths:
     def test_project_root_resolves(self):
         root = project_root()
         assert (root / "src" / "common").is_dir()
-        assert (root / "config" / "stock_pool.csv").is_file()
+        assert (root / "config" / "stock_universe.yaml").is_file()
 
     def test_config_dir(self):
         assert config_dir() == project_root() / "config"
 
-    def test_stock_pool_path(self):
-        assert stock_pool_path().name == "stock_pool.csv"
-        assert stock_pool_path().parent == config_dir()
+    def test_stock_universe_path(self):
+        assert stock_universe_path().name == "stock_universe.yaml"
+        assert stock_universe_path().parent == config_dir()
 
     def test_sw_config_path(self):
         assert sw_industry_rps_config_path().name == "sw_industry_rps.yaml"

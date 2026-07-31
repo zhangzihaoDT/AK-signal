@@ -102,18 +102,18 @@ def build_trend_watchlist(
 
     df = indicators.copy()
 
-    # 计算 RPS（全市场横截面排名）
-    if "return" in df.columns:
-        df["rps15"] = compute_rps(df["return"])
-    elif "return_20d" in df.columns:
-        df["rps15"] = compute_rps(df["return_20d"])
-    else:
-        df["rps15"] = 50.0
+    # 使用 calculate 已算好的全市场横截面 RPS（真实口径 rps15/rps20/rps60）
+    if "rps15" not in df.columns or df["rps15"].isna().all():
+        if "return_15d" in df.columns:
+            df["rps15"] = compute_rps(df["return_15d"])
+        else:
+            df["rps15"] = 50.0
 
-    if "return_60d" in df.columns:
-        df["rps60"] = compute_rps(df["return_60d"])
-    else:
-        df["rps60"] = 50.0
+    if "rps60" not in df.columns or df["rps60"].isna().all():
+        if "return_60d" in df.columns:
+            df["rps60"] = compute_rps(df["return_60d"])
+        else:
+            df["rps60"] = 50.0
 
     name_map = dict(zip(master["fund_code"], master["fund_name"])) if not master.empty else {}
 

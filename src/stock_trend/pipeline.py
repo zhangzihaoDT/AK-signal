@@ -12,11 +12,13 @@ import random
 import time
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
 from src.common.paths import (
-    project_root, stock_pool_path, asset_state_path,
+    project_root, stock_universe_path, asset_state_path,
+    sw_industry_confirmation_dir,
     raw_dir as common_raw_dir, processed_dir as common_processed_dir,
     stock_trend_output_dir,
 )
@@ -24,6 +26,7 @@ from src.common.run_context import RunContext
 from src.common.manifest import write_run_manifest
 from .asset import Asset
 from .data_provider import AKShareProvider
+from .universe import UniverseItem, load_universe_items, inject_confirmation
 from . import fetch_data
 from . import indicators
 from . import portfolio
@@ -41,112 +44,6 @@ def build_logger(level: str) -> logging.Logger:
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     logger.addHandler(handler)
     return logger
-
-
-def load_stock_pool(csv_path: Path) -> pd.DataFrame:
-    df = pd.read_csv(csv_path, dtype=str).fillna("")
-    return df
-
-
-def _normalize_market(raw: str) -> str:
-    v = (raw or "").strip().upper()
-    if v in {"A", "ASHARE", "A_SHARE", "CN", "CHINA"}:
-        return "CN"
-    if v in {"HK", "HKG"}:
-        return "HK"
-    if v in {"US", "USA"}:
-        return "US"
-    return v or "CN"
-
-
-def _infer_cn_exchange(symbol: str) -> str:
-    s = (symbol or "").strip()
-    if s.startswith(("5", "6", "688", "689")):
-        return "SSE"
-    if s.startswith(("0", "1", "2", "3")):
-        return "SZSE"
-    return ""
-
-
-def _default_currency(market: str) -> str:
-    if market == "CN":
-        return "CNY"
-    if market == "HK":
-        return "HKD"
-    if market == "US":
-        return "USD"
-    return ""
-
-
-def load_assets_from_pool(csv_path: Path) -> list[dict[str, object]]:
-    df = load_stock_pool(csv_path)
-    if df.empty:
-        return []
-
-    cols = {c.lower().strip(): c for c in df.columns}
-    enabled_col = cols.get("enabled")
-    symbol_col = cols.get("symbol")
-    name_col = cols.get("name")
-    market_col = cols.get("market")
-    exchange_col = cols.get("exchange")
-    currency_col = cols.get("currency")
-    category_col = cols.get("category")
-    update_policy_col = cols.get("update_policy")
-    priority_col = cols.get("priority")
-    note_col = cols.get("note")
-
-    if symbol_col is None and "ts_code" in cols:
-        symbol_col = cols["ts_code"]
-
-    if symbol_col is None:
-        raise ValueError(f"stock pool csv missing symbol column: {csv_path} columns={list(df.columns)}")
-
-    items: list[dict[str, object]] = []
-    for _, r in df.iterrows():
-        if enabled_col:
-            enabled_raw = str(r.get(enabled_col, "")).strip().lower()
-            if enabled_raw in {"false", "0", "no", "n", "off"}:
-                continue
-        symbol = str(r.get(symbol_col, "")).strip()
-        name = str(r.get(name_col, "")).strip() if name_col else ""
-        market = _normalize_market(str(r.get(market_col, "")).strip() if market_col else "")
-
-        exchange = str(r.get(exchange_col, "")).strip() if exchange_col else ""
-        currency = str(r.get(currency_col, "")).strip() if currency_col else ""
-        category = str(r.get(category_col, "")).strip() if category_col else ""
-        update_policy = str(r.get(update_policy_col, "")).strip() if update_policy_col else ""
-        priority = str(r.get(priority_col, "")).strip() if priority_col else ""
-        note = str(r.get(note_col, "")).strip() if note_col else ""
-
-        if not name:
-            name = symbol
-
-        if not market:
-            market = "CN"
-
-        if not currency:
-            currency = _default_currency(market)
-
-        if market == "CN" and not exchange:
-            exchange = _infer_cn_exchange(symbol)
-
-        asset = Asset(
-            symbol=symbol,
-            name=name,
-            market=market,
-            exchange=exchange or None,
-            currency=currency or None,
-            category=category or None,
-        )
-        items.append(
-            {
-                "asset": asset,
-                "note": note,
-                "update_policy": (update_policy or "daily").lower(),
-                "priority": (priority or "B").upper(),
-            }
-        )
-    return items
 
 
 def calc_change(curr_score: int, prev_score: int | None, prev_available: bool) -> str:
@@ -559,6 +456,32 @@ def load_or_fetch_daily(
     raise RuntimeError("fetch failed and no cache") from last_err
 
 
+def _attach_layer_fields(
+    row: dict[str, object],
+    item: UniverseItem,
+    confirm_map: dict[str, dict[str, Any]],
+) -> None:
+    """向报告行追加 Layer ③ 分层字段与 Layer ② 行业确认信号。"""
+    row["theme"] = item.theme
+    row["theme_label"] = item.theme_label
+    row["tier"] = item.tier
+    row["tier_label"] = item.tier_label
+    row["sw_industry"] = item.sw_industry
+    confirm = confirm_map.get(item.sw_industry)
+    if confirm:
+        row["sw_industry_name"] = confirm.get("sw_industry_name", "")
+        row["sw_confirm_level"] = confirm.get("sw_confirm_level", "")
+        row["sw_drive_pattern"] = confirm.get("sw_drive_pattern", "")
+        row["sw_theme"] = confirm.get("sw_theme", "")
+        row["sw_rps15"] = confirm.get("sw_rps15")
+    else:
+        row["sw_industry_name"] = ""
+        row["sw_confirm_level"] = "无确认"
+        row["sw_drive_pattern"] = ""
+        row["sw_theme"] = ""
+        row["sw_rps15"] = None
+
+
 def analyze_asset(
     asset: Asset,
     note: str,
@@ -693,7 +616,13 @@ def run_stock_trend(
     logger = build_logger(log_level)
     report_date = date.today()
 
-    pool_items = load_assets_from_pool(stock_pool_path())
+    pool_items: list[UniverseItem] = load_universe_items(stock_universe_path())
+    if not pool_items:
+        logger.error("no assets in universe — check config/stock_universe.yaml")
+        return None, None
+
+    _, confirm_map = inject_confirmation(pool_items, sw_industry_confirmation_dir())
+
     if only_symbols:
         raw_tokens = [t.strip() for t in only_symbols.split(",") if t.strip()]
         wanted: set[tuple[str | None, str]] = set()
@@ -708,10 +637,9 @@ def run_stock_trend(
                 continue
             wanted.add((None, tok))
 
-        filtered: list[dict[str, object]] = []
+        filtered: list[UniverseItem] = []
         for item in pool_items:
-            asset = item["asset"]
-            assert isinstance(asset, Asset)
+            asset = item.asset
             if (asset.market, asset.symbol) in wanted or (None, asset.symbol) in wanted:
                 filtered.append(item)
         pool_items = filtered
@@ -753,10 +681,9 @@ def run_stock_trend(
     state_df = load_asset_state(state_path)
 
     for item in pool_items:
-        asset = item["asset"]
-        assert isinstance(asset, Asset)
-        note = str(item.get("note", "")).strip()
-        update_policy = str(item.get("update_policy", "daily")).strip().lower()
+        asset = item.asset
+        note = item.note
+        update_policy = item.update_policy
 
         if not asset.symbol or asset.symbol.strip().upper() == "TBD":
             logger.warning("skip placeholder asset: (%s,%s)", asset.market, asset.symbol)
@@ -824,6 +751,7 @@ def run_stock_trend(
                 prev_available=prev_available,
                 report_date=report_date,
             )
+            _attach_layer_fields(row, item, confirm_map)
             rows.append(row)
             charts[chart_key] = fig
         except Exception as e:
@@ -836,30 +764,30 @@ def run_stock_trend(
                 attempted_online=attempted_online,
                 latest_data_date=None,
             )
-            rows.append(
-                {
-                    "name": asset.name,
-                    "symbol": asset.symbol,
-                    "market": asset.market,
-                    "exchange": asset.exchange or "",
-                    "currency": asset.currency or "",
-                    "category": asset.category or "",
-                    "data_source": "failed",
-                    "data_freshness_days": None,
-                    "date": None,
-                    "close": None,
-                    "score": 0,
-                    "score_trend": 0,
-                    "label": "无数据",
-                    "watch_level": "",
-                    "action": "跳过",
-                    "change": "无变化",
-                    "relative_strength_20d": None,
-                    "risk_flags": "",
-                    "reason": str(e),
-                    "note": note,
-                }
-            )
+            row = {
+                "name": asset.name,
+                "symbol": asset.symbol,
+                "market": asset.market,
+                "exchange": asset.exchange or "",
+                "currency": asset.currency or "",
+                "category": asset.category or "",
+                "data_source": "failed",
+                "data_freshness_days": None,
+                "date": None,
+                "close": None,
+                "score": 0,
+                "score_trend": 0,
+                "label": "无数据",
+                "watch_level": "",
+                "action": "跳过",
+                "change": "无变化",
+                "relative_strength_20d": None,
+                "risk_flags": "",
+                "reason": str(e),
+                "note": note,
+            }
+            _attach_layer_fields(row, item, confirm_map)
+            rows.append(row)
 
         if asset.market == "CN":
             time.sleep(random.uniform(2.0, 4.0))

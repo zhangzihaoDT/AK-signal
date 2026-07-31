@@ -1,0 +1,67 @@
+# AKsignal Layer ③ — A股 AI/科技/半导体 ETF 与个股趋势 分层资产池
+#
+# 结构：theme（主题） → tier（标的层级，按优先级） → assets（标的）
+#
+# 层级语义（ARCHITECTURE.md ③）：
+#   theme_etf           主题 ETF        AI 人工智能 / 半导体 / 通信
+#   sub_industry_etf    细分行业 ETF    芯片 / 软件 / 计算机 / 云计算
+#   leader              行业龙头
+#   high_beta           高弹性标的
+#   equipment_upstream  设备与上游
+#
+# sw_industry: 关联的申万二级行业代码（用于注入 Layer ② 行业确认信号）
+#   - 属于 10 个重点行业 → 注入 strength_level / 驱动分类 / 子主题
+#   - 不在重点行业 → 报告显示「无行业确认」
+
+themes:
+  ai_tech:
+    label: "AI/科技/半导体"
+    tiers:
+      - key: theme_etf
+        label: "主题 ETF"
+        assets:
+          - {symbol: "512480", name: "半导体ETF国联安", market: CN, sw_industry: "801081.SI", note: "半导体"}
+          - {symbol: "159819", name: "人工智能ETF易方达", market: CN, sw_industry: "801104.SI", note: "人工智能"}
+          - {symbol: "515880", name: "通信ETF国泰", market: CN, sw_industry: "801102.SI", note: "通信"}
+      - key: sub_industry_etf
+        label: "细分行业 ETF"
+        assets:
+          - {symbol: "159995", name: "芯片ETF华夏", market: CN, sw_industry: "801081.SI", note: "芯片"}
+          - {symbol: "512760", name: "芯片ETF国泰", market: CN, sw_industry: "801081.SI", note: "芯片"}
+          - {symbol: "515050", name: "通信ETF华夏", market: CN, sw_industry: "801102.SI", note: "通信"}
+          - {symbol: "516510", name: "云计算ETF易方达", market: CN, sw_industry: "801104.SI", note: "云计算"}
+          - {symbol: "159732", name: "消费电子ETF华夏", market: CN, sw_industry: "801085.SI", note: "消费电子"}
+      - key: leader
+        label: "行业龙头"
+        assets:
+          - {symbol: "300308", name: "中际旭创", market: CN, sw_industry: "801102.SI", note: "光模块龙头"}
+          - {symbol: "002230", name: "科大讯飞", market: CN, sw_industry: "801104.SI", note: "AI 龙头"}
+          - {symbol: "688256", name: "寒武纪", market: CN, sw_industry: "801081.SI", note: "AI 芯片"}
+          - {symbol: "688041", name: "海光信息", market: CN, sw_industry: "801081.SI", note: "CPU/DCU"}
+      - key: high_beta
+        label: "高弹性标的"
+        assets:
+          - {symbol: "XPEV", name: "小鹏汽车", market: US, note: "智能驾驶"}
+          - {symbol: "NIO", name: "蔚来", market: US, note: "智能驾驶"}
+          - {symbol: "9660", name: "地平线", market: HK, note: "智驾芯片"}
+          - {symbol: "2498", name: "速腾聚创", market: HK, note: "激光雷达"}
+      - key: equipment_upstream
+        label: "设备与上游"
+        assets:
+          - {symbol: "603501", name: "韦尔股份", market: CN, sw_industry: "801081.SI", note: "CIS 芯片"}
+          - {symbol: "002920", name: "德赛西威", market: CN, sw_industry: "801093.SI", note: "智驾域控"}
+
+  automotive:
+    label: "汽车产业链"
+    tiers:
+      - key: oem
+        label: "整车"
+        assets:
+          - {symbol: "LI", name: "理想汽车", market: US, note: "新能源整车"}
+          - {symbol: "2015", name: "理想汽车-W", market: HK, note: "新能源整车", update_policy: weekly}
+          - {symbol: "600104", name: "上汽集团", market: CN, note: "整车集团"}
+      - key: supply
+        label: "供应链"
+        assets:
+          - {symbol: "300750", name: "宁德时代", market: CN, note: "动力电池"}
+          - {symbol: "MBLY", name: "Mobileye", market: US, note: "智驾方案"}

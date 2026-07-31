@@ -21,6 +21,14 @@ def stock_pool_path() -> Path:
     return config_dir() / "stock_pool.csv"
 
 
+def stock_universe_path() -> Path:
+    return config_dir() / "stock_universe.yaml"
+
+
+def sw_industry_confirmation_dir() -> Path:
+    return processed_dir() / "sw_industry"
+
+
 def sw_industry_rps_config_path() -> Path:
     return config_dir() / "sw_industry_rps.yaml"
 

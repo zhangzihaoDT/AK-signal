@@ -14,7 +14,17 @@ SUMMARY_COLUMN_ORDER = [
     "market",
     "exchange",
     "currency",
+    "theme",
+    "theme_label",
+    "tier",
+    "tier_label",
     "category",
+    "sw_industry",
+    "sw_industry_name",
+    "sw_confirm_level",
+    "sw_drive_pattern",
+    "sw_theme",
+    "sw_rps15",
     "data_source",
     "data_freshness_days",
     "date",
@@ -311,6 +321,8 @@ def render_compact_signal_table(summary_df: pd.DataFrame) -> str:
     df["reason_short"] = df.get("reason", "").map(_short_reason)
 
     cols = [
+        "theme_label",
+        "tier_label",
         "name",
         "symbol",
         "market",
@@ -319,6 +331,7 @@ def render_compact_signal_table(summary_df: pd.DataFrame) -> str:
         "watch_level",
         "action",
         "relative_strength_20d",
+        "sw_confirm_level",
         "data_source",
         "data_freshness_days",
         "reason_short",
@@ -384,16 +397,10 @@ def render_asset_details(summary_df: pd.DataFrame, per_stock_charts: dict[str, g
     df = reorder_summary_df(summary_df).copy()
     parts: list[str] = []
     plotly_included = False
-    df["_category"] = df["category"].fillna("").astype(str) if "category" in df.columns else ""
-    group_order = ["ai", "auto_oem", "auto_supply"]
-    group_label = {
-        "ai": "AI 板块",
-        "auto_oem": "汽车主机厂",
-        "auto_supply": "汽车供应链",
-        "consumer": "消费",
-    }
-    df["_group_rank"] = df["_category"].map({k: i for i, k in enumerate(group_order)}).fillna(999).astype(int)
-    df = df.sort_values(["_group_rank"]).drop(columns=["_group_rank"])
+    if "theme_label" not in df.columns:
+        df["theme_label"] = df.get("theme", "")
+    if "tier_label" not in df.columns:
+        df["tier_label"] = df.get("tier", "")
 
     def _render_one(r: pd.Series) -> None:
         nonlocal plotly_included
@@ -403,22 +410,29 @@ def render_asset_details(summary_df: pd.DataFrame, per_stock_charts: dict[str, g
         wl = str(r.get("watch_level", ""))
         score_trend = str(r.get("score_trend", ""))
         rs = _fmt_pct(r.get("relative_strength_20d"))
+        confirm_level = str(r.get("sw_confirm_level", "")) or ""
+        confirm_txt = f" · 行业确认:{confirm_level}" if confirm_level and confirm_level != "无确认" else ""
 
-        summary_text = f"{name} {symbol} | {wl} | score {score_trend} | RS {rs}"
+        summary_text = f"{name} {symbol} | {wl} | score {score_trend} | RS {rs}{confirm_txt}"
         parts.append("<details class='asset'>")
         parts.append(f"<summary>{escape(summary_text)}</summary>")
 
-        meta = " | ".join(
-            [
-                f"{escape(str(market))}",
-                f"{escape(str(r.get('exchange','')))}",
-                f"{escape(str(r.get('currency','')))}",
-                f"{escape(str(r.get('category','')))}",
-                f"date {escape(str(r.get('date','')))}",
-                f"fresh {escape(str(r.get('data_freshness_days','')))}d",
-                f"source {escape(str(r.get('data_source','')))}",
-            ]
-        )
+        sw_name = str(r.get("sw_industry_name", "")) or ""
+        sw_drive = str(r.get("sw_drive_pattern", "")) or ""
+        meta_items = [
+            f"{escape(str(market))}",
+            f"{escape(str(r.get('exchange','')))}",
+            f"{escape(str(r.get('currency','')))}",
+            f"{escape(str(r.get('tier_label','')))}",
+            f"date {escape(str(r.get('date','')))}",
+            f"fresh {escape(str(r.get('data_freshness_days','')))}d",
+            f"source {escape(str(r.get('data_source','')))}",
+        ]
+        if sw_name:
+            meta_items.append(f"行业 {escape(sw_name)} {escape(confirm_level)}")
+        if sw_drive:
+            meta_items.append(f"驱动 {escape(sw_drive)}")
+        meta = " | ".join(meta_items)
         parts.append(f"<div class='meta'>{meta}</div>")
 
         risk_flags = str(r.get("risk_flags", "") or "")
@@ -445,12 +459,26 @@ def render_asset_details(summary_df: pd.DataFrame, per_stock_charts: dict[str, g
 
         parts.append("</details>")
 
-    for cat, g in df.groupby("_category", dropna=False, sort=False):
-        cat = "" if cat is None else str(cat)
-        title = group_label.get(cat, cat or "未分组")
-        parts.append(f"<h3>{escape(title)}</h3>")
-        for _, r in g.iterrows():
-            _render_one(r)
+    # 按 theme → tier 分层分组（Layer ③）
+    tier_order: dict[str, int] = {
+        "theme_etf": 0, "sub_industry_etf": 1, "leader": 2,
+        "high_beta": 3, "equipment_upstream": 4,
+        "oem": 0, "supply": 1,
+    }
+    df["_theme"] = df["theme_label"].fillna("未分组")
+    df["_tier"] = df["tier_label"].fillna("未分层")
+    tier_key = df["tier"].fillna("") if "tier" in df.columns else pd.Series("", index=df.index)
+    df["_tier_rank"] = tier_key.map(tier_order).fillna(50).astype(int)
+
+    for theme, g in df.groupby("_theme", dropna=False, sort=False):
+        theme = "" if theme is None else str(theme)
+        parts.append(f"<h3>{escape(theme)}</h3>")
+        g = g.sort_values("_tier_rank")
+        for tier, gt in g.groupby("_tier", dropna=False, sort=False):
+            tier = "" if tier is None else str(tier)
+            parts.append(f"<h4>{escape(tier)}</h4>")
+            for _, r in gt.iterrows():
+                _render_one(r)
 
     return "\n".join(parts)
 
@@ -572,14 +600,3 @@ def write_daily_report(
     html_path.write_text("\n".join(parts), encoding="utf-8")
 
     return csv_path, html_path
-
-
-def save_report(summary_df: pd.DataFrame, report_dir: Path, date_str: str) -> tuple[Path, Path]:
-    try:
-        if "-" in date_str:
-            d = date.fromisoformat(date_str)
-        else:
-            d = date(int(date_str[0:4]), int(date_str[4:6]), int(date_str[6:8]))
-    except Exception:
-        raise ValueError(f"invalid date_str: {date_str}")
-    return write_daily_report(d, summary_df, per_stock_charts={}, out_dir=report_dir, portfolio_summary=None)

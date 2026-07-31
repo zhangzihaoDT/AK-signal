@@ -128,4 +128,4 @@ def test_project_root_resolves():
 
     root = project_root()
     assert (root / "src" / "stock_trend").exists()
-    assert (root / "config" / "stock_pool.csv").exists()
+    assert (root / "config" / "stock_universe.yaml").exists()

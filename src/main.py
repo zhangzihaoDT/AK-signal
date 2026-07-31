@@ -68,6 +68,12 @@ def main() -> None:
             stock_main()
             return
 
+        if cmd in ("select", "layer3"):
+            from src.selection.cli import main as selection_main
+            sys.argv = [sys.argv[0], *argv[1:]]
+            selection_main()
+            return
+
     from src.stock_trend.cli import main as stock_main
     stock_main()
 

@@ -65,7 +65,7 @@ from src.common.paths import (
 from src.common.run_context import RunContext
 from src.common.manifest import write_run_manifest, read_latest_run
 from . import data_source, master as etf_master, classifier, universe, account
-from . import heat, indicators, signal as sig_mod
+from . import heat, indicators, rotation, rotation_report, signal as sig_mod
 from . import sw_enrichment, card as card_mod
 
 
@@ -107,7 +107,6 @@ def cmd_bootstrap_core(args: argparse.Namespace) -> None:
 
     raw_dir = etf_signal_raw_dir()
     master_dir = etf_signal_master_dir()
-    whitelist_path = config_dir() / "guojin_tradable_whitelist.csv"
 
     # Step 1: Load or fetch master
     master = etf_master.load_master(master_dir)
@@ -136,9 +135,8 @@ def cmd_bootstrap_core(args: argparse.Namespace) -> None:
     cfg = {
         "max_count": getattr(args, "max_count", 300),
         "min_amount": getattr(args, "min_amount", 10_000_000),
-        "guojin_boost": True,
     }
-    core = etf_master.build_core_universe(master, whitelist_path, cfg)
+    core = etf_master.build_core_universe(master, config=cfg)
     if core.empty:
         logger.error("core universe empty")
         return
@@ -261,6 +259,20 @@ def _load_etf_raw(raw_dir: Path, code: str) -> pd.DataFrame:
     if path.exists():
         return pd.read_parquet(path)
     return pd.DataFrame()
+
+
+def _load_all_raw(master: pd.DataFrame) -> pd.DataFrame:
+    """合并全市场原始日行情。"""
+    raw_dir = etf_signal_raw_dir()
+    all_daily: list[pd.DataFrame] = []
+    for code in master["fund_code"]:
+        df = _load_etf_raw(raw_dir, code)
+        if not df.empty:
+            df["fund_code"] = code
+            all_daily.append(df)
+    if not all_daily:
+        return pd.DataFrame()
+    return pd.concat(all_daily, ignore_index=True)
 
 
 def _save_etf_raw(df: pd.DataFrame, raw_dir: Path, code: str) -> Path:
@@ -523,7 +535,7 @@ def cmd_screen(args: argparse.Namespace) -> None:
         if not df.empty:
             all_daily[code] = df
 
-    whitelist_path = config_dir() / "guojin_tradable_whitelist.csv"
+    blacklist_path = config_dir() / "guojin_tradable_blacklist.csv"
     cfg = universe.load_universe_config(config_dir())
 
     # U0 → U1
@@ -532,7 +544,7 @@ def cmd_screen(args: argparse.Namespace) -> None:
 
     # 8 道门控
     guojin_pool, gate_results = universe.screen_all(
-        u1, all_daily, raw_dir, whitelist_path, cfg,
+        u1, all_daily, raw_dir, blacklist_path, cfg,
     )
 
     print("")
@@ -640,24 +652,65 @@ def cmd_account_mapping(args: argparse.Namespace) -> None:
         return
     watchlist = pd.read_parquet(watchlist_files[0])
 
-    whitelist_path = config_dir() / "guojin_tradable_whitelist.csv"
-    account_universe = account.load_account_universe(whitelist_path)
+    whitelist_path = config_dir() / "guojin_tradable_blacklist.csv"
+    account_universe = account.load_account_blacklist(whitelist_path)
 
     mapped = account.map_watchlist_to_account(watchlist, account_universe)
 
     tradable = mapped[mapped["account_tradable"]]
     blocked = mapped[~mapped["account_tradable"]]
 
-    print(f"\n账户映射结果:")
+    print(f"\n账户映射结果（黑名单机制）:")
     print(f"  Watchlist:               {len(mapped)} 只")
-    print(f"  已验证可交易:             {len(tradable)} 只")
-    print(f"  尚未验证 (UNVERIFIED):    {len(blocked)} 只")
+    print(f"  默认可交易:               {len(tradable)} 只")
+    print(f"  黑名单排除 (VERIFIED_UNTRADABLE): {len(blocked)} 只")
     if not blocked.empty:
-        for _, row in blocked.head(5).iterrows():
+        for _, row in blocked.head(10).iterrows():
             print(f"    {row['fund_name']}: {row['account_status_label']}")
 
     mapped.to_parquet(signals_dir / f"account_candidates_{_today_str()}.parquet", index=False)
     logger.info("account candidates saved")
+
+
+def cmd_account_blacklist(args: argparse.Namespace) -> None:
+    """维护国金账户不可交易黑名单（add / remove / list）。"""
+    logger = build_logger(args.log_level)
+    blacklist_path = config_dir() / "guojin_tradable_blacklist.csv"
+    action = args.blacklist_action
+
+    if action == "list":
+        blacklist = account.load_account_blacklist(blacklist_path)
+        if blacklist.empty:
+            print("\n黑名单为空 — 当前全部标的默认可交易")
+            return
+        print(f"\n国金不可交易黑名单（{len(blacklist)} 只）:")
+        print(f"{'代码':<8} {'日期':<12} {'方式':<20} {'原因'}")
+        print("-" * 70)
+        for _, row in blacklist.iterrows():
+            print(
+                f"{row['fund_code']:<8} {str(row.get('verified_date', '')):<12} "
+                f"{str(row.get('verification_method', '')):<20} "
+                f"{str(row.get('verification_note', ''))}"
+            )
+        return
+
+    code = args.code
+    if not code:
+        logger.error("--code required for %s", action)
+        return
+
+    if action == "add":
+        account.add_to_blacklist(
+            code, blacklist_path,
+            reason=args.reason or "",
+            method=args.method or "order_rejected",
+        )
+    elif action == "remove":
+        account.remove_from_blacklist(code, blacklist_path)
+
+    # 输出最新黑名单
+    blacklist = account.load_account_blacklist(blacklist_path)
+    logger.info("blacklist now: %d entries", len(blacklist))
 
 
 # ---------------------------------------------------------------------------
@@ -721,6 +774,7 @@ def cmd_card(args: argparse.Namespace) -> None:
 
         trend_state = row.get("trend_state", "OUT_OF_SCOPE")
         rps15 = row.get("rps15", 0.0)
+        rps20 = row.get("rps20", 0.0)
         rps60 = row.get("rps60", 0.0)
         return_5d = row.get("return_5d", 0.0)
         return_20d = row.get("return_20d", 0.0)
@@ -747,7 +801,7 @@ def cmd_card(args: argparse.Namespace) -> None:
             master_row=row,
             trend_info=card_mod.TrendInfo(
                 trend_state=trend_state,
-                rps15=rps15, rps60=rps60,
+                rps15=rps15, rps20=rps20, rps60=rps60,
                 return_5d=return_5d, return_20d=return_20d,
                 trend_change=trend_change, amount_change=amount_change,
             ),
@@ -778,274 +832,6 @@ def cmd_card(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 # Pipeline — 完整发现链路
 # ---------------------------------------------------------------------------
-
-def _compute_bucket_heat(daily_df: pd.DataFrame, master: pd.DataFrame) -> pd.DataFrame:
-    """按资产桶计算热度分布。"""
-    if daily_df.empty or master.empty or "fund_code" not in daily_df.columns or "asset_bucket" not in master.columns:
-        return pd.DataFrame()
-    merged = daily_df.merge(
-        master[["fund_code", "asset_bucket"]].drop_duplicates(subset=["fund_code"]),
-        on="fund_code", how="inner",
-    )
-    merged = merged[merged["asset_bucket"].notna() & (merged["asset_bucket"] != "")]
-    if merged.empty:
-        return pd.DataFrame()
-    rows = []
-    for bucket, group in merged.groupby("asset_bucket"):
-        rps = group["rps15"].dropna()
-        if len(rps) < 2:
-            continue
-        strong_ratio = (rps >= 80).mean()
-        median_rps = rps.median()
-        asset_class = "权益"
-        if bucket in ("commodity_gold", "commodity_futures"):
-            asset_class = "商品"
-        elif bucket in ("bond_treasury", "bond_credit", "bond_convertible"):
-            asset_class = "债券"
-        elif bucket in ("money_market",):
-            asset_class = "现金"
-        rows.append({
-            "asset_class": asset_class, "asset_bucket": bucket,
-            "bucket_label": bucket, "etf_count": int(group["fund_code"].nunique()),
-            "strong_ratio": round(strong_ratio, 4), "median_rps": round(median_rps, 2),
-        })
-    return pd.DataFrame(rows)
-
-
-def _write_html_report(
-    daily_df: pd.DataFrame, master: pd.DataFrame, heat_map: pd.DataFrame,
-    output_dir: Path, date_str: str, logger: logging.Logger | None = None,
-) -> None:
-    """生成 funnel_report_{date}.html，结构与现有 funnel_report 一致。"""
-    logger = logger or logging.getLogger("etf_signal")
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    html_path = output_dir / f"funnel_report_{date_str}.html"
-    signals_dir = etf_signal_signals_dir()
-
-    # ── 加载数据 ─────────────────────────────────────────────────────
-    total_master = len(master) if not master.empty else 0
-    total_indicators = len(daily_df) if not daily_df.empty else 0
-
-    wl = pd.DataFrame()
-    wl_files = sorted(signals_dir.glob(f"watchlist_{date_str}.parquet"))
-    if wl_files:
-        wl = pd.read_parquet(wl_files[0])
-        if not master.empty and "asset_bucket" in master.columns:
-            wl = wl.merge(master[["fund_code", "asset_bucket"]].drop_duplicates(subset=["fund_code"]), on="fund_code", how="left")
-            wl["asset_bucket"] = wl["asset_bucket"].fillna("")
-    active = wl[wl["trend_state"] != "OUT_OF_SCOPE"] if not wl.empty else pd.DataFrame()
-
-    ac = pd.DataFrame()
-    ac_files = sorted(signals_dir.glob(f"account_candidates_{date_str}.parquet"))
-    if ac_files:
-        ac = pd.read_parquet(ac_files[0])
-        if not master.empty and "asset_bucket" in master.columns:
-            ac = ac.merge(master[["fund_code", "asset_bucket"]].drop_duplicates(subset=["fund_code"]), on="fund_code", how="left")
-            ac["asset_bucket"] = ac["asset_bucket"].fillna("")
-    tradable = ac[ac.get("account_tradable", False)] if not ac.empty else pd.DataFrame()
-
-    cards_path = output_dir / f"candidate_cards_{date_str}.json"
-    cards_list: list[dict] = []
-    if cards_path.exists():
-        raw = json.loads(cards_path.read_text(encoding="utf-8"))
-        cards_list = raw.get("cards", raw) if isinstance(raw, dict) else raw
-    complete_cards = sum(1 for c in cards_list if c.get("card_status") == "complete" or c.get("card_status") == True)
-    incomplete_cards = sum(1 for c in cards_list if c.get("card_status") == "incomplete")
-    flagged_cards = sum(1 for c in cards_list if c.get("card_status") == "flagged")
-
-    n_active = len(active)
-    n_tradable = len(tradable)
-    n_candidates = n_tradable
-    total_wl = len(wl)
-
-    # ── Funnel 百分比 ───────────────────────────────────────────────
-    def funnel_pct(n: int) -> str:
-        p = n / total_master * 100 if total_master else 0
-        return f"{n}（{p:.0f}%）"
-
-    # ── CSS/品牌 ────────────────────────────────────────────────────
-    CSS = """
-:root {
-  --zh-blue: #174A7C; --zh-deep-blue: #06213D; --zh-cyan: #7ECDEB;
-  --zh-light-blue: #DDEFF8; --zh-cream: #FFF9EF; --zh-raccoon-gold: #D79A36;
-  --zh-brown: #7A4A24; --zh-text: #1F2D3D; --zh-muted: #6B7C8F;
-  --zh-card: #FFFFFF; --zh-border: #E8EDF2;
-}
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans SC",sans-serif;background:var(--zh-cream);color:var(--zh-text);line-height:1.6;padding:40px 24px}
-.container{max-width:960px;margin:0 auto}
-h1{font-size:28px;font-weight:600;color:var(--zh-deep-blue);margin-bottom:4px}
-.subtitle{font-size:14px;color:var(--zh-muted);margin-bottom:32px}
-.section{background:var(--zh-card);border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.06);padding:28px 32px;margin-bottom:24px}
-.section h2{font-size:18px;font-weight:600;color:var(--zh-blue);margin-bottom:20px;padding-bottom:10px;border-bottom:2px solid var(--zh-light-blue)}
-.section h3{font-size:15px;font-weight:600;color:var(--zh-text);margin:18px 0 10px}
-.funnel{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:20px 0 10px}
-.funnel-row{display:flex;align-items:center;gap:14px;width:100%;border-radius:8px;padding:12px 20px;transition:all .15s}
-.funnel-row:hover{transform:scale(1.01)}
-.funnel-label{font-size:13px;font-weight:500;color:var(--zh-muted);min-width:110px;text-align:right}
-.funnel-bar{height:36px;border-radius:6px;display:flex;align-items:center;justify-content:flex-end;padding:0 16px;font-weight:600;font-size:15px}
-.funnel-count{min-width:60px;font-size:14px;font-weight:600}
-.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0}
-.metric-card{background:var(--zh-light-blue);border-radius:8px;padding:14px 16px;text-align:center}
-.metric-value{font-size:24px;font-weight:700;color:var(--zh-blue)}
-.metric-label{font-size:12px;color:var(--zh-muted);margin-top:2px}
-table{width:100%;border-collapse:collapse;font-size:13px;margin:12px 0}
-th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--zh-border)}
-th{color:var(--zh-muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
-tr:hover td{background:#F8FAFC}
-.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}
-.tag-buy{background:#E8F5E9;color:#2E7D32}
-.tag-watch{background:#FFF3E0;color:#E65100}
-.tag-strong{background:#E3F2FD;color:#1565C0}
-.tag-oos{background:#F5F5F5;color:#9E9E9E}
-.tag-complete{background:#E8F5E9;color:#2E7D32}
-.tag-incomplete{background:#FFF8E1;color:#F57F17}
-.tag-flagged{background:#FFEBEE;color:#C62828}
-.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-@media(max-width:640px){.grid-2{grid-template-columns:1fr}}
-.insight{background:#F8FAFC;border-left:4px solid var(--zh-cyan);border-radius:6px;padding:14px 18px;margin:12px 0;font-size:13px;color:var(--zh-text)}
-.insight strong{color:var(--zh-blue)}
-hr{border:none;border-top:1px solid var(--zh-border);margin:24px 0}
-p{font-size:14px;color:var(--zh-muted);margin-bottom:12px}
-ul{margin:4px 0 0 16px;padding:0;font-size:13px;color:var(--zh-text);line-height:1.7}
-"""
-
-    parts = [
-        "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>",
-        f"<title>ETF 趋势发现漏斗 · {date_str}</title>",
-        f"<style>{CSS}</style></head><body><div class='container'>",
-        f"<h1>ETF 趋势发现漏斗</h1>",
-        f"<div class='subtitle'>报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str}</div>",
-    ]
-
-    # ══════════════════ SECTION 1: FUNNEL ══════════════════
-    parts.append('<div class="section"><h2>一、发现漏斗</h2>')
-    parts.append("<p>ETF 趋势发现系统是一个逐层收敛的信号漏斗。每一层设定明确的筛选规则，将上一层的输出作为本层输入。</p>")
-
-    funnel_colors = ["#174A7C", "#1E6BA8", "#4A90C4", "#7ECDEB", "#B0DCF5"]
-    funnel_labels = ["① Master", "② 质量门控", "③ 趋势信号", "④ 账户映射", "⑤ 候选卡片"]
-    funnel_counts = [total_master, total_indicators, n_active, n_tradable, n_candidates]
-    funnel_notes = [str(total_master), f"{total_indicators}（{total_indicators/total_master*100:.0f}%）",
-                   f"{n_active}（{n_active/total_master*100:.0f}%）",
-                   f"{n_tradable}（{n_tradable/total_master*100:.0f}%）",
-                   f"{n_candidates}（{n_candidates/total_master*100:.0f}%）"]
-
-    parts.append('<div class="funnel">')
-    max_w = funnel_counts[0] or 1
-    for i in range(5):
-        w = funnel_counts[i] / max_w * 100 if funnel_counts[i] else 0
-        parts.append(
-            f'<div class="funnel-row">'
-            f'<div class="funnel-label">{funnel_labels[i]}</div>'
-            f'<div class="funnel-bar" style="width:{max(w,1)}%;background:{funnel_colors[i]};color:#fff;font-size:{max(14,22-w/8):.0f}px;">{funnel_notes[i]}</div>'
-            f'<div class="funnel-count" style="color:{funnel_colors[i]};">{funnel_counts[i]}</div>'
-            f'</div>')
-    parts.append('</div>')
-
-    metric_items = [
-        ("metrics", [
-            (str(n_active), "活跃 Watchlist"),
-            (str(n_tradable), "国金可交易"),
-            (str(len(cards_list)), "候选卡片"),
-            (str(flagged_cards), "数据异常(flagged)"),
-        ]),
-    ]
-    parts.append('<div class="metrics">')
-    for val, lbl in metric_items[0][1]:
-        parts.append(f'<div class="metric-card"><div class="metric-value">{val}</div><div class="metric-label">{lbl}</div></div>')
-    parts.append('</div>')
-
-    parts.append('</div>')
-
-    # ══════════════════ SECTION 2: WATCHLIST ══════════════════
-    parts.append('<div class="section"><h2>二、Watchlist 解读</h2>')
-
-    # 趋势状态分布
-    if not wl.empty:
-        parts.append("<h3>趋势状态分布</h3>")
-        state_counts = wl["trend_state"].value_counts()
-        state_labels = {"BUY_CANDIDATE": ("买入候选", "tag-buy"),
-                        "STRONG_WATCH": ("强势关注", "tag-strong"),
-                        "WATCH": ("观察", "tag-watch"),
-                        "OUT_OF_SCOPE": ("范围外", "tag-oos")}
-        parts.append("<table><tr><th>趋势状态</th><th>数量</th><th>占比</th></tr>")
-        for state, cnt in state_counts.items():
-            lbl, tag = state_labels.get(state, (state, ""))
-            tag_html = f'<span class="tag {tag}">{lbl}</span>' if tag else lbl
-            parts.append(f"<tr><td>{tag_html}</td><td>{cnt}</td><td>{cnt/len(wl)*100:.1f}%</td></tr>")
-        parts.append("</table>")
-
-        # RPS60 分布
-        if "rps60" in wl.columns:
-            parts.append("<h3>活跃标的 RPS60 分布</h3>")
-            parts.append("<table><tr><th>RPS60 区间</th><th>数量</th><th>占比</th></tr>")
-            bins = [(0, 40), (40, 60), (60, 80), (80, 95), (95, 101)]
-            bin_labels = ["0-40", "40-60", "60-80", "80-95", "95-100"]
-            for (lo, hi), lbl in zip(bins, bin_labels):
-                cnt = ((active["rps60"] >= lo) & (active["rps60"] < hi)).sum()
-                parts.append(f"<tr><td>{lbl}</td><td>{cnt}</td><td>{cnt/len(active)*100:.1f}%</td></tr>")
-            parts.append("</table>")
-
-        # 资产类别分布
-        if "asset_bucket" in wl.columns:
-            parts.append("<h3>活跃标的资产类别分布</h3>")
-            bucket_counts = wl[wl["trend_state"] != "OUT_OF_SCOPE"]["asset_bucket"].value_counts()
-            parts.append("<table><tr><th>资产类别</th><th>数量</th><th>占比</th></tr>")
-            bucket_labels = {"overseas_equity": "海外权益", "industry": "行业主题",
-                             "factor_style": "因子/风格", "broad_market": "宽基",
-                             "commodity_gold": "商品黄金", "money_market": "货币/理财",
-                             "commodity_futures": "商品期货", "bond_treasury": "利率债",
-                             "bond_credit": "信用债", "bond_convertible": "可转债"}
-            for bucket, cnt in bucket_counts.items():
-                lbl = bucket_labels.get(bucket, bucket or "未分类")
-                parts.append(f"<tr><td>{lbl}</td><td>{cnt}</td><td>{cnt/len(active)*100:.1f}%</td></tr>")
-            parts.append("</table>")
-
-    parts.append('</div>')
-
-    # ══════════════════ SECTION 3: 候选卡片 ══════════════════
-    parts.append('<div class="section"><h2>三、候选卡片解读</h2>')
-
-    parts.append('<div class="metrics">')
-    parts.append(f'<div class="metric-card"><div class="metric-value">{complete_cards}</div><div class="metric-label">完成 (complete)</div></div>')
-    parts.append(f'<div class="metric-card"><div class="metric-value">{incomplete_cards}</div><div class="metric-label">待完善 (incomplete)</div></div>')
-    parts.append(f'<div class="metric-card"><div class="metric-value">{flagged_cards}</div><div class="metric-label">需审查 (flagged)</div></div>')
-    parts.append('</div>')
-
-    # BUY_CANDIDATE 卡片列表
-    buy_cards = [c for c in cards_list if c.get("trend", {}).get("trend_state") == "BUY_CANDIDATE"]
-    if buy_cards:
-        parts.append(f"<h3>买入候选（BUY_CANDIDATE，共 {len(buy_cards)} 只）</h3>")
-        parts.append("<table><tr><th>代码</th><th>名称</th><th>RPS15</th><th>RPS60</th><th>卡片状态</th></tr>")
-        for c in buy_cards:
-            status = c.get("card_status", "")
-            tag_cls = {"complete": "tag-complete", "incomplete": "tag-incomplete", "flagged": "tag-flagged"}.get(status, "")
-            base = c.get("base_info", {})
-            trend = c.get("trend", {})
-            parts.append(
-                f"<tr><td>{base.get('code','')}</td><td>{base.get('name','')}</td>"
-                f"<td>{trend.get('rps15',0):.1f}</td><td>{trend.get('rps60',0):.1f}</td>"
-                f"<td><span class='tag {tag_cls}'>{status}</span></td></tr>")
-        parts.append("</table>")
-
-    # 可交易池资产构成
-    if not ac.empty and "asset_bucket" in ac.columns:
-        parts.append("<h3>可交易池资产构成</h3>")
-        bucket_counts = ac["asset_bucket"].value_counts()
-        parts.append("<table><tr><th>资产类别</th><th>数量</th></tr>")
-        for bucket, cnt in bucket_counts.items():
-            parts.append(f"<tr><td>{bucket or '未分类'}</td><td>{cnt}</td></tr>")
-        parts.append("</table>")
-
-    parts.append('</div>')
-
-    # ── Footer ──
-    parts.append(f'<hr><div style="text-align:center;font-size:12px;color:var(--zh-muted);padding:20px 0">AKsignal · ETF 趋势发现系统 · 报告自动生成于 {now_str}</div>')
-    parts.append("</div></body></html>")
-
-    html_path.write_text("\n".join(parts), encoding="utf-8")
-    logger.info("  html: %s", html_path)
-
 
 def cmd_pipeline(args: argparse.Namespace) -> None:
     logger = build_logger(args.log_level)
@@ -1086,12 +872,9 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
     master_dir = etf_signal_master_dir()
     daily_dir = etf_signal_daily_dir()
     master = etf_master.load_master(master_dir)
-    daily_df = pd.read_parquet(indicators_path)
 
-    # 4a: 热度地图
-    heat_map = _compute_bucket_heat(daily_df, master)
-
-    # 4b: 活跃 watchlist CSV
+    # 4a: 活跃 watchlist CSV
+    wl = pd.DataFrame()
     watchlist_files = sorted(signals_dir.glob(f"watchlist_{date_str}.parquet"))
     if not watchlist_files:
         watchlist_files = sorted(signals_dir.glob("watchlist_*.parquet"), reverse=True)
@@ -1101,8 +884,50 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
         if not active.empty:
             active.to_csv(output_dir / f"watchlist_active_{date_str}.csv", index=False, encoding="utf-8-sig")
 
-    # 4c: 合并 HTML
-    _write_html_report(daily_df, master, heat_map, output_dir, date_str, logger=logger)
+    # 4b: Layer ① A股全市场 ETF 轮动报告
+    rotation_df = pd.DataFrame()
+    rotation_path = daily_dir / f"rotation_{date_str}.parquet"
+    if rotation_path.exists():
+        rotation_df = pd.read_parquet(rotation_path)
+    else:
+        logger.warning("rotation_%s.parquet not found — recomputing from raw", date_str)
+        combined = _load_all_raw(master)
+        if not combined.empty:
+            rotation_df = rotation.compute_rotation_metrics(combined, master)
+
+    if not rotation_df.empty:
+        # 合并 watchlist 趋势状态
+        if not wl.empty and "trend_state" in wl.columns:
+            rotation_df = rotation_df.merge(
+                wl[["fund_code", "trend_state"]].drop_duplicates(subset=["fund_code"]),
+                on="fund_code", how="left",
+            )
+
+        market = rotation.market_summary(rotation_df)
+        bucket_table = rotation.build_bucket_table(rotation_df)
+        focus = rotation.focus_group(rotation_df, market)
+        regime = rotation.assess_market_regime(bucket_table)
+
+        cards_path = output_dir / f"candidate_cards_{date_str}.json"
+        cards_list: list[dict] = []
+        if cards_path.exists():
+            raw = json.loads(cards_path.read_text(encoding="utf-8"))
+            cards_list = raw.get("cards", raw) if isinstance(raw, dict) else raw
+
+        # 国金可交易池（来自 account_candidates）
+        account_df = pd.DataFrame()
+        ac_files = sorted(signals_dir.glob(f"account_candidates_{date_str}.parquet"))
+        if ac_files:
+            account_df = pd.read_parquet(ac_files[0])
+
+        rotation_report.render_rotation_report(
+            rotation_df, bucket_table, market, focus, regime,
+            wl, cards_list, output_dir, date_str,
+            n_indicators=len(wl),
+            account_candidates=account_df,
+        )
+    else:
+        logger.error("rotation metrics empty — skip rotation report")
 
     output_dur = time.monotonic() - t0
 
@@ -1125,7 +950,6 @@ def cmd_calculate(args: argparse.Namespace) -> None:
     logger = build_logger(args.log_level)
     raw_dir = etf_signal_raw_dir()
     master_dir = etf_signal_master_dir()
-    signals_dir = etf_signal_signals_dir()
     daily_dir = etf_signal_daily_dir()
     explicit_date = getattr(args, "date", None)
 
@@ -1153,11 +977,35 @@ def cmd_calculate(args: argparse.Namespace) -> None:
     indicators_df = indicators.compute_indicators(combined)
     logger.info("indicators computed: %d rows", len(indicators_df))
 
-    # 添加全市场横截面 RPS
-    if "return" in indicators_df.columns:
-        indicators_df["rps15"] = indicators_df["return"].rank(ascending=True, pct=True) * 100
-    if "return_60d" in indicators_df.columns:
-        indicators_df["rps60"] = indicators_df["return_60d"].rank(ascending=True, pct=True) * 100
+    # ── 全市场横截面 RPS（真实口径：rps15=15日收益百分位, rps20=20日, rps60=60日）──
+    rotation_df = rotation.compute_rotation_metrics(combined, master)
+    if not rotation_df.empty:
+        rps_cols = [c for c in ["rps15", "rps20", "rps60", "rank15", "rank15_prev5",
+                                "rank_change_5d"] if c in rotation_df.columns]
+        indicators_df = indicators_df.merge(
+            rotation_df[["fund_code"] + rps_cols].drop_duplicates(subset=["fund_code"]),
+            on="fund_code", how="left",
+        )
+        logger.info(
+            "cross-sectional RPS merged: rps15 median=%.1f, rank_change_5d available=%d",
+            indicators_df["rps15"].median() if indicators_df["rps15"].notna().any() else float("nan"),
+            int(indicators_df["rank_change_5d"].notna().sum()),
+        )
+
+        # 保存 Layer ① 轮动数据产物
+        daily_dir.mkdir(parents=True, exist_ok=True)
+        rotation_path = daily_dir / f"rotation_{_today_str()}.parquet"
+        rotation_df.to_parquet(rotation_path, index=False)
+        logger.info("rotation saved: %d ETFs -> %s", len(rotation_df), rotation_path)
+    else:
+        # 兜底：指标缺失时按现有字段回退计算
+        if "return_15d" in indicators_df.columns:
+            indicators_df["rps15"] = indicators_df["return_15d"].rank(ascending=True, pct=True) * 100
+        if "return_20d" in indicators_df.columns:
+            indicators_df["rps20"] = indicators_df["return_20d"].rank(ascending=True, pct=True) * 100
+        if "return_60d" in indicators_df.columns:
+            indicators_df["rps60"] = indicators_df["return_60d"].rank(ascending=True, pct=True) * 100
+        logger.warning("rotation metrics empty — fallback to per-date RPS")
 
     # 标记 rps60 验收门控状态
     rps60_nunique = indicators_df["rps60"].nunique(dropna=True) if "rps60" in indicators_df.columns else 0
@@ -1734,6 +1582,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_account = sub.add_parser("account", help="映射 trend_watchlist 至国金账户可交易池")
     p_account.add_argument("--log-level", default="INFO")
 
+    p_acct_bl = sub.add_parser("account-blacklist", help="维护国金不可交易黑名单（add/remove/list）")
+    p_acct_bl.add_argument("blacklist_action", choices=["add", "remove", "list"], help="add=加入黑名单 / remove=移除 / list=查看")
+    p_acct_bl.add_argument("--code", default="", help="ETF 代码")
+    p_acct_bl.add_argument("--reason", default="", help="不可交易原因（如：沪深账户不支持）")
+    p_acct_bl.add_argument("--method", default="order_rejected", help="确认方式（默认 order_rejected 下单失败）")
+    p_acct_bl.add_argument("--log-level", default="INFO")
+
     p_card = sub.add_parser("card", help="生成 ETF 候选信息卡片")
     p_card.add_argument("--log-level", default="INFO")
 
@@ -1776,6 +1631,7 @@ def main() -> None:
         "screen": cmd_screen,
         "watchlist": cmd_watchlist,
         "account": cmd_account_mapping,
+        "account-blacklist": cmd_account_blacklist,
         "card": cmd_card,
         "pipeline": cmd_pipeline,
         "calculate": cmd_calculate,

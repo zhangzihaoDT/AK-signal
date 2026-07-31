@@ -15,10 +15,10 @@ import pytest
 from src.common.paths import project_root
 from src.stock_trend.pipeline import (
     run_stock_trend,
-    load_assets_from_pool,
     load_asset_state,
     build_logger,
 )
+from src.stock_trend.universe import load_universe_items
 
 from src.stock_trend.cli import build_arg_parser
 from src.main import SW_INDUSTRY_COMMANDS, main as main_router
@@ -27,16 +27,17 @@ from src.main import SW_INDUSTRY_COMMANDS, main as main_router
 def test_project_root_resolves_to_akignal():
     root = project_root()
     assert (root / "src" / "stock_trend").is_dir()
-    assert (root / "config" / "stock_pool.csv").is_file()
+    assert (root / "config" / "stock_universe.yaml").is_file()
 
 
 def test_load_stock_pool_has_assets():
     root = project_root()
-    pool_path = root / "config" / "stock_pool.csv"
-    items = load_assets_from_pool(pool_path)
-    assert len(items) > 0, "stock_pool.csv should contain at least one asset"
-    symbols = {item["asset"].symbol for item in items}
-    assert "002230" in symbols, "Expected 科大讯飞 in stock pool"
+    universe_path = root / "config" / "stock_universe.yaml"
+    items = load_universe_items(universe_path)
+    assert len(items) > 0, "stock_universe.yaml should contain at least one asset"
+    symbols = {item.asset.symbol for item in items}
+    assert "002230" in symbols, "Expected 科大讯飞 in universe"
+    assert "300308" in symbols, "Expected 中际旭创 in universe"
 
 
 def test_cli_parser_defaults():
@@ -120,10 +121,16 @@ def test_offline_smoke_with_mock_data(tmp_path):
     (data_dir / "processed").mkdir(parents=True, exist_ok=True)
     (data_dir / "reports").mkdir(parents=True, exist_ok=True)
 
-    stock_pool = config_dir / "stock_pool.csv"
+    stock_pool = config_dir / "stock_universe.yaml"
     stock_pool.write_text(
-        "symbol,name,market,exchange,currency,category,enabled\n"
-        "000001,平安银行,CN,SZSE,CNY,bank,TRUE\n"
+        "themes:\n"
+        "  test:\n"
+        "    label: 测试主题\n"
+        "    tiers:\n"
+        "      - key: leader\n"
+        "        label: 龙头\n"
+        "        assets:\n"
+        "          - {symbol: \"000001\", name: 平安银行, market: CN, exchange: SZSE, currency: CNY}\n"
     )
 
     dates = pd.date_range("2026-01-01", periods=60, freq="B")

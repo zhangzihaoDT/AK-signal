@@ -1,37 +1,37 @@
 """
-国金账户标的映射
+国金账户标的映射（黑名单机制）
 
 职责：
-  - 维护国金账户可交易标的 Universe（三态：已验证可交易 / 已验证不可交易 / 尚未验证）
+  - 维护国金账户不可交易标的黑名单
   - 判断趋势 Watchlist 中的 ETF 能否通过当前账户实际交易
-  - 保留未通过原因和验证记录
+  - 默认假设全部可交易，仅在实际交易中发现无法交易后加入黑名单
+  - 黑名单条目记录确认日期与原因，供实战维护追溯
 
-账户状态三态：
-  VERIFIED_TRADABLE    人工在国金客户端搜索确认可交易
-  VERIFIED_UNTRADABLE  人工确认不可交易
-  UNVERIFIED           尚未在国金客户端验证
+账户状态（两态）：
+  TRADABLE             默认可交易（不在黑名单）
+  VERIFIED_UNTRADABLE  已确认不可交易（黑名单）
 
 核心逻辑：
-  actionable_watchlist = trend_watchlist ∩ VERIFIED_TRADABLE
+  actionable_watchlist = trend_watchlist - VERIFIED_UNTRADABLE
 
-P0-B 交付物
+维护方式：
+  实战中遇到无法交易（下单失败、券商不支持、权限不足等）→
+  `python src/main.py etf account-blacklist add <code> --reason "..."` 加入黑名单
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
 logger = logging.getLogger("etf_signal.account")
 
 ACCOUNT_STATUS = {
-    "UNVERIFIED": "尚未在国金验证",
-    "VERIFIED_TRADABLE": "国金可交易",
-    "VERIFIED_UNTRADABLE": "国金不可交易",
+    "TRADABLE": "默认可交易",
+    "VERIFIED_UNTRADABLE": "国金不可交易（黑名单）",
 }
 
 REASON_CODES = {
@@ -43,72 +43,139 @@ REASON_CODES = {
     "PREMIUM_TOO_HIGH": "溢价过高",
 }
 
+BLACKLIST_COLUMNS = [
+    "fund_code", "exchange", "broker", "account_status",
+    "verified_date", "verification_method", "verification_note",
+]
 
-def load_account_universe(whitelist_path: Path) -> pd.DataFrame:
-    """加载国金账户可交易标的 Universe。
 
-    白名单由人工在国金客户端实际搜索后维护。
-    CSV 需含 account_status 列，三态：
-      VERIFIED_TRADABLE / VERIFIED_UNTRADABLE / UNVERIFIED
+def load_account_blacklist(blacklist_path: Path) -> pd.DataFrame:
+    """加载国金账户不可交易黑名单。
+
+    黑名单由实战中确认无法交易后维护。
+    CSV 列：fund_code, exchange, broker, account_status, verified_date,
+            verification_method, verification_note
+    account_status 恒为 VERIFIED_UNTRADABLE。
 
     Returns:
-        DataFrame: fund_code, fund_name, exchange, account_status, verified_date, verification_method, verification_note
+        DataFrame: fund_code, exchange, broker, account_status, verified_date,
+                   verification_method, verification_note
     """
-    if not whitelist_path.exists():
-        logger.warning("whitelist not found at %s", whitelist_path)
+    if not blacklist_path.exists():
+        logger.warning("blacklist not found at %s", blacklist_path)
         return pd.DataFrame()
 
-    df = pd.read_csv(whitelist_path, dtype={"fund_code": str})
-    if "account_status" not in df.columns:
-        if "tradable" in df.columns:
-            df["account_status"] = df["tradable"].apply(
-                lambda x: "VERIFIED_TRADABLE" if str(x).upper() == "TRUE" else "UNVERIFIED"
-            )
-        else:
-            df["account_status"] = "UNVERIFIED"
-    return df
+    df = pd.read_csv(blacklist_path, dtype={"fund_code": str})
+    if "fund_code" not in df.columns:
+        return pd.DataFrame()
+
+    df["fund_code"] = df["fund_code"].astype(str).str.strip()
+    df["account_status"] = "VERIFIED_UNTRADABLE"
+    for col in BLACKLIST_COLUMNS:
+        if col not in df.columns:
+            df[col] = ""
+    return df[BLACKLIST_COLUMNS]
+
+
+def save_account_blacklist(blacklist: pd.DataFrame, blacklist_path: Path) -> Path:
+    """写回黑名单 CSV（追加新条目）。"""
+    blacklist_path.parent.mkdir(parents=True, exist_ok=True)
+    blacklist = blacklist[BLACKLIST_COLUMNS]
+    blacklist.to_csv(blacklist_path, index=False, encoding="utf-8-sig")
+    return blacklist_path
+
+
+def add_to_blacklist(
+    fund_code: str,
+    blacklist_path: Path,
+    reason: str = "",
+    method: str = "order_rejected",
+    exchange: str = "",
+    broker: str = "guojin",
+) -> Path:
+    """向黑名单添加一个不可交易标的（幂等）。
+
+    Args:
+        fund_code: ETF 代码
+        blacklist_path: 黑名单 CSV 路径
+        reason: 不可交易原因
+        method: 确认方式（默认 order_rejected 实战下单失败）
+        exchange: 交易所（可选）
+        broker: 券商（默认 guojin）
+
+    Returns:
+        黑名单 CSV 路径
+    """
+    blacklist = load_account_blacklist(blacklist_path)
+    if fund_code in set(blacklist["fund_code"]):
+        logger.info("already in blacklist: %s", fund_code)
+        return blacklist_path
+
+    row = pd.DataFrame([{
+        "fund_code": fund_code,
+        "exchange": exchange,
+        "broker": broker,
+        "account_status": "VERIFIED_UNTRADABLE",
+        "verified_date": date.today().isoformat(),
+        "verification_method": method,
+        "verification_note": reason,
+    }])
+    blacklist = pd.concat([blacklist, row], ignore_index=True)
+    save_account_blacklist(blacklist, blacklist_path)
+    logger.info("blacklist +%s: %s", fund_code, reason or method)
+    return blacklist_path
+
+
+def remove_from_blacklist(fund_code: str, blacklist_path: Path) -> Path:
+    """从黑名单移除（恢复默认可交易）。"""
+    blacklist = load_account_blacklist(blacklist_path)
+    mask = blacklist["fund_code"] != fund_code
+    removed = len(blacklist) - mask.sum()
+    if removed == 0:
+        logger.info("not in blacklist: %s", fund_code)
+        return blacklist_path
+    save_account_blacklist(blacklist[mask].reset_index(drop=True), blacklist_path)
+    logger.info("blacklist -%s (%d removed)", fund_code, removed)
+    return blacklist_path
 
 
 def map_watchlist_to_account(
     trend_watchlist: pd.DataFrame,
-    account_universe: pd.DataFrame,
+    account_blacklist: pd.DataFrame,
 ) -> pd.DataFrame:
-    """将趋势 Watchlist 映射到国金账户可交易池。
+    """将趋势 Watchlist 映射到国金账户可交易池（黑名单机制）。
 
-    计算 actionable_watchlist = trend_watchlist ∩ VERIFIED_TRADABLE。
+    默认全部可交易，仅黑名单中的标的标记为不可交易。
 
     Args:
         trend_watchlist: 趋势关注池（至少含 fund_code）
-        account_universe: 国金账户可交易 Universe
+        account_blacklist: 国金账户不可交易黑名单
 
     Returns:
         DataFrame，新增字段：
-        - account_status: VERIFIED_TRADABLE / VERIFIED_UNTRADABLE / UNVERIFIED
+        - account_status: TRADABLE / VERIFIED_UNTRADABLE
         - account_status_label: 中文说明
-        - account_tradable: bool（仅 VERIFIED_TRADABLE 为 True）
+        - account_tradable: bool（仅 TRADABLE 为 True）
     """
     if trend_watchlist.empty:
         return pd.DataFrame()
 
     result = trend_watchlist.copy()
-    universe_codes = set(account_universe["fund_code"]) if not account_universe.empty else set()
-    status_map: dict[str, str] = {}
-    if not account_universe.empty:
-        for _, row in account_universe.iterrows():
-            status_map[row["fund_code"]] = row.get("account_status", "UNVERIFIED")
+    blacklist_codes = set(account_blacklist["fund_code"]) if not account_blacklist.empty else set()
 
-    result["in_account_universe"] = result["fund_code"].isin(universe_codes)
-    result["account_status"] = result["fund_code"].map(status_map).fillna("UNVERIFIED")
-    result["account_status_label"] = result["account_status"].map(ACCOUNT_STATUS).fillna("尚未在国金验证")
-    result["account_tradable"] = result["account_status"] == "VERIFIED_TRADABLE"
+    result["in_account_universe"] = ~result["fund_code"].isin(blacklist_codes)
+    result["account_status"] = result["fund_code"].apply(
+        lambda c: "VERIFIED_UNTRADABLE" if c in blacklist_codes else "TRADABLE"
+    )
+    result["account_status_label"] = result["account_status"].map(ACCOUNT_STATUS).fillna("默认可交易")
+    result["account_tradable"] = result["account_status"] == "TRADABLE"
 
     # Summary
     tradable = result[result["account_tradable"]]
-    unverified = result[result["account_status"] == "UNVERIFIED"]
     untradable = result[result["account_status"] == "VERIFIED_UNTRADABLE"]
     logger.info(
-        "account mapping: %d watchlist → %d tradable, %d unverified, %d untradable",
-        len(result), len(tradable), len(unverified), len(untradable),
+        "account mapping: %d watchlist → %d tradable (default), %d blacklisted",
+        len(result), len(tradable), len(untradable),
     )
 
     return result

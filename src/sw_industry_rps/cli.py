@@ -33,6 +33,7 @@ from src.common.manifest import write_run_manifest, read_latest_run
 from . import data_source, storage, metrics, regimes, validator, report
 from . import constituents as sw_constituents
 from . import contribution as sw_contribution
+from . import confirmation, confirmation_report
 
 
 def build_logger(level: str = "INFO") -> logging.Logger:
@@ -953,7 +954,7 @@ def cmd_drilldown(args: argparse.Namespace) -> None:
                     "breakout_date": r.breakout_date,
                     "window": r.window,
                     "industry_return": r.industry_return_pct,
-                    "classification": r.classification,
+                    "classification": r.contribution_structure,
                     "participation_rate": r.participation_rate,
                     "hhi": r.hhi,
                     "rank": i,
@@ -967,6 +968,114 @@ def cmd_drilldown(args: argparse.Namespace) -> None:
         out_df = pd.DataFrame(rows)
         out_df.to_csv(out_path, index=False, encoding="utf-8-sig")
         logger.info("drilldown CSV saved: %s", out_path)
+
+
+# ---------------------------------------------------------------------------
+# Confirm — Layer ② AI/科技/半导体 行业群确认
+# ---------------------------------------------------------------------------
+
+def cmd_confirm(args: argparse.Namespace) -> None:
+    """Layer ② 行业确认：重点行业群共振 + 龙头/广度 + ETF—行业背离。
+
+    流程：
+      1. 计算 10 个重点行业的 RPS 明细（群共振 / 强弱 / 加速）
+      2. 对进入强势区/观察区的重点行业做成分股穿透（驱动分类）
+      3. 落结构化明细 confirmation_{date}.parquet
+      4. 生成 sw_industry_confirmation_{date}.html
+    """
+    logger = build_logger(args.log_level)
+    logger.info("=" * 60)
+    logger.info("LAYER ② CONFIRM: AI/科技/半导体 行业群确认")
+    logger.info("=" * 60)
+
+    raw_dir = sw_industry_raw_dir()
+    processed_dir = sw_industry_processed_dir()
+    window = getattr(args, "window", 10)
+    max_drill = getattr(args, "max_drill", 5)
+
+    master = storage.load_master(raw_dir)
+    if master.empty:
+        logger.error("no master data")
+        return
+    metrics_df = storage.load_metrics(processed_dir)
+    if metrics_df.empty:
+        logger.error("no metrics data, run calculate first")
+        return
+
+    latest_date = metrics_df["trade_date"].max()
+    date_str = latest_date.strftime("%Y%m%d")
+    logger.info("confirm date: %s", latest_date.date())
+
+    # 1. 重点行业明细 + 群共振 + 市场对照
+    focus_df = confirmation.compute_focus_snapshot(metrics_df)
+    if focus_df.empty:
+        logger.error("no focus industries found")
+        return
+    resonance = confirmation.classify_group_resonance(focus_df)
+    theme_resonance = confirmation.compute_theme_resonance(focus_df)
+    market_context = confirmation.compute_market_context(metrics_df)
+    divergence = confirmation.classify_divergence(focus_df, market_context.get("market_median_rps15"))
+
+    logger.info("群共振: %s | %s", resonance["status"], resonance["verdict"])
+    for tr in theme_resonance:
+        logger.info("  主题[%s]: %s（%s）中位RPS15=%s", tr["theme_label"], tr["status"], tr["summary"], tr["median_rps15"])
+    logger.info("背离: %s", divergence["note"])
+
+    # 2. 对需要验证的重点行业做成分股穿透
+    #    Layer ② 仅验证进入观察区（RPS15>=80）的行业；行业弱时穿透无意义且触发上游限频
+    #    复用 focus_df（calculate 产出的指标筛选），不重算指标
+    candidates = focus_df.sort_values("RPS15", ascending=False)
+    drill_codes = candidates[candidates["RPS15"] >= confirmation.OBSERVE_THRESHOLD]["industry_code"].tolist()[:max_drill]
+
+    drilldown_results: dict[str, Any] = {}
+    if not drill_codes:
+        logger.info("重点行业均未进入观察区（RPS15<%.0f）— 跳过成分股穿透", confirmation.OBSERVE_THRESHOLD)
+    else:
+        logger.info("drilldown candidates (%d): %s", len(drill_codes), ", ".join(drill_codes))
+        for idx, code in enumerate(drill_codes):
+            if idx > 0:
+                time.sleep(4)
+            row = candidates[candidates["industry_code"] == code].iloc[0]
+            name = row["industry_name"]
+            logger.info("[%d/%d] drilling %s (%s) RPS15=%.1f ...", idx + 1, len(drill_codes), code, name, row["RPS15"])
+
+            ind_hist = storage.load_industry_raw(raw_dir, code)
+            if ind_hist.empty:
+                logger.warning("  no industry history for %s", code)
+                continue
+            const_df = sw_constituents.fetch_constituent_list_cached(code, raw_dir)
+            if const_df.empty:
+                logger.warning("  no constituent data for %s", code)
+                continue
+
+            dd = sw_contribution.compute_drilldown(
+                industry_code=code,
+                industry_name=name,
+                breakout_date=latest_date.strftime("%Y%m%d"),
+                constituents=const_df,
+                industry_hist=ind_hist,
+                window=window,
+            )
+            drilldown_results[code] = dd
+            ql = dd.reconstruction_quality
+            logger.info("  %s: actual=%.2f%% proxy=%.2f%% gap=%.2fpp quality=%s | %s",
+                        name, dd.industry_return_pct, dd.proxy_return_pct,
+                        dd.reconstruction_gap_pct, ql,
+                        confirmation._format_drive(dd.contribution_structure, dd.breadth_structure))
+
+    # 3. 合并 + 落结构化明细
+    final_df = confirmation.merge_drilldown(focus_df, drilldown_results)
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    out_path = processed_dir / f"confirmation_{date_str}.parquet"
+    final_df.to_parquet(out_path, index=False)
+    logger.info("confirmation detail saved: %d industries -> %s", len(final_df), out_path)
+
+    # 4. 生成 HTML 报告
+    reports_dir = sw_industry_rps_output_dir()
+    confirmation_report.render_confirmation_report(
+        final_df, resonance, theme_resonance, divergence, market_context,
+        drilldown_results, reports_dir, date_str,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1130,6 +1239,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_drill.add_argument("--output-csv", action="store_true", help="输出 CSV 到 outputs/sw_industry_rps/")
     p_drill.add_argument("--log-level", default="INFO")
 
+    p_confirm = sub.add_parser("confirm", help="[Layer ②] AI/科技/半导体 行业群确认（群共振 + 龙头/广度 + 背离）")
+    p_confirm.add_argument("--window", type=int, default=10, help="贡献分析回看窗口（交易日数，默认 10）")
+    p_confirm.add_argument("--max-drill", type=int, default=5, help="最多穿透的行业数（默认 5）")
+    p_confirm.add_argument("--log-level", default="INFO")
+
     p_run = sub.add_parser("run-day", help="依次执行 update → calculate → report")
     p_run.add_argument("--target-date", default="", help="目标日期 YYYYMMDD（默认今天）")
     p_run.add_argument("--force-report", action="store_true", help="允许对已有报告的日期重新生成报告")
@@ -1148,6 +1262,7 @@ def main() -> None:
         "report": cmd_report,
         "validate": cmd_validate,
         "drilldown": cmd_drilldown,
+        "confirm": cmd_confirm,
         "run-day": cmd_run_day,
     }
     fn = dispatch.get(args.command)
