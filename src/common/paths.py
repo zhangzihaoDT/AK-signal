@@ -65,10 +65,6 @@ def outputs_dir() -> Path:
     return project_root() / "outputs"
 
 
-def stock_trend_output_dir() -> Path:
-    return outputs_dir() / "stock_trend"
-
-
 def sw_industry_rps_output_dir() -> Path:
     return outputs_dir() / "sw_industry_rps"
 

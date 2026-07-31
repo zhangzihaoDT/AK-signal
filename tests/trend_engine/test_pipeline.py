@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.stock_trend.pipeline import calc_change, calc_watch_level, calc_action
+from src.trend_engine.engine import calc_change, calc_watch_level, calc_action
 
 
 class TestCalcChange:
@@ -88,11 +88,11 @@ class TestLoadUniverseItems:
     def test_empty_universe(self, tmp_path):
         p = tmp_path / "empty.yaml"
         p.write_text("themes: {}\n")
-        from src.stock_trend.universe import load_universe_items
+        from src.selection.universe import load_universe_items
         assert load_universe_items(p) == []
 
     def test_missing_file_returns_empty(self, tmp_path):
-        from src.stock_trend.universe import load_universe_items
+        from src.selection.universe import load_universe_items
         assert load_universe_items(tmp_path / "nope.yaml") == []
 
     def test_placeholder_skipped(self, tmp_path):
@@ -108,7 +108,7 @@ class TestLoadUniverseItems:
             "          - {symbol: TBD, name: x}\n"
             "          - {symbol: \"000001\", name: 平安银行, market: CN}\n"
         )
-        from src.stock_trend.universe import load_universe_items
+        from src.selection.universe import load_universe_items
         items = load_universe_items(p)
         assert len(items) == 1
         assert items[0].asset.symbol == "000001"

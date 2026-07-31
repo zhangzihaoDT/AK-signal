@@ -17,10 +17,9 @@ import pandas as pd
 
 from src.common.paths import (
     etf_signal_daily_dir, etf_signal_signals_dir, etf_signal_master_dir,
-    sw_industry_confirmation_dir, stock_universe_path, stock_trend_output_dir,
-    outputs_dir,
+    sw_industry_confirmation_dir, stock_universe_path, outputs_dir,
 )
-from src.stock_trend.universe import load_universe_items
+from .universe import load_universe_items
 from . import selection, report as sel_report
 
 
@@ -69,14 +68,19 @@ def cmd_run(args: argparse.Namespace) -> None:
     else:
         logger.warning("Layer② confirmation 为空 — 方向门控将不通过")
 
-    # ── 输入：个股趋势报告 + universe ─────────────────────────
+    # ── 输入：个股趋势（调用 Trend Engine 计算，不读独立报告） ─────
     universe_items = load_universe_items(stock_universe_path())
-    trend_csv = None
-    trend_files = sorted(stock_trend_output_dir().glob("trend_report_*.csv")) if stock_trend_output_dir().exists() else []
-    if trend_files:
-        trend_csv = pd.read_csv(trend_files[-1])
-    logger.info("universe: %d assets, stock_trend report: %s",
-                len(universe_items), trend_files[-1].name if trend_files else "无")
+    logger.info("universe: %d assets", len(universe_items))
+
+    trend_df = pd.DataFrame()
+    if universe_items:
+        from src.trend_engine.engine import compute_trends
+        trend_df = compute_trends(
+            universe_items,
+            offline=getattr(args, "offline", False),
+            log_level=args.log_level,
+        )
+        logger.info("trend engine: %d assets analyzed", len(trend_df))
 
     # ── 构建候选对象 ───────────────────────────────────────────
     candidates = selection.build_candidates(
@@ -85,7 +89,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         master_df=master_df,
         confirmation_df=confirmation_df,
         universe_items=universe_items,
-        stock_trend_report=trend_csv if trend_csv is not None else pd.DataFrame(),
+        trend_df=trend_df,
     )
 
     # ── 输出：结构化候选 JSON + HTML 可视化 ────────────────────
@@ -111,7 +115,8 @@ def cmd_run(args: argparse.Namespace) -> None:
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Layer 3 交易标的筛选与表达方式选择")
     sub = p.add_subparsers(dest="command")
-    p_run = sub.add_parser("run", help="构建交易候选（读 Layer①/② + universe → 输出候选对象）")
+    p_run = sub.add_parser("run", help="构建交易候选（读 Layer①/② + 调 Trend Engine → 输出候选对象）")
+    p_run.add_argument("--offline", action="store_true", help="仅用缓存行情，不联网")
     p_run.add_argument("--log-level", default="INFO")
     return p
 

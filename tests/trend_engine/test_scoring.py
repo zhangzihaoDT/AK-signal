@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.stock_trend.scoring import (
+from src.trend_engine.scoring import (
     trend_bucket,
     build_risk_flags,
     risk_flags_text,
@@ -152,13 +152,13 @@ class TestScoreLatestRow:
         assert details["reason"] == "empty"
 
     def test_score_range(self, sample_ohlcv):
-        from src.stock_trend.indicators import add_indicators
+        from src.trend_engine.indicators import add_indicators
         df = add_indicators(sample_ohlcv)
         score, details = score_latest_row(df)
         assert 0 <= score <= 100
 
     def test_details_contains_keys(self, sample_ohlcv):
-        from src.stock_trend.indicators import add_indicators
+        from src.trend_engine.indicators import add_indicators
         df = add_indicators(sample_ohlcv)
         score, details = score_latest_row(df)
         assert "score" in details
@@ -183,7 +183,7 @@ class TestScoreLatestRow:
             "close": [199 - i * 1.0 for i in range(60)],
             "volume": 1_000_000,
         })
-        from src.stock_trend.indicators import add_indicators
+        from src.trend_engine.indicators import add_indicators
         up_score, _ = score_latest_row(add_indicators(up))
         down_score, _ = score_latest_row(add_indicators(down))
         assert up_score > down_score

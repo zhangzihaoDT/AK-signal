@@ -145,7 +145,7 @@ class TestBuildCandidates:
             master_df=_sample_master(),
             confirmation_df=_sample_confirmation(confirmed=False),
             universe_items=[],
-            stock_trend_report=pd.DataFrame(),
+            trend_df=pd.DataFrame(),
         )
         assert c["direction_gate"] == "WATCHLIST_ONLY"
         assert all(s["expression"] == "WATCHLIST_ONLY" for s in c["subthemes"])
@@ -157,7 +157,7 @@ class TestBuildCandidates:
             master_df=_sample_master(),
             confirmation_df=_sample_confirmation(confirmed=True),
             universe_items=[],
-            stock_trend_report=pd.DataFrame(),
+            trend_df=pd.DataFrame(),
         )
         ai_core = next(s for s in c["subthemes"] if s["subtheme"] == "ai_core")
         assert ai_core["confirmed"] is True

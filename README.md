@@ -1,4 +1,4 @@
-# AKSignal — A 股技术趋势监控 + 申万行业 RPS + ETF 趋势资产发现
+# AKSignal — 三层决策信号链：ETF 轮动 × 行业确认 × 交易候选
 
 ## 项目架构
 
@@ -9,38 +9,31 @@ src/
 │   ├── paths.py                  # 路径单一事实源
 │   ├── run_context.py            # 运行上下文
 │   └── manifest.py               # 产物发现契约
-├── stock_trend/                  # 个股技术趋势监控子系统
-│   ├── cli.py                    # 参数解析（stock 子命令）
-│   ├── pipeline.py               # 业务编排
-│   ├── asset.py                  # Asset 数据类
-│   ├── fetch_data.py             # HS300 + A 股历史行情
-│   ├── data_provider.py          # AKShare 多市场数据提供器
-│   ├── indicators.py             # 技术指标（MA/RSI/MACD）
-│   ├── scoring.py                # 趋势评分（0-100）
-│   ├── portfolio.py              # 组合摘要
-│   ├── report.py                 # HTML/CSV 报告 + Plotly 图表
-│   └── watchlist.py              # 关注名单管理
-├── sw_industry_rps/              # 申万行业 RPS 监控子系统
-│   ├── cli.py                    # 行业 CLI（bootstrap/update/...）
-│   ├── data_source.py            # 东方财富行业数据源
-│   ├── storage.py                # 行业数据存取
-│   ├── metrics.py                # RPS 计算
-│   ├── regimes.py                # 板块状态识别
-│   ├── report.py                 # 行业排名报告
-│   └── validator.py              # 数据质量校验
-└── etf_signal/                   # ETF 趋势资产发现子系统（v0.1.0 ✅）
-    ├── cli.py                    # 全流程编排
-    ├── data_source.py            # 多源数据采集（东财 + 同花顺 + 新浪）
-    ├── master.py                 # ETF Master + 核心 Universe 筛选
-    ├── classifier.py             # 资产类别与暴露分类
-    ├── indicators.py             # 技术指标计算
-    ├── signal.py                 # 趋势 Watchlist
-    ├── account.py                # 国金账户三态映射
-    ├── card.py                   # 候选卡片 + 验收门控
-    └── ...（heat/universe/sw_enrichment 等）
+├── etf_signal/                   # Layer ① A股全市场 ETF 轮动
+│   ├── cli.py                    # 全流程编排
+│   ├── rotation.py               # 全市场横截面 RPS15/20/60 + 排名变动
+│   ├── rotation_report.py        # Layer ① 报告
+│   └── ...（master/classifier/account/card 等）
+├── sw_industry_rps/              # Layer ② 申万二级行业确认
+│   ├── cli.py                    # 行业 CLI（bootstrap/update/.../confirm）
+│   ├── confirmation.py           # 重点行业群共振 + 子主题 + 龙头广度
+│   ├── confirmation_report.py    # Layer ② 报告
+│   └── ...（metrics/regimes/contribution 等）
+├── selection/                    # Layer ③ 交易标的筛选（执行对象压缩）
+│   ├── cli.py                    # select 命令
+│   ├── universe.py               # 分层资产池（theme→tier→assets）
+│   ├── selection.py              # 表达方式决策 + 候选对象构建
+│   └── report.py                 # 候选 HTML 可视化
+└── trend_engine/                 # Trend Engine（selection 的内部依赖）
+    ├── engine.py                 # 批量趋势计算 API
+    ├── data_provider.py          # AKShare 多市场数据提供器（多源/限流/退避）
+    ├── indicators.py             # 技术指标（MA/RSI/MACD）
+    ├── scoring.py                # 趋势评分（0-100）
+    └── ...（asset/fetch_data）
 ```
 
-三个独立业务分支，共用 `.venv` Python 环境和 `data/` 目录规划。
+三层信号主链，共用 `.venv` Python 环境和 `data/` 目录规划：
+**Layer ① ETF 发现 → Layer ② 行业确认 → Layer ③ 交易候选（调用 Trend Engine）→ 未来 Layer 4 执行**
 
 ## 安装
 
@@ -50,33 +43,32 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 个股趋势监控
+## Layer 3 交易标的筛选（selection）
 
 ### 功能简介
 
-AKShare 拉取 → raw 缓存 → 指标计算 → 趋势评分（0-100） → 相对强度(沪深300) → watch_level(S/A/B/C) / action → HTML/CSV 报告 + watchlist
+把 Layer ①（ETF 轮动）与 Layer ②（行业确认）的结论，压缩成「这个已确认方向用哪只 ETF、哪类股票交易」。核心是**执行对象压缩层**，不是又一层强弱排名。
+
+- 输入：Layer① rotation + Layer② confirmation + 分层资产池 `config/stock_universe.yaml`
+- 个股趋势由 **Trend Engine**（`trend_engine`）现场计算，不读独立报告
+- 表达方式决策基于上涨结构：广泛上涨→ETF、龙头主导→龙头个股、扩散→ETF核心+龙头卫星、未确认→仅观察
+- **核心输出是结构化候选对象 JSON**，HTML 仅为可视化
 
 ### 运行
 
 ```bash
-# 默认运行（向后兼容）
-python src/main.py
-
-# 显式调用
-python src/main.py stock
-
-# 可选参数
-python src/main.py stock --start-date 20200101 --adjust qfq --plot-last-n 240
-python src/main.py stock --offline                          # 仅缓存模式
-python src/main.py stock --only-symbols CN:510500,CN:518880 # 指定标的
+make select                # 构建交易候选（在线）
+make select-offline        # 仅缓存行情
+python src/main.py select run
+python src/main.py select universe   # 查看分层资产池
 ```
 
 ### 输出
 
-- 原始数据：`data/raw/{symbol}.csv`
-- 指标数据：`data/processed/{symbol}.csv`
-- 报告：`outputs/stock_trend/trend_report_YYYYMMDD.html` 与 `.csv`
-- 关注名单：`outputs/stock_trend/watchlist.csv`
+- `outputs/selection/tradable_candidates_{date}.json` — 候选资产对象（唯一事实源）
+- `outputs/selection/tradable_candidates_{date}.html` — 可视化
+
+Layer 4（Portfolio）边界：本层只回答「买什么」，不回答「买多少 / 何时买 / 何时卖」。
 
 ---
 
@@ -208,12 +200,14 @@ outputs/etf_signal/
 
 ---
 
-## 三个业务分支的关系
+## 三层信号链
 
-| 分支 | 职责 | 入口 | 版本 |
+| 层 | 模块 | 职责 | 入口 |
 |------|------|------|------|
-| stock_trend | 个股技术趋势监控 | `python src/main.py stock` | v0.3 |
-| sw_industry_rps | 申万行业 RPS 轮动 | `python src/main.py industry <cmd>` | v0.2 |
-| etf_signal | ETF 趋势资产发现 | `python src/main.py etf <cmd>` | v0.1.0 ✅ |
+| Layer ① | etf_signal | A股全市场 ETF 轮动（发现主线） | `python src/main.py etf <cmd>` |
+| Layer ② | sw_industry_rps | 申万二级行业确认（验证质量） | `python src/main.py industry <cmd>` |
+| Layer ③ | selection | 交易标的筛选（执行对象压缩） | `python src/main.py select run` |
+| Trend Engine | trend_engine | 指标与评分（selection 内部依赖） | 无独立入口 |
+| Layer 4 | — | Portfolio（买多少/何时买卖） | ⬜ 未来 |
 
-三个独立模块，互不干扰，共用 `.venv` Python 环境、`data/` 和 `config/` 目录规划。未来可在板块联动方向交汇。
+Layer ③ 严格继承 Layer①/② 产出，不重新从全市场开始；Trend Engine 只服务 selection，不暴露独立业务层。

@@ -27,18 +27,6 @@
   python src/main.py etf account-blacklist list
   ```
 
-## Layer ③ 个股/科技 ETF 趋势（stock_trend）
-
-- 分层资产池：`config/stock_universe.yaml`（theme → tier → assets），已废弃扁平 `stock_pool.csv`
-- 层级：theme_etf（主题 ETF）→ sub_industry_etf（细分 ETF）→ leader（龙头）→ high_beta（高弹性）→ equipment_upstream（设备/上游）
-- **自动注入 Layer ② 行业确认**：读取 `confirmation_{date}.parquet`，按标的 `sw_industry` 注入 strength_level / 驱动分类 / 子主题
-- 独立运行，不入 run-day：
-  ```bash
-  make stock            # 在线扫描
-  make stock-offline    # 仅缓存
-  python src/main.py stock universe   # 查看分层池
-  ```
-
 ## Layer 3 交易标的筛选（selection）
 
 - **定位**：执行对象压缩层——把 Layer①/② 结论压缩成「这个已确认方向用哪只 ETF、哪类股票交易」；不回答买多少/何时买卖（Layer 4）
@@ -46,10 +34,13 @@
 - 单主题（AI/科技/半导体）+ 内部保留 3 子主题（ai_core / TMT / 智能制造）
 - **表达方式决策**基于 Layer② 上涨结构：广泛上涨→ETF、龙头主导→龙头个股、扩散→ETF核心+龙头卫星、未确认→仅观察
 - ETF 候选动态从 Layer① rotation 全市场按子主题关键词选（趋势门控 + 流动性 + 评分 + 去重）
+- 个股趋势由 **Trend Engine** 现场计算（`trend_engine`，原 stock_trend 底层能力重组，无独立业务入口）
+- 分层资产池：`config/stock_universe.yaml`（theme → tier → assets），已废弃扁平 `stock_pool.csv`
 - 命令：
   ```bash
   make select          # 构建交易候选
-  python src/main.py select run
+  make select-offline  # 仅缓存
+  python src/main.py select universe   # 查看分层池
   ```
 
 ## 常用命令
@@ -58,7 +49,7 @@
 make run-day          # 每日全流程
 make etf-pipeline     # 仅 ETF 发现链路
 make sw-rps-run-day   # SW-RPS 全流程：update(含probe)→calculate→report→confirm
-make stock            # Layer ③ 分层趋势扫描（独立）
+make select           # Layer 3 交易候选（调用 trend_engine）
 make test             # 全部测试
 ```
 
@@ -68,5 +59,4 @@ make test             # 全部测试
 - ETF 轮动数据：`data/etf_signal/daily/rotation_{date}.parquet`（全市场横截面 RPS15/20/60 + 5日排名变动）
 - SW-RPS：`outputs/sw_industry_rps/sw_industry_rps_{date}.html`（+ `_latest.html` 指向最新）
 - Layer ② 行业确认：`outputs/sw_industry_rps/sw_industry_confirmation_{date}.html` + `data/processed/sw_industry/confirmation_{date}.parquet`（AI/科技/半导体 10 个重点行业群共振/龙头广度/背离）
-- Layer ③ 趋势：`outputs/stock_trend/trend_report_{date}.html/.csv`（按 theme → tier 分层，含行业确认状态）+ `portfolio_summary_{date}.json`
 - Layer 3 交易候选：`outputs/selection/tradable_candidates_{date}.json`（结构化候选对象）+ `.html`（可视化）

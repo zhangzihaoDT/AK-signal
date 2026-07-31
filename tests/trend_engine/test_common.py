@@ -5,10 +5,10 @@ from datetime import date
 from pathlib import Path
 
 from src.common.paths import (
-    project_root, config_dir, stock_pool_path, stock_universe_path,
+    project_root, config_dir, stock_universe_path,
     sw_industry_rps_config_path, data_dir, raw_dir, processed_dir,
     sw_industry_raw_dir, sw_industry_processed_dir, state_dir,
-    asset_state_path, outputs_dir, stock_trend_output_dir,
+    asset_state_path, outputs_dir,
     sw_industry_rps_output_dir, docs_dir, manifest_path,
 )
 from src.common.run_context import RunContext
@@ -55,9 +55,6 @@ class TestPaths:
 
     def test_outputs_dir(self):
         assert outputs_dir() == project_root() / "outputs"
-
-    def test_stock_trend_output(self):
-        assert stock_trend_output_dir() == outputs_dir() / "stock_trend"
 
     def test_sw_industry_rps_output(self):
         assert sw_industry_rps_output_dir() == outputs_dir() / "sw_industry_rps"

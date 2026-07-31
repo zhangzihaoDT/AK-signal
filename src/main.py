@@ -6,11 +6,10 @@ AKSignal 顶层命令路由
   不包含个股、行业或 ETF 的业务逻辑。
 
 用法：
-  python src/main.py                        → 个股趋势监控（默认，向后兼容）
-  python src/main.py --start-date ...       → 个股趋势监控（向后兼容）
-  python src/main.py stock [options]        → 个股趋势监控
-  python src/main.py industry <command>     → 申万行业 RPS
-  python src/main.py etf <command>          → ETF 趋势信号
+  python src/main.py                        → Layer 3 交易候选（默认）
+  python src/main.py select [run]           → Layer 3 交易候选
+  python src/main.py industry <command>     → 申万行业 RPS（Layer ② 确认）
+  python src/main.py etf <command>          → ETF 趋势信号（Layer ①）
   python src/main.py run-day                → 申万行业 RPS run-day（向后兼容）
   python src/main.py bootstrap|update|calculate|report|validate → 申万行业 RPS（向后兼容）
 """
@@ -63,9 +62,8 @@ def main() -> None:
             return
 
         if cmd == "stock":
-            from src.stock_trend.cli import main as stock_main
-            sys.argv = [sys.argv[0], *argv[1:]]
-            stock_main()
+            from src.trend_engine.engine import build_logger as _engine_logger
+            _engine_logger("INFO").error("stock_trend 已重构为 Trend Engine — 请使用 `select run` 走 Layer 3")
             return
 
         if cmd in ("select", "layer3"):
@@ -74,8 +72,9 @@ def main() -> None:
             selection_main()
             return
 
-    from src.stock_trend.cli import main as stock_main
-    stock_main()
+    # 无命令时默认走 Layer 3（原 stock_trend 已并入 trend_engine，不再有独立入口）
+    from src.selection.cli import main as selection_main
+    selection_main()
 
 
 if __name__ == "__main__":

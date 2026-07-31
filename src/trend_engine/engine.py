@@ -1,8 +1,11 @@
 """
-stock_trend 业务编排管线
+trend_engine — 趋势分析引擎（Layer 3 的内部依赖）
 
-职责：个股趋势监控的完整流程编排
-不包含：CLI 参数解析、路由分发
+定位：纯引擎，不承担任何业务决策。
+职责：给定一组资产，获取行情 → 计算技术指标 → 输出趋势评分。
+
+本模块是原 stock_trend 底层能力（行情获取/缓存/多源回退/限流/指标/评分）
+的保留与重组；业务层（CLI、报告、watchlist）已移除，由 Layer 3 selection 调用。
 """
 
 from __future__ import annotations
@@ -12,31 +15,24 @@ import random
 import time
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import pandas as pd
 
 from src.common.paths import (
-    project_root, stock_universe_path, asset_state_path,
-    sw_industry_confirmation_dir,
-    raw_dir as common_raw_dir, processed_dir as common_processed_dir,
-    stock_trend_output_dir,
+    raw_dir as common_raw_dir,
+    processed_dir as common_processed_dir,
+    asset_state_path,
 )
-from src.common.run_context import RunContext
-from src.common.manifest import write_run_manifest
 from .asset import Asset
 from .data_provider import AKShareProvider
-from .universe import UniverseItem, load_universe_items, inject_confirmation
 from . import fetch_data
 from . import indicators
-from . import portfolio
-from . import report
 from . import scoring
-from .watchlist import update_watchlist
 
 
 def build_logger(level: str) -> logging.Logger:
-    logger = logging.getLogger("a_stock_monitor")
+    logger = logging.getLogger("trend_engine")
     if logger.handlers:
         return logger
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
@@ -137,6 +133,8 @@ def calc_action(
     return "无变化"
 
 
+# ── 缓存 / 状态 ─────────────────────────────────────────────────
+
 def _raw_cache_path(raw_dir: Path, asset: Asset) -> Path:
     safe_symbol = str(asset.symbol).replace("/", "_").replace("\\", "_").replace(":", "_")
     return raw_dir / f"{asset.market}_{safe_symbol}.csv"
@@ -155,14 +153,8 @@ def _load_cached_raw(path: Path) -> pd.DataFrame:
 
 
 ASSET_STATE_COLUMNS = [
-    "market",
-    "symbol",
-    "last_success_date",
-    "last_attempt_date",
-    "last_status",
-    "fail_count",
-    "next_retry_date",
-    "data_source",
+    "market", "symbol", "last_success_date", "last_attempt_date",
+    "last_status", "fail_count", "next_retry_date", "data_source",
 ]
 
 
@@ -294,60 +286,26 @@ def update_asset_state(
 
     mask = (out["market"].astype(str) == asset.market) & (out["symbol"].astype(str) == asset.symbol)
     if not mask.any():
-        out = pd.concat(
-            [
-                out,
-                pd.DataFrame(
-                    [
-                        {
-                            "market": asset.market,
-                            "symbol": asset.symbol,
-                            "last_success_date": "",
-                            "last_attempt_date": "",
-                            "last_status": "",
-                            "fail_count": "0",
-                            "next_retry_date": "",
-                            "data_source": "",
-                        }
-                    ]
-                ),
-            ],
-            ignore_index=True,
-        )
+        out = pd.concat([out, pd.DataFrame([{
+            "market": asset.market, "symbol": asset.symbol,
+            "last_success_date": "", "last_attempt_date": "",
+            "last_status": "", "fail_count": "0", "next_retry_date": "", "data_source": "",
+        }])], ignore_index=True)
         mask = (out["market"].astype(str) == asset.market) & (out["symbol"].astype(str) == asset.symbol)
 
     idx = out.index[mask][0]
     out.at[idx, "last_attempt_date"] = today.isoformat()
-    out.at[idx, "data_source"] = data_source
-
-    try:
-        prev_fc = int(float(out.at[idx, "fail_count"] or 0))
-    except Exception:
-        prev_fc = 0
-
-    if data_source == "online":
-        out.at[idx, "last_status"] = "online"
+    if attempted_online and latest_data_date is None:
+        fail_count = int(float(out.at[idx, "fail_count"] or 0)) + 1
+        cooldown = min(7, 2 ** (min(fail_count, 3) - 1))
+        out.at[idx, "fail_count"] = str(fail_count)
+        out.at[idx, "last_status"] = "failed"
+        out.at[idx, "next_retry_date"] = (today + timedelta(days=cooldown)).isoformat()
+    else:
+        out.at[idx, "last_success_date"] = (latest_data_date or today).isoformat()
         out.at[idx, "fail_count"] = "0"
+        out.at[idx, "last_status"] = data_source
         out.at[idx, "next_retry_date"] = ""
-        if latest_data_date is not None:
-            out.at[idx, "last_success_date"] = latest_data_date.isoformat()
-        return out
-
-    if data_source == "cache":
-        out.at[idx, "last_status"] = "cache"
-        if attempted_online:
-            fc = prev_fc + 1
-            out.at[idx, "fail_count"] = str(fc)
-            cooldown_days = min(7, 2 ** (min(fc, 3) - 1))
-            out.at[idx, "next_retry_date"] = (today + timedelta(days=cooldown_days)).isoformat()
-        return out
-
-    out.at[idx, "last_status"] = "failed"
-    if attempted_online:
-        fc = prev_fc + 1
-        out.at[idx, "fail_count"] = str(fc)
-        cooldown_days = min(7, 2 ** (min(fc, 3) - 1))
-        out.at[idx, "next_retry_date"] = (today + timedelta(days=cooldown_days)).isoformat()
     return out
 
 
@@ -379,30 +337,17 @@ def load_or_fetch_daily(
             except Exception:
                 pass
             cur = getattr(cur, "__cause__", None) or getattr(cur, "__context__", None)
-
         retryable_names = {
-            "RemoteDisconnected",
-            "ConnectionError",
-            "Timeout",
-            "ReadTimeout",
-            "ConnectTimeout",
-            "ChunkedEncodingError",
-            "SSLError",
-            "JSONDecodeError",
+            "RemoteDisconnected", "ConnectionError", "Timeout", "ReadTimeout",
+            "ConnectTimeout", "ChunkedEncodingError", "SSLError", "JSONDecodeError",
         }
         if names & retryable_names:
             return True
-
         merged = " | ".join(t for t in texts if t).lower()
-        if "fetch returned empty" in merged:
-            return True
-        if "no value to decode" in merged:
-            return True
-        if "remote end closed connection" in merged:
-            return True
-        if "connection aborted" in merged:
-            return True
-        if "remotedisconnected" in merged:
+        if any(k in merged for k in [
+            "fetch returned empty", "no value to decode", "remote end closed connection",
+            "connection aborted", "remotedisconnected",
+        ]):
             return True
         return False
 
@@ -427,15 +372,11 @@ def load_or_fetch_daily(
             df = provider.get_daily(asset, start_date=start_date, end_date=end_date, source=source)
             if df is None or df.empty:
                 raise RuntimeError("fetch returned empty")
-            if source:
-                logger.info("fetch online success: %s (source=%s)", asset_key, source)
-            else:
-                logger.info("fetch online success: %s", asset_key)
+            logger.info("fetch online success: %s (source=%s)", asset_key, source or "default")
             if merge_with_cache and cache_path.exists():
                 df_cached = _load_cached_raw(cache_path)
                 df = _merge_ohlcv(df_cached, df)
             df.to_csv(cache_path, index=False, encoding="utf-8")
-            logger.info("raw data saved: %s (%d rows)", cache_path, len(df))
             return df, "online"
         except Exception as e:
             last_err = e
@@ -456,32 +397,6 @@ def load_or_fetch_daily(
     raise RuntimeError("fetch failed and no cache") from last_err
 
 
-def _attach_layer_fields(
-    row: dict[str, object],
-    item: UniverseItem,
-    confirm_map: dict[str, dict[str, Any]],
-) -> None:
-    """向报告行追加 Layer ③ 分层字段与 Layer ② 行业确认信号。"""
-    row["theme"] = item.theme
-    row["theme_label"] = item.theme_label
-    row["tier"] = item.tier
-    row["tier_label"] = item.tier_label
-    row["sw_industry"] = item.sw_industry
-    confirm = confirm_map.get(item.sw_industry)
-    if confirm:
-        row["sw_industry_name"] = confirm.get("sw_industry_name", "")
-        row["sw_confirm_level"] = confirm.get("sw_confirm_level", "")
-        row["sw_drive_pattern"] = confirm.get("sw_drive_pattern", "")
-        row["sw_theme"] = confirm.get("sw_theme", "")
-        row["sw_rps15"] = confirm.get("sw_rps15")
-    else:
-        row["sw_industry_name"] = ""
-        row["sw_confirm_level"] = "无确认"
-        row["sw_drive_pattern"] = ""
-        row["sw_theme"] = ""
-        row["sw_rps15"] = None
-
-
 def analyze_asset(
     asset: Asset,
     note: str,
@@ -489,19 +404,17 @@ def analyze_asset(
     df_raw: pd.DataFrame,
     bench: pd.DataFrame,
     processed_dir: Path,
-    plot_last_n: int,
     prev_score_by_symbol: dict[str, int],
     prev_available: bool,
     report_date: date,
-) -> tuple[dict[str, object], tuple[str, object]]:
+) -> dict[str, object]:
     df_ind = indicators.add_indicators(df_raw)
     df_ind["date"] = pd.to_datetime(df_ind["date"], errors="coerce").astype("datetime64[ns]")
     if not bench.empty:
         df_ind = pd.merge_asof(
             df_ind.sort_values("date"),
             bench[["date", "bench_return_20d"]].sort_values("date"),
-            on="date",
-            direction="backward",
+            on="date", direction="backward",
         )
         df_ind["relative_strength_20d"] = df_ind["return_20d"] - df_ind["bench_return_20d"]
     else:
@@ -535,23 +448,14 @@ def analyze_asset(
     drawdown_from_high = float(dd_raw) if pd.notna(dd_raw) else None
 
     watch_level_value = calc_watch_level(score_value, rs20, ma20, ma60, volume_ratio)
-    action_value = calc_action(
-        score_value,
-        watch_level_value,
-        rs20,
-        volume_ratio,
-        price_near_ma20,
-        drawdown_from_high,
-        change,
-    )
+    action_value = calc_action(score_value, watch_level_value, rs20, volume_ratio, price_near_ma20, drawdown_from_high, change)
 
-    row = {
+    return {
         "name": asset.name,
         "symbol": asset.symbol,
         "market": asset.market,
         "exchange": asset.exchange or "",
         "currency": asset.currency or "",
-        "category": asset.category or "",
         "data_source": data_source,
         "data_freshness_days": (
             int((report_date - latest_date.date()).days) if hasattr(latest_date, "date") and latest_date is not None else None
@@ -570,13 +474,8 @@ def analyze_asset(
         "note": note,
     }
 
-    df_plot = df_ind.tail(plot_last_n).copy()
-    chart_key = f"{asset.market}:{asset.symbol}"
-    fig = report.build_price_chart(df_plot, title=f"{asset.name}({asset.symbol},{asset.market}) - 趋势评分 {score_value} / 100")
-    return row, (chart_key, fig)
 
-
-def sort_report_df(df: pd.DataFrame) -> pd.DataFrame:
+def sort_summary_df(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
     wl_rank = {"": 0, "C": 1, "B": 2, "A": 3, "S": 4}
@@ -590,15 +489,10 @@ def sort_report_df(df: pd.DataFrame) -> pd.DataFrame:
     return out.reset_index(drop=True)
 
 
-def save_skipped_assets(skipped: list[dict[str, str]], reports_dir: Path, report_date: date) -> Path:
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    path = reports_dir / f"skipped_assets_{report_date:%Y%m%d}.csv"
-    df = pd.DataFrame(skipped, columns=["symbol", "name", "market", "reason"])
-    df.to_csv(path, index=False, encoding="utf-8-sig")
-    return path
+# ── 批量趋势计算 API ─────────────────────────────────────────────
 
-
-def run_stock_trend(
+def compute_trends(
+    items: Sequence[Any],
     *,
     start_date: str = "20180101",
     end_date: str = "",
@@ -608,20 +502,20 @@ def run_stock_trend(
     refresh_missing: bool = False,
     offline: bool = False,
     only_symbols: str = "",
-    plot_last_n: int = 180,
     log_level: str = "INFO",
-) -> tuple[Path, Path]:
+) -> pd.DataFrame:
+    """对一组标的批量计算趋势评分。
+
+    Args:
+        items: 每项需具备 `asset`（Asset）、`note`、`update_policy` 属性
+               （selection.universe.UniverseItem 满足该鸭子类型）
+
+    Returns:
+        排序后的趋势 DataFrame（含 name/symbol/score_trend/watch_level/action 等）
+    """
     from datetime import datetime, timezone
-    _started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     logger = build_logger(log_level)
     report_date = date.today()
-
-    pool_items: list[UniverseItem] = load_universe_items(stock_universe_path())
-    if not pool_items:
-        logger.error("no assets in universe — check config/stock_universe.yaml")
-        return None, None
-
-    _, confirm_map = inject_confirmation(pool_items, sw_industry_confirmation_dir())
 
     if only_symbols:
         raw_tokens = [t.strip() for t in only_symbols.split(",") if t.strip()]
@@ -630,24 +524,23 @@ def run_stock_trend(
             if ":" in tok:
                 mkt, sym = tok.split(":", 1)
                 wanted.add((mkt.strip().upper() or None, sym.strip()))
-                continue
-            if "_" in tok:
+            elif "_" in tok:
                 mkt, sym = tok.split("_", 1)
                 wanted.add((mkt.strip().upper() or None, sym.strip()))
-                continue
-            wanted.add((None, tok))
+            else:
+                wanted.add((None, tok))
+        items = [
+            it for it in items
+            if (it.asset.market, it.asset.symbol) in wanted or (None, it.asset.symbol) in wanted
+        ]
+        logger.info("filtered by --only-symbols: %d assets", len(items))
 
-        filtered: list[UniverseItem] = []
-        for item in pool_items:
-            asset = item.asset
-            if (asset.market, asset.symbol) in wanted or (None, asset.symbol) in wanted:
-                filtered.append(item)
-        pool_items = filtered
-        logger.info("filtered by --only-symbols: %s (%d assets)", ",".join(raw_tokens), len(pool_items))
+    if not items:
+        logger.error("no assets to analyze")
+        return pd.DataFrame()
 
     raw_dir = common_raw_dir()
     processed_dir = common_processed_dir()
-    reports_dir = stock_trend_output_dir()
 
     eff_end_date = end_date or "22220101"
     fetch_cfg = fetch_data.FetchConfig(start_date=start_date, end_date=eff_end_date, adjust=adjust)
@@ -658,48 +551,25 @@ def run_stock_trend(
         bench["date"] = pd.to_datetime(bench["date"], errors="coerce").astype("datetime64[ns]")
         bench["bench_return_20d"] = bench["bench_close"].pct_change(20)
 
-    prev_summary = report.load_previous_summary(reports_dir, report_date)
-    prev_available = not prev_summary.empty
-    prev_score_by_symbol: dict[str, int] = {}
-    if not prev_summary.empty and "symbol" in prev_summary.columns:
-        for _, r in prev_summary.iterrows():
-            sym = str(r.get("symbol", "")).strip()
-            mkt = str(r.get("market", "")).strip().upper()
-            if not sym or sym.upper() == "TBD":
-                continue
-            try:
-                key = f"{mkt}:{sym}" if mkt else sym
-                prev_score_by_symbol[key] = int(float(r.get("score_trend", r.get("score", 0))))
-            except Exception:
-                continue
-
     provider = AKShareProvider(cfg=fetch_cfg, logger=logger)
     rows: list[dict[str, object]] = []
-    charts: dict[str, object] = {}
-    skipped: list[dict[str, str]] = []
     state_path = asset_state_path()
     state_df = load_asset_state(state_path)
 
-    for item in pool_items:
+    for item in items:
         asset = item.asset
-        note = item.note
-        update_policy = item.update_policy
+        note = str(getattr(item, "note", "") or "").strip()
+        update_policy = str(getattr(item, "update_policy", "daily") or "").strip().lower()
 
         if not asset.symbol or asset.symbol.strip().upper() == "TBD":
             logger.warning("skip placeholder asset: (%s,%s)", asset.market, asset.symbol)
-            skipped.append({"symbol": asset.symbol, "name": asset.name, "market": asset.market, "reason": "TBD placeholder"})
             continue
 
         raw_path = _raw_cache_path(raw_dir, asset)
         mode, inc_start, inc_end = decide_refresh_mode(
-            asset=asset,
-            update_policy=update_policy,
-            state_df=state_df,
-            raw_path=raw_path,
-            today=report_date,
-            refresh_all=refresh_all,
-            refresh_missing=refresh_missing,
-            offline=offline,
+            asset=asset, update_policy=update_policy, state_df=state_df,
+            raw_path=raw_path, today=report_date,
+            refresh_all=refresh_all, refresh_missing=refresh_missing, offline=offline,
         )
 
         attempted_online = mode.startswith("online")
@@ -711,19 +581,14 @@ def run_stock_trend(
                 data_source = "cache"
             elif mode == "online_incremental":
                 df_raw, data_source = load_or_fetch_daily(
-                    asset,
-                    provider,
-                    raw_dir=raw_dir,
-                    logger=logger,
-                    start_date=inc_start,
-                    end_date=inc_end,
-                    merge_with_cache=True,
+                    asset, provider, raw_dir=raw_dir, logger=logger,
+                    start_date=inc_start, end_date=inc_end, merge_with_cache=True,
                 )
-            else:
-                df_raw, data_source = load_or_fetch_daily(asset, provider, raw_dir=raw_dir, logger=logger)
-
-            if df_raw is None or df_raw.empty:
-                raise RuntimeError("empty daily data")
+            else:  # online_full
+                df_raw, data_source = load_or_fetch_daily(
+                    asset, provider, raw_dir=raw_dir, logger=logger,
+                    start_date=start_date, end_date=eff_end_date,
+                )
 
             try:
                 latest_data_date = pd.to_datetime(df_raw["date"], errors="coerce").dropna().max()
@@ -731,112 +596,36 @@ def run_stock_trend(
             except Exception:
                 latest_date = None
             state_df = update_asset_state(
-                state_df=state_df,
-                asset=asset,
-                today=report_date,
-                data_source=data_source,
-                attempted_online=attempted_online,
+                state_df=state_df, asset=asset, today=report_date,
+                data_source=data_source, attempted_online=attempted_online,
                 latest_data_date=latest_date,
             )
 
-            row, (chart_key, fig) = analyze_asset(
-                asset=asset,
-                note=note,
-                data_source=data_source,
-                df_raw=df_raw,
-                bench=bench,
-                processed_dir=processed_dir,
-                plot_last_n=plot_last_n,
-                prev_score_by_symbol=prev_score_by_symbol,
-                prev_available=prev_available,
-                report_date=report_date,
+            row = analyze_asset(
+                asset=asset, note=note, data_source=data_source, df_raw=df_raw,
+                bench=bench, processed_dir=processed_dir,
+                prev_score_by_symbol={}, prev_available=False, report_date=report_date,
             )
-            _attach_layer_fields(row, item, confirm_map)
             rows.append(row)
-            charts[chart_key] = fig
         except Exception as e:
-            skipped.append({"symbol": asset.symbol, "name": asset.name, "market": asset.market, "reason": str(e)})
+            logger.warning("analyze failed for %s: %s", asset.symbol, e)
             state_df = update_asset_state(
-                state_df=state_df,
-                asset=asset,
-                today=report_date,
-                data_source="failed",
-                attempted_online=attempted_online,
-                latest_data_date=None,
+                state_df=state_df, asset=asset, today=report_date,
+                data_source="failed", attempted_online=attempted_online, latest_data_date=None,
             )
-            row = {
-                "name": asset.name,
-                "symbol": asset.symbol,
-                "market": asset.market,
-                "exchange": asset.exchange or "",
-                "currency": asset.currency or "",
-                "category": asset.category or "",
-                "data_source": "failed",
-                "data_freshness_days": None,
-                "date": None,
-                "close": None,
-                "score": 0,
-                "score_trend": 0,
-                "label": "无数据",
-                "watch_level": "",
-                "action": "跳过",
-                "change": "无变化",
-                "relative_strength_20d": None,
-                "risk_flags": "",
-                "reason": str(e),
-                "note": note,
-            }
-            _attach_layer_fields(row, item, confirm_map)
-            rows.append(row)
+            rows.append({
+                "name": asset.name, "symbol": asset.symbol, "market": asset.market,
+                "exchange": asset.exchange or "", "currency": asset.currency or "",
+                "data_source": "failed", "data_freshness_days": None, "date": None,
+                "close": None, "score": 0, "score_trend": 0, "label": "无数据",
+                "watch_level": "", "action": "跳过", "change": "无变化",
+                "relative_strength_20d": None, "risk_flags": "", "reason": str(e), "note": note,
+            })
 
         if asset.market == "CN":
             time.sleep(random.uniform(2.0, 4.0))
         else:
             time.sleep(random.uniform(0.5, 2.0))
 
-    summary = sort_report_df(pd.DataFrame(rows))
-
-    portfolio_summary = portfolio.build_portfolio_summary(summary)
-    ds = summary.get("data_source", pd.Series([], dtype=str)).astype(str)
-    fetch_status_summary = {
-        "online_count": int((ds == "online").sum()),
-        "cache_count": int((ds == "cache").sum()),
-        "failed_count": int((ds == "failed").sum()),
-    }
-    portfolio_summary["fetch_status_summary"] = fetch_status_summary
-    portfolio_json = portfolio.write_portfolio_summary(report_date, portfolio_summary, out_dir=reports_dir)
-    logger.info("portfolio summary saved: %s", portfolio_json)
-
     save_asset_state(state_df, state_path)
-    logger.info("asset state saved: %s (%d rows)", state_path, len(state_df))
-
-    csv_path, html_path = report.write_daily_report(report_date, summary, charts, out_dir=reports_dir, portfolio_summary=portfolio_summary)
-    logger.info("report csv saved: %s", csv_path)
-    logger.info("report html saved: %s", html_path)
-
-    watchlist_path = stock_trend_output_dir() / "watchlist.csv"
-    update_watchlist(report_date, summary, reports_dir, watchlist_path)
-    logger.info("watchlist saved: %s", watchlist_path)
-
-    skipped_path = save_skipped_assets(skipped, reports_dir=reports_dir, report_date=report_date)
-    logger.info("skipped assets saved: %s (%d rows)", skipped_path, len(skipped))
-
-    ds = summary.get("data_source", pd.Series([], dtype=str)).astype(str)
-    ctx = RunContext(
-        subsystem="stock_trend",
-        run_date=report_date,
-        status="completed",
-        offline=offline,
-        started_at=_started_at,
-        summary={
-            "assets_count": len(summary),
-            "online_count": int((ds == "online").sum()),
-            "cache_count": int((ds == "cache").sum()),
-            "failed_count": int((ds == "failed").sum()),
-            "strong_count": int((summary.get("watch_level", pd.Series([], dtype=str)).astype(str).isin(["S", "A"]).sum())),
-        },
-        artifacts=[csv_path, html_path, watchlist_path],
-    )
-    write_run_manifest(ctx)
-    logger.info("manifest updated")
-    return csv_path, html_path
+    return sort_summary_df(pd.DataFrame(rows))

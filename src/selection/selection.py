@@ -280,7 +280,7 @@ def _dedup_etf(etf_df: pd.DataFrame) -> pd.DataFrame:
 def select_stock_candidates(
     universe_items: list[Any],
     subtheme: str,
-    stock_trend_report: pd.DataFrame,
+    trend_df: pd.DataFrame,
 ) -> tuple[list[AssetCandidate], list[AssetCandidate], list[AssetCandidate]]:
     """从 universe 分层池选择该子主题的 leader / high_beta / equipment。
 
@@ -305,10 +305,10 @@ def select_stock_candidates(
             if not (item.tier == "high_beta" and subtheme == "ai_core"):
                 continue
 
-        # 从 stock_trend 报告读取趋势
+        # 从 Trend Engine 结果读取趋势
         trend_row = None
-        if not stock_trend_report.empty:
-            m = stock_trend_report[stock_trend_report["symbol"].astype(str) == item.asset.symbol]
+        if not trend_df.empty:
+            m = trend_df[trend_df["symbol"].astype(str) == item.asset.symbol]
             if not m.empty:
                 trend_row = m.iloc[0]
 
@@ -376,7 +376,7 @@ def build_candidates(
     master_df: pd.DataFrame,
     confirmation_df: pd.DataFrame,
     universe_items: list[Any],
-    stock_trend_report: pd.DataFrame,
+    trend_df: pd.DataFrame,
 ) -> dict[str, Any]:
     """构建 Layer 3 候选资产对象（结构化 dict，可直接落 JSON）。"""
     direction = evaluate_direction(rotation_df, confirmation_df)
@@ -409,7 +409,7 @@ def build_candidates(
                 sub_industry_etf.append(_to_etf_candidate(r, "SUB_INDUSTRY_ETF", key, "细分方向代表"))
 
         # 个股候选
-        leaders, high_beta, equipment = select_stock_candidates(universe_items, key, stock_trend_report)
+        leaders, high_beta, equipment = select_stock_candidates(universe_items, key, trend_df)
 
         # 表达决策
         expr = decide_expression(meta)

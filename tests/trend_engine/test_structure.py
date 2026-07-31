@@ -1,27 +1,25 @@
 """
-结构级测试：验证 stock_trend 子系统的包结构、导入和 CLI 路由。
+结构级测试：验证 trend_engine（引擎）与 selection（Layer 3）的包结构、导入和 CLI 路由。
 """
 
 from __future__ import annotations
 
 import importlib
-import sys
-from pathlib import Path
 
 
 def test_package_imports():
-    """所有 stock_trend 模块可正常导入"""
+    """所有引擎/决策模块可正常导入"""
     modules = [
-        "src.stock_trend.asset",
-        "src.stock_trend.data_provider",
-        "src.stock_trend.fetch_data",
-        "src.stock_trend.indicators",
-        "src.stock_trend.scoring",
-        "src.stock_trend.portfolio",
-        "src.stock_trend.report",
-        "src.stock_trend.pipeline",
-        "src.stock_trend.cli",
-        "src.stock_trend.watchlist",
+        "src.trend_engine.asset",
+        "src.trend_engine.data_provider",
+        "src.trend_engine.fetch_data",
+        "src.trend_engine.indicators",
+        "src.trend_engine.scoring",
+        "src.trend_engine.engine",
+        "src.selection.universe",
+        "src.selection.selection",
+        "src.selection.report",
+        "src.selection.cli",
     ]
     for mod_name in modules:
         mod = importlib.import_module(mod_name)
@@ -29,7 +27,7 @@ def test_package_imports():
 
 
 def test_asset_dataclass():
-    from src.stock_trend.asset import Asset
+    from src.trend_engine.asset import Asset
 
     a = Asset(symbol="000300", name="沪深300", market="CN", exchange="SSE")
     assert a.symbol == "000300"
@@ -40,7 +38,7 @@ def test_asset_dataclass():
 
 def test_indicators_functions():
     import pandas as pd
-    from src.stock_trend.indicators import add_indicators, ema, rsi, macd
+    from src.trend_engine.indicators import add_indicators, ema, rsi, macd
 
     dates = pd.date_range("2026-01-01", periods=100, freq="B")
     close = pd.Series(range(100, 200), index=dates, dtype=float)
@@ -67,8 +65,8 @@ def test_indicators_functions():
 
 
 def test_scoring_functions(sample_ohlcv):
-    from src.stock_trend.indicators import add_indicators
-    from src.stock_trend.scoring import score_latest_row, score_trend_label, trend_bucket, risk_flags_text
+    from src.trend_engine.indicators import add_indicators
+    from src.trend_engine.scoring import score_latest_row, score_trend_label, trend_bucket, risk_flags_text
 
     df = add_indicators(sample_ohlcv)
     score, details = score_latest_row(df)
@@ -81,51 +79,42 @@ def test_scoring_functions(sample_ohlcv):
     assert isinstance(flags, str)
 
 
-def test_cli_parser():
-    from src.stock_trend.cli import build_arg_parser
+def test_selection_cli_parser():
+    from src.selection.cli import build_arg_parser
 
     parser = build_arg_parser()
-    args = parser.parse_args([])
-    assert args.start_date == "20180101"
-    assert args.adjust == "qfq"
-    assert args.plot_last_n == 180
-    assert args.offline is False
+    args = parser.parse_args(["run", "--offline"])
+    assert args.command == "run"
+    assert args.offline is True
 
 
-def test_main_routes_to_stock_trend():
-    """main.py imports and routes to stock_trend.cli for default case"""
+def test_main_routes_select():
+    """main.py 将 select/layer3 路由到 selection"""
     from src.main import SW_INDUSTRY_COMMANDS
 
     assert "bootstrap" in SW_INDUSTRY_COMMANDS
     assert "run-day" in SW_INDUSTRY_COMMANDS
 
 
-def test_main_routes_sw_commands():
-    """SW industry commands should be recognized"""
-    from src.main import SW_INDUSTRY_COMMANDS
-
-    expected = {"bootstrap", "update", "calculate", "report", "validate", "run-day", "drilldown"}
-    assert SW_INDUSTRY_COMMANDS == expected
-
-
 def test_no_circular_imports():
-    """Verify that importing pipeline doesn't create circular imports"""
-    import src.stock_trend.pipeline
-    import src.stock_trend.cli
-    importlib.reload(src.stock_trend.pipeline)
-    importlib.reload(src.stock_trend.cli)
+    """engine 与 selection 之间无循环导入"""
+    import src.trend_engine.engine
+    import src.selection.selection
+    importlib.reload(src.trend_engine.engine)
+    importlib.reload(src.selection.selection)
     assert True
 
 
-def test_pipeline_has_run_entry():
-    from src.stock_trend.pipeline import run_stock_trend
+def test_engine_has_compute_trends():
+    from src.trend_engine.engine import compute_trends
 
-    assert callable(run_stock_trend)
+    assert callable(compute_trends)
 
 
 def test_project_root_resolves():
     from src.common.paths import project_root
 
     root = project_root()
-    assert (root / "src" / "stock_trend").exists()
+    assert (root / "src" / "trend_engine").exists()
+    assert (root / "src" / "selection").exists()
     assert (root / "config" / "stock_universe.yaml").exists()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.stock_trend.indicators import ema, rsi, macd, add_indicators
+from src.trend_engine.indicators import ema, rsi, macd, add_indicators
 
 
 def test_ema_basic():

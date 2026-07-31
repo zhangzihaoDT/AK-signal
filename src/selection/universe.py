@@ -18,9 +18,9 @@ from typing import Any
 import pandas as pd
 import yaml
 
-from .asset import Asset
+from src.trend_engine.asset import Asset
 
-logger = logging.getLogger("stock_trend.universe")
+logger = logging.getLogger("selection.universe")
 
 MARKET_ALIAS = {
     "A": "CN", "ASHARE": "CN", "CN": "CN",

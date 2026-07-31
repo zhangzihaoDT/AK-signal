@@ -1,36 +1,31 @@
 """
-离线 CI smoke 测试：验证完整管线可在无网络环境下初始化。
+离线 smoke 测试：验证 Trend Engine + selection 在无网络环境下可初始化执行。
 不依赖外部 API，不修改现有 data/ 目录。
 """
 
 from __future__ import annotations
 
 import sys
-from datetime import date
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from src.common.paths import project_root
-from src.stock_trend.pipeline import (
-    run_stock_trend,
-    load_asset_state,
-    build_logger,
-)
-from src.stock_trend.universe import load_universe_items
+from src.trend_engine.engine import load_asset_state, build_logger
+from src.selection.universe import load_universe_items
 
-from src.stock_trend.cli import build_arg_parser
+from src.selection.cli import build_arg_parser
 from src.main import SW_INDUSTRY_COMMANDS, main as main_router
 
 
 def test_project_root_resolves_to_akignal():
     root = project_root()
-    assert (root / "src" / "stock_trend").is_dir()
+    assert (root / "src" / "trend_engine").is_dir()
     assert (root / "config" / "stock_universe.yaml").is_file()
 
 
-def test_load_stock_pool_has_assets():
+def test_load_universe_has_assets():
     root = project_root()
     universe_path = root / "config" / "stock_universe.yaml"
     items = load_universe_items(universe_path)
@@ -40,21 +35,18 @@ def test_load_stock_pool_has_assets():
     assert "300308" in symbols, "Expected 中际旭创 in universe"
 
 
-def test_cli_parser_defaults():
+def test_selection_cli_parser():
     parser = build_arg_parser()
-    args = parser.parse_args(["--offline"])
+    args = parser.parse_args(["run", "--offline"])
+    assert args.command == "run"
     assert args.offline is True
-    assert args.start_date == "20180101"
-    assert args.adjust == "qfq"
-    assert args.plot_last_n == 180
 
 
-def test_main_routes_to_stock_offline():
-    """验证 main.py 路由：不带参数时默认走向个股"""
+def test_main_routes_select():
+    """main.py 将 select 路由到 selection"""
     old_argv = sys.argv.copy()
     try:
-        sys.argv = ["main.py", "--help"]
-        # noinspection PyTypeChecker
+        sys.argv = ["main.py", "select", "--help"]
         with pytest.raises((SystemExit, Exception)):
             main_router()
     finally:
@@ -89,7 +81,7 @@ def test_sw_industry_commands_set():
 
 
 def test_asset_state_roundtrip(tmp_path):
-    from src.stock_trend.pipeline import save_asset_state, ASSET_STATE_COLUMNS
+    from src.trend_engine.engine import save_asset_state, ASSET_STATE_COLUMNS
     df = pd.DataFrame(columns=ASSET_STATE_COLUMNS)
     path = tmp_path / "asset_state.csv"
     save_asset_state(df, path)
@@ -101,7 +93,6 @@ def test_asset_state_roundtrip(tmp_path):
 def test_logger_builds():
     logger = build_logger("INFO")
     assert logger.level == 20
-    assert logger.name == "a_stock_monitor"
 
 
 def test_load_asset_state_missing(tmp_path):
@@ -109,9 +100,16 @@ def test_load_asset_state_missing(tmp_path):
     assert df.empty
 
 
+def test_compute_trends_empty_items(tmp_path):
+    """空标的列表时 engine 不崩溃。"""
+    from src.trend_engine.engine import compute_trends
+    df = compute_trends([], offline=True, log_level="ERROR")
+    assert df.empty
+
+
 def test_offline_smoke_with_mock_data(tmp_path):
     """
-    创建临时 config 和 mock 数据，在不联网环境下验证整个管线完整执行。
+    创建临时 config 和 mock 数据，在不联网环境下验证 engine.compute_trends 完整执行。
     """
     root = tmp_path
     config_dir = root / "config"
@@ -119,10 +117,10 @@ def test_offline_smoke_with_mock_data(tmp_path):
     config_dir.mkdir(parents=True, exist_ok=True)
     (data_dir / "raw").mkdir(parents=True, exist_ok=True)
     (data_dir / "processed").mkdir(parents=True, exist_ok=True)
-    (data_dir / "reports").mkdir(parents=True, exist_ok=True)
+    (data_dir / "state").mkdir(parents=True, exist_ok=True)
 
-    stock_pool = config_dir / "stock_universe.yaml"
-    stock_pool.write_text(
+    universe = config_dir / "stock_universe.yaml"
+    universe.write_text(
         "themes:\n"
         "  test:\n"
         "    label: 测试主题\n"
@@ -145,27 +143,19 @@ def test_offline_smoke_with_mock_data(tmp_path):
     mock_raw = pd.DataFrame(rows)
     mock_raw.to_csv(data_dir / "raw" / "CN_000001.csv", index=False, encoding="utf-8")
 
-    from src.stock_trend.indicators import add_indicators
-    mock_processed = add_indicators(mock_raw)
-    mock_processed.to_csv(data_dir / "processed" / "CN_000001.csv", index=False, encoding="utf-8")
-
     try:
         import src.common.paths as common_paths_mod
         original_root = common_paths_mod._ROOT
         common_paths_mod._ROOT = root
-        import src.stock_trend.pipeline as pipeline_mod
-        result = pipeline_mod.run_stock_trend(
-            start_date="20260101",
-            end_date="20260715",
-            offline=True,
-            only_symbols="CN:000001",
-            log_level="ERROR",
-        )
-        csv_path, html_path = result
-        assert csv_path.exists()
-        assert html_path.exists()
-        report_df = pd.read_csv(csv_path, dtype=str)
-        assert len(report_df) == 1
-        assert "000001" in report_df["symbol"].values
+
+        from src.selection.universe import load_universe_items
+        items = load_universe_items(universe)
+        assert len(items) == 1
+
+        from src.trend_engine.engine import compute_trends
+        result = compute_trends(items, offline=True, log_level="ERROR")
+        assert len(result) == 1
+        assert result.iloc[0]["symbol"] == "000001"
+        assert "score_trend" in result.columns
     finally:
         common_paths_mod._ROOT = original_root

@@ -9,7 +9,7 @@ SRC_MAIN = src/main.py
 	etf-retry-uncovered \
 	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-report sw-rps-confirm \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown \
-	stock stock-offline select test install clean
+	select select-offline test install clean
 
 help: ## 显示帮助信息
 	@grep -E '^[-a-zA-Z_0-9]+:.*## ' $(MAKEFILE_LIST) | sort | \
@@ -103,16 +103,13 @@ sw-rps-drilldown: ## 强势区成分股贡献穿透分析
 sw-rps-confirm: ## [Layer ②] AI/科技/半导体 行业群确认
 	$(PYTHON) $(SRC_MAIN) industry confirm
 
-# ── Layer ③ 个股/科技 ETF 趋势监控（非每日任务） ──────────────────
+# ── Layer 3 交易标的筛选（selection 内部调用 trend_engine） ──────
 
-stock: ## 运行 Layer ③ 分层趋势扫描（config/stock_universe.yaml）
-	$(PYTHON) $(SRC_MAIN) stock run
-
-stock-offline: ## 缓存模式（不联网）
-	$(PYTHON) $(SRC_MAIN) stock run --offline
-
-select: ## Layer 3 交易标的筛选（读 Layer①/② + universe → 候选对象 JSON + HTML）
+select: ## Layer 3 交易标的筛选（读 Layer①/② + trend_engine → 候选对象 JSON + HTML）
 	$(PYTHON) $(SRC_MAIN) select run
+
+select-offline: ## Layer 3 交易候选（仅用缓存行情，不联网）
+	$(PYTHON) $(SRC_MAIN) select run --offline
 
 # ── 开发维护 ──────────────────────────────────────────────────
 
