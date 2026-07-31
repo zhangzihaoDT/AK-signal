@@ -61,11 +61,6 @@ def main() -> None:
             sw_main()
             return
 
-        if cmd == "stock":
-            from src.trend_engine.engine import build_logger as _engine_logger
-            _engine_logger("INFO").error("stock_trend 已重构为 Trend Engine — 请使用 `select run` 走 Layer ③")
-            return
-
         if cmd in ("select", "layer3"):
             from src.selection.cli import main as selection_main
             sys.argv = [sys.argv[0], *argv[1:]]
