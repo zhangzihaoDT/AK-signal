@@ -468,10 +468,17 @@ def _to_etf_candidate(row: pd.Series, role: str, subtheme: str, reason: str) -> 
 
 # ── 持久化 ─────────────────────────────────────────────────────────
 
-def save_candidates_json(candidates: dict[str, Any], output_dir: Path, date_str: str) -> Path:
+def save_candidates_json(
+    candidates: dict[str, Any],
+    output_dir: Path,
+    date_str: str,
+    meta: dict[str, Any] | None = None,
+) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"tradable_candidates_{date_str}.json"
-    payload = {"date": date_str, "layer3": candidates}
+    payload: dict[str, Any] = {"date": date_str, "layer3": candidates}
+    if meta:
+        payload.update(meta)
     path.write_text(_json_dumps(payload), encoding="utf-8")
     logger.info("candidates json: %s", path)
     return path

@@ -83,6 +83,74 @@ def build_logger(level: str = "INFO") -> logging.Logger:
 def _today_str() -> str:
     return datetime.now().strftime("%Y%m%d")
 
+
+# Layer ① 产物元数据：source 固定为东财（em），横截面覆盖充足即视为 confirmed
+ETF_DATA_SOURCE = "em"
+ETF_CONFIRMED_COVERAGE = 0.99
+
+
+def _stamp_output_meta(
+    df: pd.DataFrame,
+    trade_date: pd.Timestamp,
+    data_status: str,
+    source: str = ETF_DATA_SOURCE,
+) -> pd.DataFrame:
+    """为 Layer ① 产物写入统一的日期/状态元数据列。
+
+    trade_date 必须来自输入行情横截面，不得由 datetime.now() 推断；
+    run_date / generated_at 仅承担审计语义。
+    """
+    df = df.copy()
+    df["trade_date"] = pd.Timestamp(trade_date)
+    df["run_date"] = pd.Timestamp(datetime.now().date())
+    df["generated_at"] = pd.Timestamp(datetime.now())
+    df["data_status"] = data_status
+    df["source"] = source
+    return df
+
+
+def _coverage_status(covered: int, total: int) -> str:
+    """按横截面覆盖判定 confirmed / provisional。"""
+    if total <= 0:
+        return "provisional"
+    return "confirmed" if covered / total >= ETF_CONFIRMED_COVERAGE else "provisional"
+
+
+def _resolve_etf_trade_date_str() -> str:
+    """从已保存的 Layer ① 产物解析最新横截面 trade_date。
+
+    优先读元数据（trade_date 列）；同层内只要存在带元数据的文件，
+    就忽略旧的无元数据文件，避免 run_date 命名与 trade_date 命名混排。
+    兜底为今天的运行日。
+    """
+    for directory, pattern in [
+        (etf_signal_daily_dir(), "rotation_*.parquet"),
+        (etf_signal_signals_dir(), "account_candidates_*.parquet"),
+        (etf_signal_signals_dir(), "watchlist_*.parquet"),
+    ]:
+        files = sorted(directory.glob(pattern)) if directory.exists() else []
+        if not files:
+            continue
+        meta_dates: list[str] = []
+        legacy_dates: list[str] = []
+        for path in files:
+            try:
+                df = pd.read_parquet(path, columns=["trade_date"])
+                v = df["trade_date"].dropna()
+                if len(v):
+                    meta_dates.append(pd.Timestamp(v.max()).strftime("%Y%m%d"))
+                    continue
+            except Exception:
+                pass
+            d = path.stem.rsplit("_", 1)[-1]
+            if len(d) == 8 and d.isdigit():
+                legacy_dates.append(d)
+        if meta_dates:
+            return max(meta_dates)
+        if legacy_dates:
+            return max(legacy_dates)
+    return _today_str()
+
 def _default_target_date() -> str:
     now = datetime.now()
     if now.hour < 16 or (now.hour == 16 and now.minute < 30):
@@ -629,8 +697,15 @@ def cmd_watchlist(args: argparse.Namespace) -> None:
 
     signals_dir = etf_signal_signals_dir()
     signals_dir.mkdir(parents=True, exist_ok=True)
-    watchlist.to_parquet(signals_dir / f"watchlist_{_today_str()}.parquet", index=False)
-    logger.info("watchlist saved: %d rows", len(watchlist))
+    wl_trade_date = pd.to_datetime(indicators_df["date"]).max()
+    if pd.isna(wl_trade_date):
+        wl_trade_date = pd.Timestamp(datetime.now().date())
+    wl_aligned = int((pd.to_datetime(indicators_df["date"]) == wl_trade_date).sum())
+    wl_status = _coverage_status(wl_aligned, len(indicators_df))
+    watchlist = _stamp_output_meta(watchlist, wl_trade_date, wl_status)
+    watchlist.to_parquet(signals_dir / f"watchlist_{wl_trade_date:%Y%m%d}.parquet", index=False)
+    logger.info("watchlist saved: %d rows (trade_date=%s, status=%s)",
+                len(watchlist), wl_trade_date.date(), wl_status)
 
 
 # ---------------------------------------------------------------------------
@@ -672,8 +747,25 @@ def cmd_account_mapping(args: argparse.Namespace) -> None:
         for _, row in blocked.head(10).iterrows():
             print(f"    {row['fund_name']}: {row['account_status_label']}")
 
-    mapped.to_parquet(signals_dir / f"account_candidates_{_today_str()}.parquet", index=False)
-    logger.info("account candidates saved")
+    ac_trade_date = pd.Timestamp(datetime.now().date())
+    ac_status = "confirmed"
+    ac_source = ETF_DATA_SOURCE
+    if "trade_date" in watchlist.columns:
+        v = pd.to_datetime(watchlist["trade_date"]).dropna()
+        if len(v):
+            ac_trade_date = v.max()
+    if "data_status" in watchlist.columns:
+        s = watchlist["data_status"].dropna().astype(str)
+        if len(s):
+            ac_status = "provisional" if (s == "provisional").any() else "confirmed"
+    if "source" in watchlist.columns:
+        s = watchlist["source"].dropna().astype(str)
+        if len(s):
+            ac_source = s.iloc[0]
+    mapped = _stamp_output_meta(mapped, ac_trade_date, ac_status, ac_source)
+    mapped.to_parquet(signals_dir / f"account_candidates_{ac_trade_date:%Y%m%d}.parquet", index=False)
+    logger.info("account candidates saved: %d rows (trade_date=%s, status=%s)",
+                len(mapped), ac_trade_date.date(), ac_status)
 
 
 def cmd_account_blacklist(args: argparse.Namespace) -> None:
@@ -825,7 +917,12 @@ def cmd_card(args: argparse.Namespace) -> None:
 
     card_mod.print_card_summary(cards)
     output_dir = etf_signal_output_dir()
-    card_mod.save_cards(cards, output_dir, _today_str())
+    card_trade_date = _today_str()
+    if "trade_date" in candidates.columns:
+        v = pd.to_datetime(candidates["trade_date"]).dropna()
+        if len(v):
+            card_trade_date = v.max().strftime("%Y%m%d")
+    card_mod.save_cards(cards, output_dir, card_trade_date)
 
     if cards:
         # 打印第一张非 flagged 卡片，否则打印第一张
@@ -851,7 +948,8 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
         logger.error("no indicators — run bootstrap + calculate first")
         return
 
-    date_str = _today_str()
+    # 横截面 trade_date 由已保存的 Layer ① 产物解析，不再承担运行日语义
+    date_str = _resolve_etf_trade_date_str()
 
     # Step 1: Watchlist
     t0 = time.monotonic()
@@ -955,7 +1053,6 @@ def cmd_calculate(args: argparse.Namespace) -> None:
     raw_dir = etf_signal_raw_dir()
     master_dir = etf_signal_master_dir()
     daily_dir = etf_signal_daily_dir()
-    explicit_date = getattr(args, "date", None)
 
     master = etf_master.load_master(master_dir)
     if master.empty:
@@ -978,6 +1075,21 @@ def cmd_calculate(args: argparse.Namespace) -> None:
     combined = pd.concat(all_daily, ignore_index=True)
     logger.info("computing indicators for %d rows across %d ETFs", len(combined), combined["fund_code"].nunique())
 
+    # trade_date = 最近完整交易日（run-day 语义，非当前时刻快照）。
+    # 盘中 raw 已含当日未收盘 K 线，必须把横截面锚定到完整交易日。
+    # 优先级：--date → --target-date（run-day 传入）→ 按运行时间推断。
+    anchor = getattr(args, "date", None) or getattr(args, "target_date", "") or _default_target_date()
+    trade_date = pd.Timestamp(anchor)
+    combined = combined[pd.to_datetime(combined["date"]) <= trade_date]
+    max_avail = pd.to_datetime(combined["date"]).max()
+    if pd.isna(max_avail):
+        logger.error("no ETF daily data at or before target %s", trade_date.date())
+        return
+    if max_avail < trade_date:
+        logger.warning("target %s 无数据，回退到最近可用交易日 %s", trade_date.date(), max_avail.date())
+    trade_date = max_avail
+    logger.info("rotation cross-section trade_date: %s", trade_date.date())
+
     indicators_df = indicators.compute_indicators(combined)
     logger.info("indicators computed: %d rows", len(indicators_df))
 
@@ -996,11 +1108,17 @@ def cmd_calculate(args: argparse.Namespace) -> None:
             int(indicators_df["rank_change_5d"].notna().sum()),
         )
 
-        # 保存 Layer ① 轮动数据产物
+        # 保存 Layer ① 轮动数据产物（按 trade_date 命名）
+        # 横截面覆盖 = 横截面日期有行情的 ETF / 数据宇宙中出现的 ETF
         daily_dir.mkdir(parents=True, exist_ok=True)
-        rotation_path = daily_dir / f"rotation_{_today_str()}.parquet"
+        codes_with_data = combined["fund_code"].unique()
+        codes_at_td = combined[combined["date"] == trade_date]["fund_code"].nunique() if len(codes_with_data) else 0
+        rotation_status = _coverage_status(int(codes_at_td), len(codes_with_data))
+        rotation_df = _stamp_output_meta(rotation_df, trade_date, rotation_status)
+        rotation_path = daily_dir / f"rotation_{trade_date:%Y%m%d}.parquet"
         rotation_df.to_parquet(rotation_path, index=False)
-        logger.info("rotation saved: %d ETFs -> %s", len(rotation_df), rotation_path)
+        logger.info("rotation saved: %d ETFs (cross-section coverage=%d/%d, status=%s) -> %s",
+                    len(rotation_df), int(codes_at_td), len(codes_with_data), rotation_status, rotation_path)
     else:
         # 兜底：指标缺失时按现有字段回退计算
         if "return_15d" in indicators_df.columns:

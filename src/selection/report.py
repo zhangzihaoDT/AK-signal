@@ -57,7 +57,12 @@ def _num(v: Any) -> str:
     return f"{v}"
 
 
-def render_selection_html(candidates: dict[str, Any], output_dir: Path, date_str: str) -> Path:
+def render_selection_html(
+    candidates: dict[str, Any],
+    output_dir: Path,
+    date_str: str,
+    meta: dict[str, Any] | None = None,
+) -> Path:
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     html_path = output_dir / f"tradable_candidates_{date_str}.html"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -69,6 +74,41 @@ def render_selection_html(candidates: dict[str, Any], output_dir: Path, date_str
         "<h1>③ 交易标的筛选与表达方式选择</h1>",
         f"<div class='subtitle'>报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · Layer ③ 只回答「买什么」，买多少/何时买卖由 Layer 4 决定</div>",
     ]
+
+    # 信号对齐（各 Layer trade_date 与证据等级）
+    alignment = (meta or {}).get("alignment", {})
+    layers = (meta or {}).get("layers", {})
+    if alignment:
+        parts.append('<div class="section"><h2>信号对齐</h2>')
+        align_status = alignment.get("alignment_status", "")
+        align_tag = "tag-confirm" if align_status == "aligned" else "tag-unconfirm"
+        align_txt = {
+            "aligned": "对齐",
+            "stale_industry": "行业滞后",
+            "stale_etf": "ETF 滞后",
+            "no_industry": "无行业确认",
+            "no_etf": "无 ETF 数据",
+            "no_data": "无数据",
+        }.get(align_status, align_status)
+        lag = alignment.get("industry_lag_days")
+        lag_txt = "" if lag in (None, 0) else f" · 行业滞后 {lag} 个交易日"
+        parts.append(
+            f"<div class='insight'><strong>对齐状态：</strong>"
+            f"<span class='tag {align_tag}'>{align_txt}</span>{lag_txt} · "
+            f"selection_date={alignment.get('selection_date', '')}</div>")
+        parts.append("<table><tr><th>Layer</th><th class='num'>trade_date</th><th>data_status</th></tr>")
+        for layer_key, layer_label in [
+            ("etf", "Layer① ETF 轮动"),
+            ("account_candidates", "Layer① 账户候选"),
+            ("sw_industry", "Layer② 行业确认"),
+        ]:
+            ly = layers.get(layer_key, {})
+            parts.append(
+                f"<tr><td>{layer_label}</td>"
+                f"<td class='num'>{ly.get('trade_date', '—')}</td>"
+                f"<td>{ly.get('data_status', '—')}</td></tr>")
+        parts.append("</table>")
+        parts.append('</div>')
 
     # 方向门控
     parts.append('<div class="section"><h2>方向门控</h2>')

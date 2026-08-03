@@ -1,5 +1,15 @@
 # AKsignal — Agent 操作手册
 
+## 信号日期语义（v0.4.2）
+
+- **统一约定**：Layer1（ETF）、Layer2（SW-RPS 确认）、Layer ③（Selection）一律以 **trade_date（最近完整交易日）** 作为信号分区日期与文件名日期。
+- 盘中运行时（16:30 前 / SW 15:10 前），trade_date 自动锚定到上一完整交易日（周一回溯到上周五）；收盘后取当日。
+- `run_date`（运行日）与 `generated_at`（生成时间）**仅承担审计语义**，写入 parquet 元数据，不参与文件命名与消费对齐。
+- 每个产物 parquet 内带元数据列：`trade_date` / `run_date` / `generated_at` / `data_status`（confirmed/provisional）/ `source`（ETF=em；SW=sw_daily / sw_realtime+ths_enrichment / sw_hist）。
+- Selection 消费逻辑：读取各层**元数据 trade_date** 做共同对齐，输出 `alignment`（aligned / stale_industry / stale_etf + industry_lag_days）。ETF 与 SW 不同步时显式标记滞后，不静默组合。
+- `select run --date YYYYMMDD` 的 `--date` 语义 = **目标 trade_date**，字面按 `rotation_{date} / account_candidates_{date} / confirmation_{date}` 精确加载、缺文件不降级。
+- 盘中快照与日频收盘信号分离：日频 run-day 只输出完整交易日横截面；盘中版本（snapshot_type=intraday）为独立模式，未启用。
+
 ## 每日运行（run-day）
 
 - **唯一入口**：`make run-day`（etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline → sw-rps-report → sw-rps-confirm）
@@ -41,8 +51,9 @@
 - 分层资产池：`config/stock_universe.yaml`（theme → tier → assets），已废弃扁平 `stock_pool.csv`
 - 命令：
   ```bash
-  make select          # 构建交易候选
+  make select          # 构建交易候选（默认各层最新 trade_date，自动对齐）
   make select-offline  # 仅缓存
+  python src/main.py select run --date 20260731   # 按目标 trade_date 精确回放
   python src/main.py select universe   # 查看分层池
   ```
 
@@ -59,7 +70,8 @@ make test             # 全部测试
 ## 产物
 
 - ETF：`outputs/etf_signal/etf_rotation_{date}.html`（Layer ① A股全市场 ETF 轮动，替换原 funnel_report）+ `candidate_cards_{date}.json`
-- ETF 轮动数据：`data/etf_signal/daily/rotation_{date}.parquet`（全市场横截面 RPS15/20/60 + 5日排名变动）
+- ETF 轮动数据：`data/etf_signal/daily/rotation_{trade_date}.parquet`（全市场横截面 RPS15/20/60 + 5日排名变动，含 trade_date/run_date/data_status/source 元数据）
+- 账户候选：`data/etf_signal/signals/account_candidates_{trade_date}.parquet`（趋势池 ∩ 账户池，含元数据列）
 - SW-RPS：`outputs/sw_industry_rps/sw_industry_rps_{date}.html`（+ `_latest.html` 指向最新）
-- Layer ② 行业确认：`outputs/sw_industry_rps/sw_industry_confirmation_{date}.html` + `data/processed/sw_industry/confirmation_{date}.parquet`（AI/科技/半导体 10 个重点行业群共振/龙头广度/背离）
+- Layer ② 行业确认：`outputs/sw_industry_rps/sw_industry_confirmation_{date}.html` + `data/processed/sw_industry/confirmation_{trade_date}.parquet`（含 data_status/source/coverage/generated_at，AI/科技/半导体 10 个重点行业群共振/龙头广度/背离）
 - Layer ③ 交易候选：`outputs/selection/tradable_candidates_{date}.json`（结构化候选对象）+ `.html`（可视化）

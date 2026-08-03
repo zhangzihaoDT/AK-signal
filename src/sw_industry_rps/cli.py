@@ -1117,6 +1117,25 @@ def cmd_drilldown(args: argparse.Namespace) -> None:
 # Confirm — Layer ② AI/科技/半导体 行业群确认
 # ---------------------------------------------------------------------------
 
+def _evidence_source_label(sources: list[str], provisional: bool) -> str:
+    """把上游 source 收敛为简短证据来源标签。
+
+    申万日报覆盖 → sw_daily（confirmed）
+    realtime 基底 + 同花顺增强 → sw_realtime+ths_enrichment（provisional）
+    逐行业 hist 回退 → sw_hist
+    """
+    if provisional:
+        return "sw_realtime+ths_enrichment"
+    joined = " ".join(sources).lower()
+    if "analysis" in joined:
+        return "sw_daily"
+    if "hist" in joined:
+        return "sw_hist"
+    if "realtime" in joined:
+        return "sw_realtime"
+    return "+".join(sources) or "unknown"
+
+
 def cmd_confirm(args: argparse.Namespace) -> None:
     """Layer ② 行业确认：重点行业群共振 + 龙头/广度 + ETF—行业背离。
 
@@ -1208,6 +1227,25 @@ def cmd_confirm(args: argparse.Namespace) -> None:
 
     # 3. 合并 + 落结构化明细
     final_df = confirmation.merge_drilldown(focus_df, drilldown_results)
+    # 证据元数据：从上游 metrics 在 latest_date 的行提取，供 Selection 判断证据等级
+    ms = metrics_df[metrics_df["trade_date"] == latest_date] if not metrics_df.empty else pd.DataFrame()
+    total_ind = int(metrics_df["industry_code"].nunique()) if not metrics_df.empty else 0
+    covered_ind = int(ms["industry_code"].nunique()) if not ms.empty else 0
+    coverage = round(covered_ind / total_ind, 4) if total_ind else 0.0
+    if not ms.empty and "data_status" in ms.columns:
+        provisional = bool((ms["data_status"].dropna().astype(str).str.strip() == "provisional").any())
+    else:
+        provisional = False
+    data_status = "provisional" if provisional else "confirmed"
+    sources = [str(s) for s in ms["source"].dropna().unique()] if not ms.empty and "source" in ms.columns else []
+    source_label = _evidence_source_label(sources, provisional)
+    final_df = final_df.copy()
+    final_df["data_status"] = data_status
+    final_df["source"] = source_label
+    final_df["coverage"] = coverage
+    final_df["generated_at"] = pd.Timestamp(datetime.now())
+    logger.info("confirmation evidence: trade_date=%s status=%s source=%s coverage=%.1f%%",
+                latest_date.date(), data_status, source_label, coverage * 100)
     processed_dir.mkdir(parents=True, exist_ok=True)
     out_path = processed_dir / f"confirmation_{date_str}.parquet"
     final_df.to_parquet(out_path, index=False)
