@@ -86,8 +86,12 @@ def _today_str() -> str:
 def _default_target_date() -> str:
     now = datetime.now()
     if now.hour < 16 or (now.hour == 16 and now.minute < 30):
-        yesterday = now - timedelta(days=1)
-        return yesterday.strftime("%Y%m%d")
+        days_back = 1
+        while True:
+            candidate = now - timedelta(days=days_back)
+            if candidate.weekday() < 5:
+                return candidate.strftime("%Y%m%d")
+            days_back += 1
     return now.strftime("%Y%m%d")
 
 

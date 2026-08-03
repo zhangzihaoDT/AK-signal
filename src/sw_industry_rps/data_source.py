@@ -176,6 +176,69 @@ def fetch_industry_realtime(
     ) from last_err
 
 
+def fetch_board_industry_index_ths(
+    board_name: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+) -> pd.DataFrame:
+    """同花顺行业板块日线（OHLCV+成交额），用于 provisional 收盘数据。
+
+    同花顺板块指数仅覆盖到最近已完成交易日（不含当日盘中），
+    与 run-day 上午目标（上一交易日 T-1）正好匹配。
+
+    Returns:
+        columns: trade_date, close, volume, amount, source
+    """
+    if start_date is None:
+        start_date = "20200101"
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y%m%d")
+
+    last_err: Exception | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            time.sleep(random.uniform(0.5, 1.5))
+            df = ak.stock_board_industry_index_ths(
+                symbol=board_name, start_date=start_date, end_date=end_date
+            )
+            if df is not None and not df.empty:
+                return _normalize_board_index_ths(df)
+        except Exception as e:
+            last_err = e
+            if attempt < max_retries:
+                delay = min(base_delay * (2 ** (attempt - 1)) + random.uniform(0, 0.5), 20.0)
+                logging.getLogger(__name__).warning(
+                    "fetch_board_industry_index_ths attempt %d/%d failed for %s: %s. retry in %.1fs",
+                    attempt, max_retries, board_name, e, delay,
+                )
+                time.sleep(delay)
+    logging.getLogger(__name__).warning(
+        "fetch_board_industry_index_ths failed for %s after %d attempts", board_name, max_retries
+    )
+    return pd.DataFrame()
+
+
+def _normalize_board_index_ths(df: pd.DataFrame) -> pd.DataFrame:
+    col_map = {
+        "日期": "trade_date",
+        "收盘价": "close",
+        "成交量": "volume",
+        "成交额": "amount",
+    }
+    df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+    df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
+    df = df.dropna(subset=["trade_date"])
+    for c in ["close", "volume", "amount"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    df["source"] = "ths_board"
+    df["fetched_at"] = datetime.now(timezone.utc).isoformat()
+    df = df.sort_values("trade_date").reset_index(drop=True)
+    return df
+
+
 def _normalize_realtime(df: pd.DataFrame) -> pd.DataFrame:
     col_map = {
         "指数代码": "industry_code",

@@ -34,6 +34,7 @@ from . import data_source, storage, metrics, regimes, validator, report
 from . import constituents as sw_constituents
 from . import contribution as sw_contribution
 from . import confirmation, confirmation_report
+from . import ths_mapping
 
 
 def build_logger(level: str = "INFO") -> logging.Logger:
@@ -58,9 +59,13 @@ def load_config() -> dict:
 
 def _default_target_date() -> str:
     now = datetime.now()
-    if now.hour < 16 or (now.hour == 16 and now.minute < 30):
-        yesterday = now - timedelta(days=1)
-        return yesterday.strftime("%Y%m%d")
+    if now.hour < 15 or (now.hour == 15 and now.minute < 10):
+        days_back = 1
+        while True:
+            candidate = now - timedelta(days=days_back)
+            if candidate.weekday() < 5:
+                return candidate.strftime("%Y%m%d")
+            days_back += 1
     return now.strftime("%Y%m%d")
 
 
@@ -240,6 +245,113 @@ def _log_reconciliation(raw_dir: Path, active_codes: list[str], target_date_str:
         logger.info("  reconciliation: %d industries replaced (close diff N/A)", replaced_count)
 
 
+def _build_realtime_provisional(
+    rt_df: pd.DataFrame,
+    raw_dir: Path,
+    active_codes: list[str],
+    target_date_str: str,
+    now: datetime | None = None,
+) -> pd.DataFrame:
+    """realtime 基底 → 全部 active 行业的 provisional 收盘。
+
+    realtime 的 close 为申万指数真实值，覆盖全部 124 个申万二级：
+      - 目标日 < 今天（上午跑，target=T-1）：用 昨收盘（= T-1 收盘）
+      - 目标日 == 今天（收盘后跑，target=T）：用 最新价（= T 收盘）
+
+    Returns:
+        df columns: industry_code, trade_date, close, pct_chg, data_status, source, fetched_at
+    """
+    logger = logging.getLogger("sw_industry_rps")
+    target = pd.Timestamp(target_date_str).date()
+    today = (now or datetime.now()).date()
+
+    code_col = "industry_code" if "industry_code" in rt_df.columns else "指数代码"
+    if code_col not in rt_df.columns:
+        logger.warning("  realtime missing code column")
+        return pd.DataFrame()
+    prev_col = "prev_close" if "prev_close" in rt_df.columns else "昨收盘"
+    close_col = "close" if "close" in rt_df.columns else "最新价"
+    if prev_col not in rt_df.columns or close_col not in rt_df.columns:
+        logger.warning("  realtime missing close columns")
+        return pd.DataFrame()
+
+    use_latest = (target == today)
+    rows: list[dict[str, Any]] = []
+    for _, r in rt_df.iterrows():
+        code = str(r[code_col]).strip()
+        if not code.endswith(".SI"):
+            code = f"{code}.SI"
+        if code not in active_codes:
+            continue
+        raw_close = float(r[close_col]) if use_latest else float(r[prev_col])
+        if pd.isna(raw_close) or raw_close <= 0:
+            continue
+        prev_df = storage.load_industry_raw(raw_dir, code)
+        if prev_df.empty or "trade_date" not in prev_df.columns:
+            continue
+        prev_row = prev_df[prev_df["trade_date"] < pd.Timestamp(target)]
+        if prev_row.empty:
+            continue
+        base_close = float(prev_row["close"].iloc[-1])
+        if pd.isna(base_close) or base_close <= 0:
+            continue
+        pct = raw_close / base_close - 1.0
+        rows.append({
+            "industry_code": code,
+            "trade_date": target,
+            "close": round(raw_close, 4),
+            "pct_chg": round(pct * 100.0, 4),
+            "data_status": "provisional",
+            "source": "realtime",
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+        })
+    df = pd.DataFrame(rows)
+    logger.info("  realtime base provisional: %d industries (use_latest=%s)", len(df), use_latest)
+    return df
+
+
+def _fetch_ths_enrichment(
+    raw_dir: Path,
+    active_codes: list[str],
+    target_date_str: str,
+    lookback_days: int = 45,
+) -> pd.DataFrame:
+    """同花顺行业板块日线 → 成交额/成交量增强字段（best-effort，失败不影响基底）。
+
+    Returns:
+        df columns: industry_code, volume, amount, ths_source
+    """
+    logger = logging.getLogger("sw_industry_rps")
+    target = pd.Timestamp(target_date_str).date()
+    active_set = set(active_codes)
+
+    rows: list[dict[str, Any]] = []
+    boards = [b for b in ths_mapping.mapped_boards()
+              if ths_mapping.lookup_sw_code(b) in active_set]
+    logger.info("  THS enrichment: %d boards, target=%s", len(boards), target_date_str)
+
+    start = (target - timedelta(days=lookback_days)).strftime("%Y%m%d")
+    for board in boards:
+        try:
+            hist = data_source.fetch_board_industry_index_ths(board, start_date=start, end_date=target_date_str)
+            if hist.empty:
+                continue
+            mask = hist["trade_date"].dt.date == target
+            if not mask.any():
+                continue
+            idx = mask.idxmax()
+            code = ths_mapping.lookup_sw_code(board)
+            rows.append({
+                "industry_code": code,
+                "volume": hist.loc[idx, "volume"],
+                "amount": hist.loc[idx, "amount"],
+                "ths_source": "ths_board",
+            })
+        except Exception as e:
+            logger.debug("  THS board %s enrichment failed: %s", board, e)
+    return pd.DataFrame(rows)
+
+
 def cmd_update(args: argparse.Namespace) -> UpdateResult:
     logger = build_logger(args.log_level)
     raw_dir = sw_industry_raw_dir()
@@ -315,63 +427,58 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
             logger.warning("  analysis_daily batch fetch failed: %s", e)
 
     # ═══════════════════════════════════════════════════════════════════
-    # Phase 2: index_realtime_sw — provisional fallback
+    # Phase 2: provisional — realtime 基底（全 124）+ 同花顺成交额/量增强
+    # 语义：同一交易日 T。上午跑 target=T-1 用 昨收盘；收盘后跑 target=T 用 最新价。
+    # 同花顺 90 板块仅增强 78 个行业，覆盖天花板 ~78/124，故 close 以 realtime 为准。
     # ═══════════════════════════════════════════════════════════════════
     if not target_ready:
-        # 收盘后门控：仅允许在 15:10 CST 之后将 realtime 最新价视为收盘候选
-        now_cst = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=8)))
-        market_closed = now_cst.hour > 15 or (now_cst.hour == 15 and now_cst.minute >= 10)
-        if not market_closed:
-            logger.warning("  L2 skipped: market still open (CST %s), realtime cannot proxy close", now_cst.strftime("%H:%M"))
-        else:
-            _, _, rt_dur = _probe_realtime()
-            logger.info("L2 provisional: fetching via index_realtime_sw ...")
-            t0 = time.monotonic()
-            try:
-                df_rt = data_source.fetch_industry_realtime(symbol="二级行业")
-                if not df_rt.empty:
-                    df_rt_active = df_rt[df_rt["industry_code"].isin(active_codes)].copy()
-                    active_count = df_rt_active["industry_code"].nunique()
+        cfg = load_config()
+        ths_min_coverage = cfg.get("provisional", {}).get("min_coverage", 0.6)
+        logger.info("L2 provisional: realtime 基底 + 同花顺增强 ...")
+        t0 = time.monotonic()
+        try:
+            df_rt = data_source.fetch_industry_realtime(symbol="二级行业")
+            if not df_rt.empty:
+                prov_df = _build_realtime_provisional(df_rt, raw_dir, active_codes, target_date_str)
+                if not prov_df.empty:
+                    # 同花顺增强（best-effort）：成交额/成交量
+                    try:
+                        enr = _fetch_ths_enrichment(raw_dir, active_codes, target_date_str)
+                        if not enr.empty:
+                            prov_df = prov_df.merge(
+                                enr[["industry_code", "volume", "amount", "ths_source"]],
+                                on="industry_code", how="left",
+                            )
+                            logger.info("  THS enrichment: %d/%d industries", enr["industry_code"].nunique(), len(prov_df))
+                    except Exception as e:
+                        logger.warning("  THS enrichment failed: %s (realtime base still valid)", e)
 
-                    # 数据质量校验
-                    coverage_ok = active_count >= len(active_codes) * 0.9
-                    close_ok = df_rt_active["close"].notna().all() and (df_rt_active["close"] > 0).all()
-                    prev_close_ok = df_rt_active["prev_close"].notna().all() and (df_rt_active["prev_close"] > 0).all()
-
-                    if coverage_ok and close_ok and prev_close_ok:
-                        # 注入上下文日期 — realtime 接口无日期字段
-                        df_rt_active["trade_date"] = pd.Timestamp(request_date)
-                        df_rt_active["source"] = "swsresearch_realtime"
-                        df_rt_active["data_status"] = "provisional"
-                        df_rt_active["fetched_at"] = datetime.now(timezone.utc).isoformat()
-
-                        saved, errors = storage.batch_save_industry_data(df_rt_active, raw_dir, target_date_str)
-                        logger.info("  saved: %d/%d active, close_ok=%s prev_close_ok=%s (fetch=%.1fs)",
-                                    saved, len(active_codes), close_ok, prev_close_ok,
-                                    time.monotonic() - t0)
-
-                        if saved >= len(active_codes) * 0.9:
-                            update_source = "realtime"
-                            storage.save_update_status(raw_dir, "provisional", target_date_str, "realtime",
-                                                       confirmed_date=None)
-                            target_ready = True
-                            storage.clear_checkpoint(raw_dir)
-                            logger.info("  status: provisional, assigned_date=%s", target_date_str)
-                        else:
-                            logger.warning("  realtime save coverage insufficient (%d/%d)", saved, len(active_codes))
+                    saved, errors = storage.batch_save_industry_data(prov_df, raw_dir, target_date_str)
+                    logger.info("  provisional saved: %d/%d active, errors=%d (fetch=%.1fs)",
+                                saved, len(active_codes), errors, time.monotonic() - t0)
+                    if saved >= len(active_codes) * ths_min_coverage:
+                        update_source = "realtime"
+                        storage.save_update_status(raw_dir, "provisional", target_date_str, "realtime",
+                                                   confirmed_date=None)
+                        target_ready = True
+                        storage.clear_checkpoint(raw_dir)
+                        logger.info("  status: provisional (realtime base), assigned_date=%s, coverage=%d/%d",
+                                    target_date_str, saved, len(active_codes))
                     else:
-                        logger.warning("  realtime data quality failed: coverage=%s close_ok=%s prev_close_ok=%s",
-                                       coverage_ok, close_ok, prev_close_ok)
+                        logger.warning("  provisional coverage insufficient (%d/%d < %.0f%%)",
+                                       saved, len(active_codes), ths_min_coverage * 100)
                 else:
-                    logger.warning("  realtime returned empty")
-            except Exception as e:
-                logger.warning("  realtime fetch failed: %s", e)
+                    logger.warning("  realtime base provisional empty, falling back")
+            else:
+                logger.warning("  realtime returned empty, falling back")
+        except Exception as e:
+            logger.warning("  provisional fetch failed: %s (silent fallback)", e)
 
     # ═══════════════════════════════════════════════════════════════════
-    # Phase 3: final fallback via index_hist_sw (逐行业, legacy path)
+    # Phase 4: final fallback via index_hist_sw (逐行业, legacy path)
     # ═══════════════════════════════════════════════════════════════════
     if not target_ready:
-        logger.info("L3 fallback: per-industry index_hist_sw (legacy path) ...")
+        logger.info("L4 fallback: per-industry index_hist_sw (legacy path) ...")
         target_date_str = explicit_target
 
         cp = storage.load_checkpoint(raw_dir)
@@ -473,6 +580,23 @@ def validate_raw_completeness(raw_dir: Path, target_date: str, active_codes: lis
     return covered, len(active_codes), missing
 
 
+def _count_provisional_coverage(raw_dir: Path, target_date: str, active_codes: list[str]) -> int:
+    """统计目标日期以 provisional 状态覆盖的 active 行业数。"""
+    target = pd.Timestamp(target_date)
+    covered = 0
+    for code in active_codes:
+        df = storage.load_industry_raw(raw_dir, code)
+        if df.empty:
+            continue
+        latest = df[df["trade_date"] >= target]
+        if latest.empty:
+            continue
+        row = latest.iloc[-1]
+        if row.get("data_status") == "provisional":
+            covered += 1
+    return covered
+
+
 def cmd_calculate(args: argparse.Namespace) -> None:
     logger = build_logger(args.log_level)
     raw_dir = sw_industry_raw_dir()
@@ -504,10 +628,21 @@ def cmd_calculate(args: argparse.Namespace) -> None:
 
     covered, expected, missing = validate_raw_completeness(raw_dir, target_date, active_codes)
     if covered < expected:
-        logger.error("raw data incomplete: %d/%d active industries, cannot calculate", covered, expected)
-        for c in missing[:10]:
-            logger.error("  missing: %s", c)
-        return
+        # provisional 阶段允许部分覆盖（如同花顺映射未覆盖全部申万二级）
+        cfg = load_config()
+        min_cov = cfg.get("provisional", {}).get("min_coverage", 0.6)
+        prov_covered = _count_provisional_coverage(raw_dir, target_date, active_codes)
+        if prov_covered >= expected * min_cov:
+            logger.warning("raw data provisional partial coverage: %d/%d (>= %.0f%%) — "
+                           "computing RPS on available cross-section",
+                           prov_covered, expected, min_cov * 100)
+        else:
+            logger.error("raw data incomplete: %d/%d active industries, cannot calculate "
+                         "(provisional coverage %d/%d < %.0f%%)",
+                         covered, expected, prov_covered, expected, min_cov * 100)
+            for c in missing[:10]:
+                logger.error("  missing: %s", c)
+            return
 
     # Load all active industry raw data
     all_hist: list[pd.DataFrame] = []
@@ -536,11 +671,14 @@ def cmd_calculate(args: argparse.Namespace) -> None:
         final = final.drop_duplicates(subset=["trade_date", "industry_code"], keep="last")
         final = final.sort_values(["trade_date", "industry_code"]).reset_index(drop=True)
     elif not prior_metrics.empty:
-        # 自动计算日期：追加所有新日期（> prior_max），不漏中间交易日
+        # 自动计算日期：追加所有新日期（> prior_max），不漏中间交易日；
+        # prior_max 分区结果优先重算（provisional → confirmed 覆盖），并保留 prior 独有行业
         prior_max = prior_metrics["trade_date"].max()
         new_rows = result[result["trade_date"] > prior_max]
-        final = pd.concat([prior_metrics, new_rows], ignore_index=True)
-        final = final.drop_duplicates(subset=["trade_date", "industry_code"], keep="last")
+        refresh = result[result["trade_date"] == prior_max]
+        prior_rest = prior_metrics[prior_metrics["trade_date"] != prior_max]
+        final = pd.concat([prior_rest, refresh, new_rows], ignore_index=True)
+        final = final.drop_duplicates(subset=["trade_date", "industry_code"], keep="first")
         final = final.sort_values(["trade_date", "industry_code"]).reset_index(drop=True)
     else:
         final = result
@@ -651,19 +789,29 @@ def cmd_report(args: argparse.Namespace) -> None:
     master = storage.load_master(raw_dir)
     active_codes, inactive_codes, universe_changed = storage.compute_active_codes(raw_dir, master)
 
+    # 判断数据是否为 provisional
+    update_status = storage.load_update_status(raw_dir)
+    is_provisional = update_status.get("status", "") in ("provisional", "completed_provisional") and \
+                     update_status.get("source", "") in ("ths_board", "realtime")
+
     latest_industries = snapshot["industry_code"].nunique()
     all_active_covered = latest_industries == len(active_codes)
 
     if not all_active_covered:
-        logger.error("snapshot has %d/%d active industries — refusing to publish", latest_industries, len(active_codes))
-        ctx = RunContext(
-            subsystem="sw_industry_rps", run_date=latest_date.date(),
-            status="failed", offline=True, started_at=_started_at,
-            summary={"total_industries": latest_industries, "active": len(active_codes), "date": date_str},
-            artifacts=[],
-        )
-        write_run_manifest(ctx)
-        return
+        min_cov = cfg.get("provisional", {}).get("min_coverage", 0.6)
+        if is_provisional and latest_industries >= len(active_codes) * min_cov:
+            logger.warning("provisional snapshot partial coverage: %d/%d (>= %.0f%%) — publishing provisional",
+                           latest_industries, len(active_codes), min_cov * 100)
+        else:
+            logger.error("snapshot has %d/%d active industries — refusing to publish", latest_industries, len(active_codes))
+            ctx = RunContext(
+                subsystem="sw_industry_rps", run_date=latest_date.date(),
+                status="failed", offline=True, started_at=_started_at,
+                summary={"total_industries": latest_industries, "active": len(active_codes), "date": date_str},
+                artifacts=[],
+            )
+            write_run_manifest(ctx)
+            return
 
     # 为首次进入强势区的行业计算成分股贡献穿透
     drilldown_results: list[dict] = []
@@ -725,11 +873,6 @@ def cmd_report(args: argparse.Namespace) -> None:
 
     # 限制 metrics 范围到目标日期，使轮动矩阵不展示未来数据
     report_metrics = metrics_df[metrics_df["trade_date"] <= latest_date].copy() if explicit_target else metrics_df
-
-    # 判断数据是否为 provisional
-    update_status = storage.load_update_status(raw_dir)
-    is_provisional = update_status.get("status", "") in ("provisional", "completed_provisional") and \
-                     update_status.get("source", "") == "realtime"
 
     csv_path, html_path = report.build_html(
         snapshot=snapshot, metrics=report_metrics,
@@ -1098,7 +1241,9 @@ def cmd_run_day(args: argparse.Namespace) -> None:
     fetch_dur = time.monotonic() - t0
 
     # ── Date gate ────────────────────────────────────────────────────
-    allow_provisional = getattr(args, "allow_provisional", False)
+    # provisional 是新设计下的常态（当天先用更快数据，次日申万确认覆盖）。
+    # 默认放行；--require-confirmed 可恢复严格模式（仅 confirmed 才继续）。
+    allow_provisional = not getattr(args, "require_confirmed", False)
 
     if result.status == "completed_provisional":
         logger.info("  update_source:           %s (provisional)", result.update_source)
@@ -1247,7 +1392,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_run = sub.add_parser("run-day", help="依次执行 update → calculate → report")
     p_run.add_argument("--target-date", default="", help="目标日期 YYYYMMDD（默认今天）")
     p_run.add_argument("--force-report", action="store_true", help="允许对已有报告的日期重新生成报告")
-    p_run.add_argument("--allow-provisional", action="store_true", help="允许使用 provisional 数据运行完整 pipeline")
+    p_run.add_argument("--allow-provisional", action="store_true", help="允许使用 provisional 数据运行完整 pipeline（默认已放行）")
+    p_run.add_argument("--require-confirmed", action="store_true", help="严格模式：仅 confirmed 数据才继续 calculate/report")
     p_run.add_argument("--log-level", default="INFO")
 
     return p

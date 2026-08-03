@@ -5,6 +5,11 @@ rps:
   windows: [5, 10, 15]          # RPS 计算窗口（交易日）
   range: [0, 100]               # RPS 取值范围
 
+provisional:
+  min_coverage: 0.6             # provisional 阶段允许的部分覆盖比例（相对 active 行业数）
+  ths_lookback_days: 45         # 同花顺日线回看日历天数（增强字段需命中目标日）
+  source_order: ["realtime", "ths_board"]   # L2 provisional：realtime 基底 close + 同花顺增强
+
 regimes:
   strong_threshold: 90           # 强势区阈值
   observe_threshold: 80          # 观察区阈值

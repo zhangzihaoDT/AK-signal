@@ -6,14 +6,17 @@
 - **数据发布时点（实测 2026-07-31）**：
   - ETF 行情（东财 spot）：盘中即可用，当日 07:30 前已覆盖前一交易日
   - SW-RPS 行业行情（swsresearch/legulegu）：**T+1 上午约 10:00 前后发布**。09:25 探测仍为空，10:08 已确认
-- **结论**：`make run-day` 应在上午 10:00 之后运行。10:00 前运行会拿不到前一日 SW 行业数据，报告停在 T-1
-- 若 10:00 前跑了 `run-day`，10:00 后重跑一次 `make run-day` 即可补齐，系统支持免重复发布
+- **provisional 兜底（2026-08-03 起）**：申万日报晚发布时，`industry update` 走 **L2 provisional = realtime 基底（覆盖全部 124 申万二级，真实申万指数值）+ 同花顺 90 板块增强（78 个映射行业的成交额/量）**。报告标记 `_provisional`；次日申万确认后重算覆盖并转 confirmed（RPS 用全横截面重算）
+- **结论**：上午 10:00 后运行最理想；若申万发布延迟（如周一），run-day 会输出 provisional 报告而非停在 T-1
+- 若已跑过 `run-day`，申万确认数据发布后重跑一次 `make run-day` 即可补齐并转 confirmed，系统支持免重复发布
 
 ## 数据源新鲜度门控（SW-RPS）
 
 - L1 `index_analysis_daily_sw`：单次批量接口，优先使用；目标日期无数据时返回空（KeyError '发布日期'）
-- L2 `index_realtime_sw`：盘中会跳过（realtime 不能代理收盘价）
+- L2 provisional：`index_realtime_sw` 做全部 124 行业基底 close（上午 target=T-1 用 昨收盘、收盘后 target=T 用 最新价）；`stock_board_industry_index_ths`（同花顺 90 板块日线）增强成交额/量，映射见 `src/sw_industry_rps/ths_mapping.py`（78 映射 + 12 语义歧义跳过）
 - L3 `index_hist_sw`：逐行业回退路径，极慢（约 5 分钟/124 行业）且凌晨/早上拿不到 T+1 数据，尽量避免触发
+- 目标日判定：15:10 CST 前 = 上一交易日（工作日回溯，周一自动回周五），15:10 后 = 当日
+- provisional 部分覆盖（≥60% active）时 calculate/report 放行并标记 `_provisional`；`industry run-day --require-confirmed` 可恢复严格模式
 - 探测机制已内置在 `industry update` 中，正常情况无需手动干预
 
 ## 国金账户可交易池（黑名单机制）
