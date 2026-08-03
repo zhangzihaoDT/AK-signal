@@ -21,7 +21,7 @@ from src.common.paths import (
     etf_signal_daily_dir, etf_signal_signals_dir, etf_signal_master_dir,
     sw_industry_confirmation_dir, stock_universe_path, outputs_dir,
 )
-from .universe import load_universe_items
+from .universe import load_universe_items, detect_unregistered_themes, cross_theme_assets
 from . import selection, report as sel_report
 
 
@@ -214,6 +214,22 @@ def cmd_run(args: argparse.Namespace) -> None:
     universe_items = load_universe_items(stock_universe_path())
     logger.info("universe: %d assets", len(universe_items))
 
+    # ── 配置健康检查：未注册主题 / 跨主题资产 ─────────────────────
+    # 未注册 theme = 配置关系不完整（资产不进入任何候选）。默认告警继续并标记 degraded；
+    # --strict 下阻止发布，避免未注册主题静默进入正式报告。
+    unregistered = detect_unregistered_themes(stock_universe_path())
+    cross_assets = cross_theme_assets(stock_universe_path())
+    config_issues: dict[str, Any] = {}
+    if unregistered:
+        config_issues["unregistered_themes"] = unregistered
+        logger.warning("unregistered themes (asset pool has no confirmation/selection): %s", unregistered)
+    if cross_assets:
+        config_issues["cross_theme_assets"] = cross_assets
+        logger.info("cross-theme assets (primary attribution = first bucket order): %s", list(cross_assets))
+    if unregistered and getattr(args, "strict", False):
+        logger.error("strict mode: %d unregistered theme(s) in stock_universe.yaml — aborting publish", len(unregistered))
+        return
+
     trend_df = pd.DataFrame()
     if universe_items:
         from src.trend_engine.engine import compute_trends
@@ -243,24 +259,61 @@ def cmd_run(args: argparse.Namespace) -> None:
             "sw_industry": {"trade_date": sw_td, "data_status": _layer_status(confirmation_df)},
         },
     }
+    if config_issues:
+        meta["config_issues"] = config_issues
+        meta["degraded"] = "config_issues"
     out_dir = outputs_dir() / "selection"
     json_path = selection.save_candidates_json(candidates, out_dir, sel_date, meta=meta)
     html_path = sel_report.render_selection_html(candidates, out_dir, sel_date, meta=meta)
 
     # 控制台摘要
-    for sub in candidates.get("subthemes", []):
-        n_core = len(sub.get("core_etf", []))
-        n_sub = len(sub.get("sub_industry_etf", []))
-        n_cand = len(sub.get("stock_candidates", []))
-        wl = sub.get("stock_watchlist", {})
-        n_wl = sum(len(wl.get(t, [])) for t in ("leaders", "high_beta", "equipment"))
-        logger.info("[%s] %s | %s | 核心ETF=%d 细分ETF=%d 个股候选=%d 观察池=%d",
-                    sub.get("subtheme", ""), sub.get("subtheme_label", ""),
-                    sub.get("expression_label", ""), n_core, n_sub, n_cand, n_wl)
+    for bucket in candidates.get("buckets", []):
+        logger.info("[bucket] %s（%s）| 确认主题=%d/%d",
+                    bucket.get("bucket_label", ""), bucket.get("objective", ""),
+                    bucket.get("n_confirmed", 0), bucket.get("n_themes", 0))
+        for sub in bucket.get("themes", []):
+            n_core = len(sub.get("core_etf", []))
+            n_sub = len(sub.get("sub_industry_etf", []))
+            n_cand = len(sub.get("stock_candidates", []))
+            wl = sub.get("stock_watchlist", {})
+            n_wl = sum(len(wl.get(t, [])) for t in ("leaders", "high_beta", "equipment"))
+            logger.info("  [%s] %s | %s | 核心ETF=%d 细分ETF=%d 个股候选=%d 观察池=%d",
+                        sub.get("theme", ""), sub.get("theme_label", ""),
+                        sub.get("expression_label", ""), n_core, n_sub, n_cand, n_wl)
     logger.info("recommended_actions: %d", len(candidates.get("recommended_actions", [])))
 
     logger.info("candidates json: %s", json_path)
     logger.info("candidates html: %s", html_path)
+
+
+def cmd_universe(args: argparse.Namespace) -> None:
+    """查看分层资产池（bucket → theme → tier → assets）。"""
+    universe_items = load_universe_items(stock_universe_path())
+    logger = build_logger(args.log_level)
+    by_bucket: dict[str, list] = {}
+    for item in universe_items:
+        by_bucket.setdefault(item.bucket, []).append(item)
+    for bucket_key in sorted(by_bucket, key=lambda k: _bucket_order(k)):
+        items = by_bucket[bucket_key]
+        bucket_label = items[0].bucket_label
+        logger.info("【%s / %s】 %d assets", bucket_key, bucket_label, len(items))
+        by_theme: dict[str, list] = {}
+        for item in items:
+            by_theme.setdefault(item.theme, []).append(item)
+        for theme_key in by_theme:
+            theme_items = by_theme[theme_key]
+            theme_label = theme_items[0].theme_label
+            logger.info("  └─ %s / %s（%d）", theme_key, theme_label, len(theme_items))
+            by_tier: dict[str, list] = {}
+            for item in theme_items:
+                by_tier.setdefault(item.tier, []).append(item)
+            for tier_key in by_tier:
+                names = "、".join(f"{i.asset.name}({i.asset.symbol})" for i in by_tier[tier_key])
+                logger.info("      └─ %s: %s", tier_key, names)
+
+
+def _bucket_order(bucket_key: str) -> int:
+    return {"core": 0, "quality": 1, "tactical": 2}.get(bucket_key, 9)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -269,14 +322,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_run = sub.add_parser("run", help="构建交易候选（读 Layer①/② + 调 Trend Engine → 输出候选对象）")
     p_run.add_argument("--offline", action="store_true", help="仅用缓存行情，不联网")
     p_run.add_argument("--date", default="", help="目标 trade_date YYYYMMDD（默认各层最新 trade_date 并对齐）")
+    p_run.add_argument("--strict", action="store_true",
+                       help="严格模式：asset pool 存在未注册 theme 时中止发布（默认告警+标记 degraded 继续）")
     p_run.add_argument("--log-level", default="INFO")
+    p_univ = sub.add_parser("universe", help="查看分层资产池（bucket → theme → tier）")
+    p_univ.add_argument("--log-level", default="INFO")
     return p
 
 
 def main() -> None:
     args = build_arg_parser().parse_args()
     command = getattr(args, "command", None)
-    if command == "run" or command is None:
+    if command == "run":
+        cmd_run(args)
+    elif command == "universe":
+        cmd_universe(args)
+    else:
         cmd_run(args)
 
 

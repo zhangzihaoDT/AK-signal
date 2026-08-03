@@ -110,6 +110,7 @@ def render_rotation_report(
     date_str: str,
     n_indicators: int = 0,
     account_candidates: pd.DataFrame | None = None,
+    theme_groups: list[dict[str, Any]] | None = None,
 ) -> Path:
     """生成 etf_rotation_{date}.html。"""
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -201,22 +202,39 @@ def render_rotation_report(
     parts.append('</div>')
 
     # ══════════════════ SECTION 3: 主线焦点 ══════════════════
-    parts.append('<div class="section"><h2>③ 主线焦点：AI/科技/半导体</h2>')
-    parts.append("<p>当前主线是否向 AI/科技/半导体集中，由下列数字判断。</p>")
-    n_tech = focus.get("tech_count", 0)
-    if n_tech > 0:
-        parts.append('<div class="judgment">')
-        parts.append(f'全市场 ETF 数量：<span class="k">{market.get("total", 0)}</span><br>')
-        parts.append(f'AI/科技/半导体 ETF：<span class="v">{n_tech}</span><br>')
-        parts.append("<br>")
-        parts.append(f'进入 RPS15 Top 10%：<span class="v">{focus.get("top10", 0)}</span>（随机期望 {n_tech * 0.10:.1f}）<br>')
-        parts.append(f'进入 RPS15 Top 20%：<span class="v">{focus.get("top20", 0)}</span><br>')
-        parts.append(f'板块 RPS15 中位数：<span class="v">{_num(focus.get("median_rps15"))}</span><br>')
-        parts.append(f'过去 5 日排名提升：<span class="v">{_sign(focus.get("rank_change_5d"))}</span><br>')
-        parts.append('</div>')
-        parts.append(f"<div class='verdict'><b>这一层决定：</b>{focus.get('verdict', '—')}</div>")
+    parts.append('<div class="section"><h2>③ 多主题主线焦点</h2>')
+    parts.append("<p>每个配置主题（AI 基础设施 / 高端装备 / 电力 / 运营商 / 公用事业 / 行业轮动）在全市场 ETF 中的位置，由下列数字判断。</p>")
+    if theme_groups:
+        parts.append("<table><tr>")
+        parts.append("<th>Bucket</th><th>主题</th><th class='num'>ETF 数</th>")
+        parts.append("<th class='num'>RPS15 中位</th><th class='num'>5日排名变动</th>")
+        parts.append("<th class='num'>Top10%</th><th class='num'>Top20%</th><th>这一层判断</th>")
+        parts.append("</tr>")
+        for tg in theme_groups:
+            n = tg.get("etf_count", 0)
+            rc = tg.get("rank_change_5d")
+            rc_txt = "—" if rc is None else _sign(rc)
+            top10, top20 = tg.get("top10", 0), tg.get("top20", 0)
+            parts.append(
+                f"<tr><td>{tg.get('bucket_label', '')}</td><td>{tg.get('theme_label', '')}</td>"
+                f"<td class='num'>{n}</td>"
+                f"<td class='num'>{_num(tg.get('median_rps15'))}</td>"
+                f"<td class='num'>{rc_txt}</td>"
+                f"<td class='num'>{top10}</td><td class='num'>{top20}</td>"
+                f"<td>{tg.get('verdict', '—')}</td></tr>")
+        parts.append("</table>")
+        # 兼容旧焦点块（AI/科技/半导体 汇总）
+        n_tech = focus.get("tech_count", 0)
+        if n_tech > 0:
+            parts.append('<div class="judgment">')
+            parts.append(f'全市场 ETF 数量：<span class="k">{market.get("total", 0)}</span><br>')
+            parts.append(f'AI/科技/半导体 ETF：<span class="v">{n_tech}</span><br>')
+            parts.append(f'板块 RPS15 中位数：<span class="v">{_num(focus.get("median_rps15"))}</span><br>')
+            parts.append(f'过去 5 日排名提升：<span class="v">{_sign(focus.get("rank_change_5d"))}</span><br>')
+            parts.append('</div>')
+            parts.append(f"<div class='verdict'><b>AI/科技/半导体 这一层决定：</b>{focus.get('verdict', '—')}</div>")
     else:
-        parts.append("<p>无 AI/科技/半导体 ETF 命中。</p>")
+        parts.append("<p>无主题焦点数据。</p>")
     parts.append('</div>')
 
     # ══════════════════ SECTION 4: 收益排名 ══════════════════

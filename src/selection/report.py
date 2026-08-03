@@ -1,7 +1,8 @@
 """
-Layer ③ — 交易候选 HTML 可视化
+Layer ③ — 多主题交易候选 HTML 可视化（v0.4.3）
 
 候选资产对象（JSON）的只读视图，不承担任何筛选逻辑。
+报告按 Bucket（Core/Quality/Tactical）→ Theme 分层展示。
 """
 
 from __future__ import annotations
@@ -115,8 +116,9 @@ def render_selection_html(
         "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>",
         f"<title>③ 交易标的筛选 · {date_str}</title>",
         f"<style>{CSS}</style></head><body><div class='container'>",
-        "<h1>③ 交易标的筛选与表达方式选择</h1>",
-        f"<div class='subtitle'>报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · Layer ③ 只回答「买什么」，买多少/何时买卖由 Layer 4 决定</div>",
+        "<h1>③ 多主题交易标的筛选与表达方式选择</h1>",
+        f"<div class='subtitle'>报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · "
+        f"按 Bucket（Core/Quality/Tactical）→ Theme 分层 · Layer ③ 只回答「买什么」，买多少/何时买卖由 Layer 4 决定</div>",
     ]
 
     # 数据对齐（单行，运行质量信息，不占决策层）
@@ -135,111 +137,134 @@ def render_selection_html(
             f" · Layer① ETF {le.get('trade_date', '—')}/{le.get('data_status', '—')}"
             f" · Layer② 行业 {ls.get('trade_date', '—')}/{ls.get('data_status', '—')}</div>")
 
+    # 配置降级提示：未注册 theme / 跨主题资产（不参与确认门控，仅作状态标记）
+    config_issues = (meta or {}).get("config_issues") or {}
+    if config_issues:
+        issue_parts: list[str] = []
+        unregistered = config_issues.get("unregistered_themes") or []
+        if unregistered:
+            issue_parts.append(f"asset pool 存在未注册 theme（不进入候选，需加入 config/themes_two_directions.yaml）：{'、'.join(unregistered)}")
+        cross = config_issues.get("cross_theme_assets") or {}
+        if cross:
+            shown = "、".join(f"{code}({'/'.join(ths)})" for code, ths in list(cross.items())[:8])
+            issue_parts.append(f"跨主题资产（primary 归属 = 首个 bucket）：{shown}")
+        if issue_parts:
+            parts.append(f"<div class='insight' style='border-left-color:#D79A36'><strong>配置降级：</strong>{' ｜ '.join(issue_parts)}</div>")
+
     # ── 第一层：今天做什么 ─────────────────────────────────────────
     action = candidates.get("action") or {}
     lvl = action.get("level", "WAIT")
     action_tag = "tag-confirm" if lvl == "BUY" else ("tag-unconfirm" if lvl == "WAIT" else "")
-    lvl_txt = {"BUY": "建仓", "OBSERVE": "观察", "WAIT": "等待"}.get(lvl, lvl)
+    lvl_txt = {"BUY": "买入", "OBSERVE": "观察", "WAIT": "等待"}.get(lvl, lvl)
     summary = candidates.get("summary") or {}
+    direction = candidates.get("direction") or {}
+    dir_txt = (f"{action.get('direction_label', '')} · {action.get('theme_label', '')}"
+               if action.get("theme_label") else "—")
     parts.append('<div class="section"><h2>今天做什么</h2>')
-    parts.append(f"<div class='verdict'><b>今日结论：</b><span class='tag {action_tag}'>{lvl_txt}</span> · {action.get('summary', '')}</div>")
-    parts.append(f"<p><b>原因：</b>{candidates.get('direction_reason', '')}</p>")
-    closest = candidates.get("closest_industry_subtheme")
+    parts.append(f"<div class='verdict'><b>今日方向：</b><span class='tag {action_tag}'>{lvl_txt}</span> · {dir_txt}</div>")
+    if action.get("expression_label"):
+        parts.append(f"<div class='insight'><b>表达方式：</b>{action.get('expression_label', '')}</div>")
+    parts.append(f"<p><b>原因：</b>{direction.get('reason', '')}</p>")
+    closest = candidates.get("closest_theme")
     if closest:
         se = closest.get("strongest_etf") or {}
         d_ind = closest.get("distance_to_industry_confirm")
         d_etf = closest.get("distance_to_etf_strength")
         parts.append(
-            f"<div class='insight'><b>最接近出现行业确认：</b>{closest.get('subtheme_label', '')}"
-            f" · 代表 ETF {se.get('name', '—')} · 当前 RPS15 {_num(se.get('rps15'))}"
+            f"<div class='insight'><b>最接近出现行业确认：</b>{closest.get('theme_label', '')}"
+            f"（{closest.get('bucket_label', '')}） · 代表 ETF {se.get('name', '—')} · 当前 RPS15 {_num(se.get('rps15'))}"
             f" · 行业确认尚差 {_num(d_ind)} · ETF 强势门槛尚差 {_num(d_etf)}</div>")
     parts.append('<div class="metrics">')
     parts.append(f"<div class='metric-card'><div class='metric-value'>{summary.get('recommended_actions', 0)}</div><div class='metric-label'>推荐行动</div></div>")
     parts.append(f"<div class='metric-card'><div class='metric-value'>{summary.get('qualified_candidates', 0)}</div><div class='metric-label'>合格候选</div></div>")
-    parts.append(f"<div class='metric-card'><div class='metric-value'>{summary.get('confirmed_subthemes', '0/0')}</div><div class='metric-label'>确认子主题</div></div>")
-    parts.append(f"<div class='metric-card'><div class='metric-value'>{summary.get('strongest_etf_subtheme', '—')}</div><div class='metric-label'>ETF 表现最强</div></div>")
+    parts.append(f"<div class='metric-card'><div class='metric-value'>{summary.get('confirmed_themes', '0/0')}</div><div class='metric-label'>确认主题</div></div>")
+    parts.append(f"<div class='metric-card'><div class='metric-value'>{summary.get('strongest_etf_theme', '—')}</div><div class='metric-label'>ETF 表现最强</div></div>")
     parts.append('</div>')
     parts.append('</div>')
 
-    # ── 第二层：三个方向的相对状态 ───────────────────────────────
-    subs = candidates.get("subthemes", [])
-    closest_key = closest.get("subtheme") if closest else None
-    parts.append('<div class="section"><h2>三个方向 · 相对状态</h2>')
-    parts.append("<table><tr><th>子主题</th><th>当前阶段</th><th class='num'>中位RPS15</th><th>最强ETF</th><th class='num'>ETF RPS15</th><th class='num'>距行业确认</th><th>结论</th></tr>")
-    for sub in subs:
-        m = sub.get("metrics", {})
-        se = sub.get("strongest_etf") or {}
-        d_ind = sub.get("distance_to_industry_confirm")
-        d_txt = "已确认" if sub.get("confirmed") else (_num(d_ind) if d_ind is not None else "—")
-        if sub.get("confirmed"):
-            concl = "已确认"
-        elif closest and sub.get("subtheme") == closest.get("subtheme"):
-            concl = "最接近行业确认"
-        else:
-            concl = "暂不关注"
-        parts.append(
-            f"<tr><td>{sub.get('subtheme_label', '')}</td><td>{sub.get('stage', '')}</td>"
-            f"<td class='num'>{_num(m.get('median_rps15'))}</td><td>{se.get('name', '—')}</td>"
-            f"<td class='num'>{_num(se.get('rps15'))}</td><td class='num'>{d_txt}</td><td>{concl}</td></tr>")
-    parts.append("</table>")
-
-    # 只展开「最接近转强」子主题，其余折叠；展开区压缩为「为什么未确认 / 代表ETF / 仍缺条件」
-    closest_key = closest.get("subtheme") if closest else (subs[0].get("subtheme") if subs else None)
-    for sub in subs:
-        is_closest = sub.get("subtheme") == closest_key
-        sub_label = sub.get("subtheme_label", sub.get("subtheme", ""))
-        conf_tag = "tag-confirm" if sub.get("confirmed") else "tag-unconfirm"
-        conf_txt = "已确认" if sub.get("confirmed") else "未确认"
-        open_attr = " open" if is_closest else ""
-        parts.append(f"<details{open_attr}><summary>{sub_label} · {sub.get('stage', '')} · <span class='tag {conf_tag}'>{conf_txt}</span></summary>")
-
-        if sub.get("confirmed"):
-            parts.append(f"<div class='verdict'><b>表达方式：</b>{sub.get('expression_label', '')}<br><small>{sub.get('expression_reason', '')}</small></div>")
-            m = sub.get("metrics", {})
-            parts.append('<div class="metrics">')
-            for k, v in m.items():
-                if v is None or k == "strongest_industry_rps15":
-                    continue
-                label = {"median_rps15": "中位 RPS15", "median_participation": "中位参与率",
-                         "median_hhi": "中位 HHI", "median_top3_share": "中位 Top3",
-                         "n_strong": "强势行业", "n_observe": "观察行业"}.get(k, k)
-                val = f"{float(v) * 100:.0f}%" if k.startswith("median_participation") else _num(v)
-                parts.append(f'<div class="metric-card"><div class="metric-value">{val}</div><div class="metric-label">{label}</div></div>')
-            parts.append('</div>')
-        else:
+    # ── 第二层：Bucket 概览 ───────────────────────────────────────
+    buckets = candidates.get("buckets", [])
+    closest_key = closest.get("theme") if closest else None
+    parts.append('<div class="section"><h2>多主题概览 · 相对状态</h2>')
+    parts.append("<table><tr><th>Bucket</th><th>目标</th><th>主题</th><th>当前阶段</th><th class='num'>中位RPS15</th><th>最强ETF</th><th class='num'>ETF RPS15</th><th class='num'>距行业确认</th><th>结论</th></tr>")
+    for b in buckets:
+        for sub in b.get("themes", []):
             m = sub.get("metrics", {})
             se = sub.get("strongest_etf") or {}
             d_ind = sub.get("distance_to_industry_confirm")
+            d_txt = "已确认" if sub.get("confirmed") else (_num(d_ind) if d_ind is not None else "—")
+            if sub.get("confirmed"):
+                concl = "已确认"
+            elif closest and sub.get("theme") == closest.get("theme"):
+                concl = "最接近行业确认"
+            else:
+                concl = "暂不关注"
+            bucket_cell = f"<b>{b.get('bucket_label', '')}</b>" if sub.get("theme") == (b.get("themes") or [{}])[0].get("theme", "") else ""
             parts.append(
-                f"<div class='insight'><b>为什么未确认：</b>行业观察数 {m.get('n_observe', 0)}"
-                f" ｜ 中位行业 RPS15 {_num(m.get('median_rps15'))}"
-                f" ｜ 距行业确认 {_num(d_ind)}</div>")
-            parts.append(
-                f"<div class='insight'><b>代表 ETF：</b>{se.get('name', '—')}"
-                f" ｜ RPS15 {_num(se.get('rps15'))}"
-                f" ｜ 5日 {_num(se.get('return_5d'))}% ｜ 20日 {_num(se.get('return_20d'))}%</div>")
-            parts.append("<div class='empty'>仍缺条件：行业确认尚未通过（RPS15≥80）</div>")
+                f"<tr><td>{bucket_cell}</td><td>{b.get('objective', '')}</td><td>{sub.get('theme_label', '')}</td><td>{sub.get('stage', '')}</td>"
+                f"<td class='num'>{_num(m.get('median_rps15'))}</td><td>{se.get('name', '—')}</td>"
+                f"<td class='num'>{_num(se.get('rps15'))}</td><td class='num'>{d_txt}</td><td>{concl}</td></tr>")
+    parts.append("</table>")
 
-        sc = sub.get("stock_candidates", [])
-        if sc:
-            parts.append("<h4>今日股票行动候选</h4>")
-            _asset_rows(parts, sc)
+    # 只展开「最接近转强」主题，其余折叠；展开区压缩为「为什么未确认 / 代表ETF / 仍缺条件」
+    for b in buckets:
+        parts.append(f"<h3>{b.get('bucket_label', '')} · {b.get('objective', '')}</h3>")
+        for sub in b.get("themes", []):
+            is_closest = sub.get("theme") == closest_key
+            theme_label = sub.get("theme_label", sub.get("theme", ""))
+            conf_tag = "tag-confirm" if sub.get("confirmed") else "tag-unconfirm"
+            conf_txt = "已确认" if sub.get("confirmed") else "未确认"
+            open_attr = " open" if is_closest else ""
+            parts.append(f"<details{open_attr}><summary>{theme_label} · {sub.get('stage', '')} · <span class='tag {conf_tag}'>{conf_txt}</span></summary>")
 
-        if sub.get("confirmed"):
-            for section_key, section_label in [("core_etf", "核心 ETF（动态候选）"), ("sub_industry_etf", "细分行业 ETF（动态候选）")]:
-                parts.append(f"<h4>{section_label}</h4>")
-                _asset_rows(parts, sub.get(section_key, []))
-        parts.append('</details>')
+            if sub.get("confirmed"):
+                parts.append(f"<div class='verdict'><b>表达方式：</b>{sub.get('expression_label', '')}<br><small>{sub.get('expression_reason', '')}</small></div>")
+                m = sub.get("metrics", {})
+                parts.append('<div class="metrics">')
+                for k, v in m.items():
+                    if v is None or k == "strongest_industry_rps15":
+                        continue
+                    label = {"median_rps15": "中位 RPS15", "median_participation": "中位参与率",
+                             "median_hhi": "中位 HHI", "median_top3_share": "中位 Top3",
+                             "n_strong": "强势行业", "n_observe": "观察行业", "etf_median_rps15": "主题ETF中位RPS15"}.get(k, k)
+                    val = f"{float(v) * 100:.0f}%" if k.startswith("median_participation") else _num(v)
+                    parts.append(f'<div class="metric-card"><div class="metric-value">{val}</div><div class="metric-label">{label}</div></div>')
+                parts.append('</div>')
+            else:
+                m = sub.get("metrics", {})
+                se = sub.get("strongest_etf") or {}
+                d_ind = sub.get("distance_to_industry_confirm")
+                parts.append(
+                    f"<div class='insight'><b>为什么未确认：</b>行业观察数 {m.get('n_observe', 0)}"
+                    f" ｜ 中位行业 RPS15 {_num(m.get('median_rps15'))}"
+                    f" ｜ 距行业确认 {_num(d_ind)}</div>")
+                parts.append(
+                    f"<div class='insight'><b>代表 ETF：</b>{se.get('name', '—')}"
+                    f" ｜ RPS15 {_num(se.get('rps15'))}"
+                    f" ｜ 5日 {_num(se.get('return_5d'))}% ｜ 20日 {_num(se.get('return_20d'))}%</div>")
+                parts.append("<div class='empty'>仍缺条件：行业确认尚未通过（RPS15≥80）</div>")
+
+            sc = sub.get("stock_candidates", [])
+            if sc:
+                parts.append("<h4>今日股票行动候选</h4>")
+                _asset_rows(parts, sc)
+
+            if sub.get("confirmed"):
+                for section_key, section_label in [("core_etf", "核心 ETF（动态候选）"), ("sub_industry_etf", "细分行业 ETF（动态候选）")]:
+                    parts.append(f"<h4>{section_label}</h4>")
+                    _asset_rows(parts, sub.get(section_key, []))
+            parts.append('</details>')
     parts.append('</div>')
 
     # ── 第三层：核心资产监控（固定池全量，独立章节） ───────────────
     tier_label = {"LEADER": "龙头", "HIGH_BETA": "高弹性", "UPSTREAM": "上游"}
     all_wl: list[dict[str, Any]] = []
-    for sub in subs:
-        wl = sub.get("stock_watchlist", {})
-        for tier in ("leaders", "high_beta", "equipment"):
-            for a in wl.get(tier, []):
-                all_wl.append({**a, "_tier": tier_label.get(a.get("role", ""), tier)})
+    for b in buckets:
+        for sub in b.get("themes", []):
+            wl = sub.get("stock_watchlist", {})
+            for tier in ("leaders", "high_beta", "equipment"):
+                for a in wl.get(tier, []):
+                    all_wl.append({**a, "_tier": tier_label.get(a.get("role", ""), tier)})
     parts.append('<div class="section"><h2>核心资产监控（固定观察池全量）</h2>')
     parts.append("<div class='empty' style='padding:0 0 12px'>变化比绝对状态更重要：一日分数变动、状态变化、持续天数、最近趋势达标日期。</div>")
     if all_wl:
@@ -256,7 +281,7 @@ def render_selection_html(
             if risk_flags:
                 risk_txt += f"（{'，'.join(risk_flags)}）"
             parts.append(
-                f"<tr><td>{a.get('name', '')}</td><td>{a.get('_tier', '')}</td><td>{a.get('subtheme', '')}</td>"
+                f"<tr><td>{a.get('name', '')}</td><td>{a.get('_tier', '')}</td><td>{a.get('theme', '')}</td>"
                 f"<td class='num'>{_num(a.get('score_trend'))}</td><td>{a.get('trend_status', '')}</td>"
                 f"<td class='num'>{sc_txt}</td><td>{_trend_qualified_label(a.get('score_trend'), a.get('trend_status'))}</td>"
                 f"<td>{risk_txt}</td><td>{_final_state_label(a.get('state', ''))}</td>"
@@ -267,7 +292,7 @@ def render_selection_html(
         parts.append("<div class='empty'>— 无固定观察池标的</div>")
     parts.append('</div>')
 
-    parts.append(f'<hr><div style="text-align:center;font-size:12px;color:var(--zh-muted);padding:20px 0">AKsignal · Layer ③ 交易标的筛选 · 报告自动生成于 {now_str}</div>')
+    parts.append(f'<hr><div style="text-align:center;font-size:12px;color:var(--zh-muted);padding:20px 0">AKsignal · Layer ③ 多主题交易标的筛选 · 报告自动生成于 {now_str}</div>')
     parts.append("</div></body></html>")
 
     html_path.write_text("\n".join(parts), encoding="utf-8")

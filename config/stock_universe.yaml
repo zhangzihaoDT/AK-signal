@@ -1,67 +1,82 @@
-# AKsignal Layer ③ — A股 AI/科技/半导体 ETF 与个股趋势 分层资产池
+# AKsignal Layer ③ — 两方向分层资产池（v0.4.3）
 #
-# 结构：theme（主题） → tier（标的层级，按优先级） → assets（标的）
+# 结构：theme（市场方向） → tier（标的层级） → assets
 #
-# 层级语义（ARCHITECTURE.md ③）：
-#   theme_etf           主题 ETF        AI 人工智能 / 半导体 / 通信
-#   sub_industry_etf    细分行业 ETF    芯片 / 软件 / 计算机 / 云计算
+# theme 归属（bucket/行业/关键词）由 config/themes_two_directions.yaml 单一事实源推导，
+# 本文件不重复维护 bucket，只维护每个主题的固定资产池。
+#  theme 不在 themes_two_directions.yaml → bucket 为空，仅作展示，不参与确认门控。
+#
+# 当前范围（两方向）：
+#   方向一  AI 基础设施（长期增长）
+#   方向二  高现金流资产（电力 / 三大运营商 / 公用事业，稳定现金流资产）
+#
+# tier 层级语义：
+#   theme_etf           主题 ETF（对应 theme 的首要表达）
+#   sub_industry_etf    细分行业 ETF
 #   leader              行业龙头
 #   high_beta           高弹性标的
 #   equipment_upstream  设备与上游
 #
 # sw_industry: 关联的申万二级行业代码（用于注入 Layer ② 行业确认信号）
-#   - 属于 10 个重点行业 → 注入 strength_level / 驱动分类 / 子主题
-#   - 不在重点行业 → 报告显示「无行业确认」
+#   属于该主题 industries → 注入 strength_level / 驱动分类
+#   不在主题 industries → 报告显示「无行业确认」
 
 themes:
-  ai_tech:
-    label: "AI/科技/半导体"
+  ai_infrastructure:
+    label: "AI 基础设施"
     tiers:
       - key: theme_etf
         label: "主题 ETF"
         assets:
           - {symbol: "512480", name: "半导体ETF国联安", market: CN, sw_industry: "801081.SI", note: "半导体"}
-          - {symbol: "159819", name: "人工智能ETF易方达", market: CN, sw_industry: "801104.SI", note: "人工智能"}
-          - {symbol: "515880", name: "通信ETF国泰", market: CN, sw_industry: "801102.SI", note: "通信"}
+          - {symbol: "159819", name: "人工智能ETF易方达", market: CN, sw_industry: "801081.SI", note: "人工智能"}
+          - {symbol: "515880", name: "通信ETF国泰", market: CN, sw_industry: "801102.SI", note: "通信设备"}
       - key: sub_industry_etf
         label: "细分行业 ETF"
         assets:
           - {symbol: "159995", name: "芯片ETF华夏", market: CN, sw_industry: "801081.SI", note: "芯片"}
           - {symbol: "512760", name: "芯片ETF国泰", market: CN, sw_industry: "801081.SI", note: "芯片"}
           - {symbol: "515050", name: "通信ETF华夏", market: CN, sw_industry: "801102.SI", note: "通信"}
-          - {symbol: "516510", name: "云计算ETF易方达", market: CN, sw_industry: "801104.SI", note: "云计算"}
+          - {symbol: "516510", name: "云计算ETF易方达", market: CN, sw_industry: "801101.SI", note: "云计算"}
           - {symbol: "159732", name: "消费电子ETF华夏", market: CN, sw_industry: "801085.SI", note: "消费电子"}
       - key: leader
         label: "行业龙头"
         assets:
           - {symbol: "300308", name: "中际旭创", market: CN, sw_industry: "801102.SI", note: "光模块龙头"}
-          - {symbol: "002230", name: "科大讯飞", market: CN, sw_industry: "801104.SI", note: "AI 龙头"}
+          - {symbol: "688981", name: "中芯国际", market: CN, sw_industry: "801081.SI", note: "晶圆代工"}
           - {symbol: "688256", name: "寒武纪", market: CN, sw_industry: "801081.SI", note: "AI 芯片"}
           - {symbol: "688041", name: "海光信息", market: CN, sw_industry: "801081.SI", note: "CPU/DCU"}
-      - key: high_beta
-        label: "高弹性标的"
-        assets:
-          - {symbol: "XPEV", name: "小鹏汽车", market: US, note: "智能驾驶"}
-          - {symbol: "NIO", name: "蔚来", market: US, note: "智能驾驶"}
-          - {symbol: "9660", name: "地平线", market: HK, note: "智驾芯片"}
-          - {symbol: "2498", name: "速腾聚创", market: HK, note: "激光雷达"}
       - key: equipment_upstream
         label: "设备与上游"
         assets:
+          - {symbol: "002371", name: "北方华创", market: CN, sw_industry: "801081.SI", note: "半导体设备"}
+          - {symbol: "688012", name: "中微公司", market: CN, sw_industry: "801081.SI", note: "刻蚀设备"}
           - {symbol: "603501", name: "韦尔股份", market: CN, sw_industry: "801081.SI", note: "CIS 芯片"}
-          - {symbol: "002920", name: "德赛西威", market: CN, sw_industry: "801093.SI", note: "智驾域控"}
+          - {symbol: "688008", name: "澜起科技", market: CN, sw_industry: "801081.SI", note: "内存接口"}
 
-  automotive:
-    label: "汽车产业链"
+  high_cashflow:
+    label: "高现金流资产"
     tiers:
-      - key: oem
-        label: "整车"
+      - key: theme_etf
+        label: "主题 ETF"
         assets:
-          - {symbol: "LI", name: "理想汽车", market: US, note: "新能源整车"}
-          - {symbol: "2015", name: "理想汽车-W", market: HK, note: "新能源整车", update_policy: weekly}
-          - {symbol: "600104", name: "上汽集团", market: CN, note: "整车集团"}
-      - key: supply
-        label: "供应链"
+          - {symbol: "561560", name: "电力ETF华泰柏瑞", market: CN, sw_industry: "801161.SI", note: "电力"}
+          - {symbol: "159611", name: "电力ETF广发", market: CN, sw_industry: "801161.SI", note: "电力"}
+          - {symbol: "562960", name: "绿色电力ETF易方达", market: CN, sw_industry: "801161.SI", note: "绿电"}
+          - {symbol: "563010", name: "电信ETF易方达", market: CN, sw_industry: "801223.SI", note: "电信"}
+          - {symbol: "159301", name: "公用事业ETF华夏", market: CN, sw_industry: "801179.SI", note: "公用事业"}
+          - {symbol: "159666", name: "交通运输ETF华夏", market: CN, sw_industry: "801179.SI", note: "交运"}
+      - key: leader
+        label: "行业龙头"
         assets:
-          - {symbol: "300750", name: "宁德时代", market: CN, note: "动力电池"}
-          - {symbol: "MBLY", name: "Mobileye", market: US, note: "智驾方案"}
+          - {symbol: "600900", name: "长江电力", market: CN, sw_industry: "801161.SI", note: "水电龙头"}
+          - {symbol: "601985", name: "中国核电", market: CN, sw_industry: "801161.SI", note: "核电运营"}
+          - {symbol: "003816", name: "中国广核", market: CN, sw_industry: "801161.SI", note: "核电运营"}
+          - {symbol: "600011", name: "华能国际", market: CN, sw_industry: "801161.SI", note: "火电龙头"}
+          - {symbol: "600941", name: "中国移动", market: CN, sw_industry: "801223.SI", note: "运营商龙头"}
+          - {symbol: "601728", name: "中国电信", market: CN, sw_industry: "801223.SI", note: "运营商"}
+          - {symbol: "600050", name: "中国联通", market: CN, sw_industry: "801223.SI", note: "运营商"}
+          - {symbol: "600377", name: "宁沪高速", market: CN, sw_industry: "801179.SI", note: "高速公路"}
+          - {symbol: "000429", name: "粤高速A", market: CN, sw_industry: "801179.SI", note: "高速公路"}
+          - {symbol: "600018", name: "上港集团", market: CN, sw_industry: "801992.SI", note: "港口龙头"}
+          - {symbol: "001872", name: "招商港口", market: CN, sw_industry: "801992.SI", note: "港口运营"}

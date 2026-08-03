@@ -1,4 +1,19 @@
-# AKSignal — 三层决策信号链：ETF 轮动 × 行业确认 × 交易候选
+# AKSignal — 三层决策信号链：ETF 轮动 × 主题确认 × 交易候选
+
+## v0.4.3 多主题（两方向）
+
+从「单一 AI 方向」升级为「Theme Registry（唯一事实源）」驱动的两方向信号与候选系统：
+
+| Bucket | 方向 | 确认因子（SW 二级行业证据） |
+|--------|------|------------------------------|
+| Core（核心） | AI 基础设施（不含 AI 应用） | 半导体 / 元件 / 通信设备 / 计算机设备 / 光学光电子 / 自动化设备 / 消费电子 |
+| Quality（质量） | 高现金流资产 | 电力 / 通信服务 / 铁路公路 / 航运港口 / 燃气 |
+
+- **主题定义**：`config/themes_two_directions.yaml`（bucket → theme → 行业 + ETF 关键词，单一事实源）
+- **资产池**：`config/stock_universe.yaml`（theme → tier → assets，bucket 由 themes 配置推导）
+- **Layer ② 改名「主题确认」**：确认目标是 Theme，SW 行业 / ETF / 参与率 / HHI 都是确认因子，不是目标本身
+- **顶层 Action 只回答方向**：BUY / OBSERVE / WAIT + Bucket + Theme；ETF / 股票 / 观察池全部落在下层 `buckets[].themes[]`
+- **Future Themes（Not Enabled）**：Resource Cycle / High-end Equipment / Aerospace / Shipping 等仅是未启用，可在 `themes_two_directions.yaml` 重新打开
 
 ## 项目架构
 
@@ -7,22 +22,23 @@ src/
 ├── main.py                       # 顶层命令路由
 ├── common/                       # 公共层
 │   ├── paths.py                  # 路径单一事实源
+│   ├── themes.py                 # Theme Registry 加载（bucket→theme→行业+关键词）
 │   ├── run_context.py            # 运行上下文
 │   └── manifest.py               # 产物发现契约
 ├── etf_signal/                   # Layer ① A股全市场 ETF 轮动
 │   ├── cli.py                    # 全流程编排
-│   ├── rotation.py               # 全市场横截面 RPS15/20/60 + 排名变动
+│   ├── rotation.py               # 全市场横截面 RPS15/20/60 + 每主题焦点组
 │   ├── rotation_report.py        # Layer ① 报告
 │   └── ...（master/classifier/account/card 等）
-├── sw_industry_rps/              # Layer ② 申万二级行业确认
+├── sw_industry_rps/              # Layer ② 主题确认（Theme Confirmation）
 │   ├── cli.py                    # 行业 CLI（bootstrap/update/.../confirm）
-│   ├── confirmation.py           # 重点行业群共振 + 子主题 + 龙头广度
+│   ├── confirmation.py           # 主题确认：行业证据 + bucket 聚合 + 龙头广度
 │   ├── confirmation_report.py    # Layer ② 报告
 │   └── ...（metrics/regimes/contribution 等）
-├── selection/                    # Layer ③ 交易标的筛选（执行对象压缩）
+├── selection/                    # Layer ③ 多主题交易标的筛选（执行对象压缩）
 │   ├── cli.py                    # select 命令
 │   ├── universe.py               # 分层资产池（theme→tier→assets）
-│   ├── selection.py              # 表达方式决策 + 候选对象构建
+│   ├── selection.py              # 逐主题表达方式决策 + 候选对象构建
 │   └── report.py                 # 候选 HTML 可视化
 └── trend_engine/                 # Trend Engine（selection 的内部依赖）
     ├── engine.py                 # 批量趋势计算 API
@@ -33,7 +49,7 @@ src/
 ```
 
 三层信号主链，共用 `.venv` Python 环境和 `data/` 目录规划：
-**Layer ① ETF 发现 → Layer ② 行业确认 → Layer ③ 交易候选（调用 Trend Engine）→ 未来 Layer 4 执行**
+**Layer ① ETF 发现 → Layer ② 主题确认 → Layer ③ 交易候选（调用 Trend Engine）→ 未来 Layer 4 执行**
 
 ## 安装
 
@@ -47,12 +63,13 @@ pip install -r requirements.txt
 
 ### 功能简介
 
-把 Layer ①（ETF 轮动）与 Layer ②（行业确认）的结论，压缩成「这个已确认方向用哪只 ETF、哪类股票交易」。核心是**执行对象压缩层**，不是又一层强弱排名。
+把 Layer ①（ETF 轮动）与 Layer ②（主题确认）的结论，压缩成「这个已确认主题用哪只 ETF、哪类股票交易」。核心是**执行对象压缩层**，不是又一层强弱排名。按 bucket → theme 逐主题输出候选。
 
-- 输入：Layer① rotation + Layer② confirmation + 分层资产池 `config/stock_universe.yaml`
+- 输入：Layer① rotation + Layer② confirmation + 分层资产池 `config/stock_universe.yaml` + 主题定义 `config/themes_two_directions.yaml`
 - 个股趋势由 **Trend Engine**（`trend_engine`）现场计算，不读独立报告
 - 表达方式决策基于上涨结构：广泛上涨→ETF、龙头主导→龙头个股、扩散→ETF核心+龙头卫星、未确认→仅观察
-- **核心输出是结构化候选对象 JSON**，HTML 仅为可视化
+- 顶层 Action 只回答「今天投哪个方向」（BUY/OBSERVE/WAIT + Bucket + Theme）；ETF/股票/观察池落在下层
+- **核心输出是结构化候选对象 JSON**（`layer3.buckets[].themes[]`），HTML 仅为可视化
 
 ### 运行
 
@@ -205,8 +222,8 @@ outputs/etf_signal/
 | 层 | 模块 | 职责 | 入口 |
 |------|------|------|------|
 | Layer ① | etf_signal | A股全市场 ETF 轮动（发现主线） | `python src/main.py etf <cmd>` |
-| Layer ② | sw_industry_rps | 申万二级行业确认（验证质量） | `python src/main.py industry <cmd>` |
-| Layer ③ | selection | 交易标的筛选（执行对象压缩） | `python src/main.py select run` |
+| Layer ② | sw_industry_rps | 主题确认（Theme Confirmation，行业证据验证） | `python src/main.py industry <cmd>` |
+| Layer ③ | selection | 多主题交易标的筛选（执行对象压缩） | `python src/main.py select run` |
 | Trend Engine | trend_engine | 指标与评分（selection 内部依赖） | 无独立入口 |
 | Layer 4 | — | Portfolio（买多少/何时买卖） | ⬜ 未来 |
 

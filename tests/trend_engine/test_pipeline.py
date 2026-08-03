@@ -113,4 +113,5 @@ class TestLoadUniverseItems:
         assert len(items) == 1
         assert items[0].asset.symbol == "000001"
         assert items[0].theme == "t"
+        assert items[0].bucket == ""  # theme 't' 不在 themes.yaml → bucket 为空
         assert items[0].tier == "leader"

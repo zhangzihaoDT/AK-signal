@@ -31,8 +31,8 @@ def test_load_universe_has_assets():
     items = load_universe_items(universe_path)
     assert len(items) > 0, "stock_universe.yaml should contain at least one asset"
     symbols = {item.asset.symbol for item in items}
-    assert "002230" in symbols, "Expected 科大讯飞 in universe"
-    assert "300308" in symbols, "Expected 中际旭创 in universe"
+    assert "300308" in symbols, "Expected 中际旭创（AI 基础设施）in universe"
+    assert "600900" in symbols, "Expected 长江电力（高现金流资产）in universe"
 
 
 def test_selection_cli_parser():

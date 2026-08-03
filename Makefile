@@ -100,7 +100,7 @@ sw-rps-validate: ## 校验行业数据质量
 sw-rps-drilldown: ## 强势区成分股贡献穿透分析
 	$(PYTHON) $(SRC_MAIN) industry drilldown
 
-sw-rps-confirm: ## [Layer ②] AI/科技/半导体 行业群确认
+sw-rps-confirm: ## [Layer ②] 主题确认（Theme Confirmation：行业证据，bucket/theme 分层）
 	$(PYTHON) $(SRC_MAIN) industry confirm
 
 # ── Layer ③ 交易标的筛选（selection 内部调用 trend_engine） ──────

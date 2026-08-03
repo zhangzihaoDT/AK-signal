@@ -1,14 +1,17 @@
 """
-Layer ② 申万二级行业确认 — AI/科技/半导体 行业群趋势质量验证
+Layer ② 主题确认（Theme Confirmation）— 多主题行业证据验证（v0.4.3 两方向）
 
-核心问题：ETF 的强势是否得到了底层行业的支持？
-职责：当 ETF 信号指向科技方向时，从中观行业层面验证趋势质量。
+核心问题：每个主题是否被底层行业证据支持？
+职责：从 config/themes_two_directions.yaml 加载 bucket → theme → 申万二级行业焦点组，
+      对每个主题从中观行业层面验证趋势质量。SW 行业 / ETF / 参与率 / HHI
+      都是 Theme 的确认因子，不是确认目标本身。
 
 输出维度：
-  - 群共振：重点行业群中有多少进入强势区（单一 vs 群共振）
-  - RPS 强弱与加速：各重点行业 RPS5/10/15、ΔRPS15、加速状态
+  - 主题确认：每个主题行业群中有多少进入强势区（单一 vs 群共振）
+  - RPS 强弱与加速：各证据行业 RPS5/10/15、ΔRPS15、加速状态
   - 龙头 vs 广泛上涨：强势行业的驱动分类（贡献集中度 × 广度）
   - ETF—行业背离：行业群相对全市场的强度（ETF 侧接入为后续）
+  - bucket 聚合：Core / Quality 两个组合意图下的主题确认汇总
 """
 
 from __future__ import annotations
@@ -19,39 +22,49 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from src.common import themes as themes_cfg
+
 logger = logging.getLogger("sw_industry_rps.confirmation")
 
-# ── AI/科技/半导体 重点行业（硬编码，与 ARCHITECTURE.md ② 对齐） ──────────────
-# theme 为子分组键：ai_core / digital_infrastructure / intelligent_manufacturing
+# ── 多主题焦点组（v0.4.3：从 config/themes_two_directions.yaml 加载，不再硬编码） ──────────
+# FOCUS_INDUSTRIES: 每项含 code/name/relevance/theme(theme key)/bucket(bucket key)
 FOCUS_INDUSTRIES: list[dict[str, str]] = [
-    {"code": "801081.SI", "name": "半导体", "relevance": "core", "theme": "ai_core"},
-    {"code": "801083.SI", "name": "元件", "relevance": "core", "theme": "ai_core"},
-    {"code": "801085.SI", "name": "消费电子", "relevance": "core", "theme": "ai_core"},
-    {"code": "801104.SI", "name": "软件开发", "relevance": "related", "theme": "ai_core"},
-    {"code": "801101.SI", "name": "计算机设备", "relevance": "related", "theme": "ai_core"},
-    {"code": "801102.SI", "name": "通信设备", "relevance": "related", "theme": "digital_infrastructure"},
-    {"code": "801223.SI", "name": "通信服务", "relevance": "related", "theme": "digital_infrastructure"},
-    {"code": "801103.SI", "name": "IT服务", "relevance": "related", "theme": "digital_infrastructure"},
-    {"code": "801078.SI", "name": "自动化设备", "relevance": "related", "theme": "intelligent_manufacturing"},
-    {"code": "801084.SI", "name": "光学光电子", "relevance": "related", "theme": "intelligent_manufacturing"},
+    {
+        "code": ind.code,
+        "name": ind.name,
+        "relevance": ind.relevance,
+        "theme": th.key,
+        "bucket": b.key,
+    }
+    for b in themes_cfg.load_buckets()
+    for th in b.themes
+    for ind in th.industries
 ]
 
-# 子分组定义（按 code 归属，名称用于展示）
-# 设计动机：AI 核心产业链与 TMT 基础设施的产业周期常不同步，
-# 未来可据此区分「AI Core 共振」vs「科技整体共振」
+# 主题定义（theme key → label / codes），供 compute_theme_resonance 分组展示
 THEMES: dict[str, dict[str, Any]] = {
-    "ai_core": {
-        "label": "AI 核心产业链",
-        "codes": ["801081.SI", "801083.SI", "801085.SI", "801104.SI", "801101.SI"],
-    },
-    "digital_infrastructure": {
-        "label": "数字基础设施（TMT）",
-        "codes": ["801102.SI", "801223.SI", "801103.SI"],
-    },
-    "intelligent_manufacturing": {
-        "label": "智能制造",
-        "codes": ["801078.SI", "801084.SI"],
-    },
+    th.key: {
+        "label": th.label,
+        "codes": th.industry_codes(),
+        "bucket": b.key,
+        "bucket_label": b.label,
+        "objective": th.objective,
+        "signal_model": th.signal_model,
+        "maturity": th.maturity,
+    }
+    for b in themes_cfg.load_buckets()
+    for th in b.themes
+}
+
+# bucket 定义（bucket key → label / codes / objective）
+BUCKETS: dict[str, dict[str, Any]] = {
+    b.key: {
+        "label": b.label,
+        "objective": b.objective,
+        "codes": [ind.code for th in b.themes for ind in th.industries],
+        "theme_keys": [th.key for th in b.themes],
+    }
+    for b in themes_cfg.load_buckets()
 }
 
 # 强势区 / 观察区阈值（与 regimes 配置一致）
@@ -113,6 +126,8 @@ def compute_focus_snapshot(
         rps15 = _f("RPS15")
         theme = fi.get("theme", "")
         theme_label = THEMES.get(theme, {}).get("label", theme)
+        bucket = fi.get("bucket", "")
+        bucket_label = BUCKETS.get(bucket, {}).get("label", bucket)
         rows.append({
             "date": latest_date,
             "industry_code": fi["code"],
@@ -121,6 +136,8 @@ def compute_focus_snapshot(
             "relevance_label": RELEVANCE_LABEL.get(fi["relevance"], fi["relevance"]),
             "theme": theme,
             "theme_label": theme_label,
+            "bucket": bucket,
+            "bucket_label": bucket_label,
             "RPS5": _f("RPS5"),
             "RPS10": _f("RPS10"),
             "RPS15": rps15,
@@ -265,6 +282,67 @@ def compute_theme_resonance(focus_df: pd.DataFrame) -> list[dict[str, Any]]:
 
     rank = {"群共振": 0, "局部走强": 1, "整体弱势": 2}
     rows.sort(key=lambda r: rank.get(r["status"], 9))
+    return rows
+
+
+def compute_bucket_resonance(focus_df: pd.DataFrame) -> list[dict[str, Any]]:
+    """组合意图（Bucket）级共振聚合。
+
+    把主题共振汇总到 Core / Quality / Tactical 三个 bucket：
+    每个 bucket 汇总其下所有主题行业群进入观察区/强势区的数量与中位 RPS15，
+    用于判断「核心、质量、战术」三个组合意图当前哪个被行业确认支撑。
+
+    Returns:
+        [
+            {
+                bucket, bucket_label, objective, n, n_strong, n_observe,
+                n_core_observe, median_rps15, median_delta_rps15, status, summary
+            }, ...
+        ]，按 bucket order 排序
+    """
+    if focus_df.empty or "bucket" not in focus_df.columns:
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for bucket_key, bdef in BUCKETS.items():
+        sub = focus_df[focus_df["bucket"] == bucket_key]
+        if sub.empty:
+            continue
+        rps = sub["RPS15"].dropna()
+        n = len(sub)
+        n_strong = int((rps >= STRONG_THRESHOLD).sum())
+        n_observe = int((rps >= OBSERVE_THRESHOLD).sum())
+        n_core_observe = int((sub["RPS15"] >= OBSERVE_THRESHOLD).sum())
+        median_rps = round(float(rps.median()), 1) if not rps.empty else None
+        median_delta = round(float(sub["delta_rps15"].median()), 1) \
+            if sub["delta_rps15"].notna().any() else None
+
+        if n_strong >= 2:
+            status = "群共振"
+            summary = f"bucket 内 {n_strong} 个行业进入强势区"
+        elif n_observe >= 1:
+            status = "局部走强"
+            summary = f"{n_observe} 个行业进入观察区"
+        else:
+            status = "整体弱势"
+            summary = "无行业进入观察区"
+
+        rows.append({
+            "bucket": bucket_key,
+            "bucket_label": bdef["label"],
+            "objective": bdef["objective"],
+            "n": n,
+            "n_strong": n_strong,
+            "n_observe": n_observe,
+            "n_core_observe": n_core_observe,
+            "median_rps15": median_rps,
+            "median_delta_rps15": median_delta,
+            "status": status,
+            "summary": summary,
+        })
+
+    order = {b.key: b.order for b in themes_cfg.load_buckets()}
+    rows.sort(key=lambda r: order.get(r["bucket"], 9))
     return rows
 
 

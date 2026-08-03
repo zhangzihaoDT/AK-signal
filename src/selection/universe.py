@@ -3,7 +3,8 @@ Layer ③ 分层资产池 — universe 加载与行业确认注入
 
 职责：
   - 加载 config/stock_universe.yaml（theme → tier → assets 分层结构）
-  - 将分层池扁平化为可运行的资产列表（保留 theme/tier 元数据）
+  - 将分层池扁平化为可运行的资产列表；bucket 归属由 config/themes_two_directions.yaml 推导，
+    不在本文件重复维护
   - 读取 Layer ② confirmation_{date}.parquet，按 sw_industry 注入行业确认信号
 """
 
@@ -18,6 +19,7 @@ from typing import Any
 import pandas as pd
 import yaml
 
+from src.common import themes as themes_cfg
 from src.trend_engine.asset import Asset
 
 logger = logging.getLogger("selection.universe")
@@ -48,6 +50,8 @@ def _default_currency(market: str) -> str:
 @dataclass(frozen=True)
 class UniverseItem:
     asset: Asset
+    bucket: str
+    bucket_label: str
     theme: str
     theme_label: str
     tier: str
@@ -68,13 +72,23 @@ def load_universe(path: Path) -> dict[str, Any]:
 
 
 def load_universe_items(path: Path) -> list[UniverseItem]:
-    """将分层 universe 扁平化为资产列表（保留 theme/tier 元数据）。"""
+    """将分层 universe 扁平化为资产列表（保留 theme/tier 元数据）。
+
+    bucket / bucket_label 从 config/themes_two_directions.yaml 推导（theme_bucket_map）；
+    theme 不在 themes_two_directions.yaml → bucket 为空，仅作展示，不参与确认门控。
+    """
     cfg = load_universe(path)
+    themes_cfg_map = themes_cfg.load_themes()
+    theme_bucket = themes_cfg.theme_bucket_map()
     themes = cfg.get("themes", {})
     items: list[UniverseItem] = []
 
     for theme_key, theme_cfg in themes.items():
-        theme_label = str(theme_cfg.get("label", theme_key))
+        bucket_key, bucket_label = theme_bucket.get(theme_key, ("", ""))
+        theme_label = themes_cfg_map.get(theme_key).label if theme_key in themes_cfg_map \
+            else str(theme_cfg.get("label", theme_key))
+        if not bucket_key:
+            logger.warning("theme '%s' not registered in config/themes_two_directions.yaml — bucket empty", theme_key)
         for tier_cfg in theme_cfg.get("tiers", []):
             tier_key = str(tier_cfg.get("key", ""))
             tier_label = str(tier_cfg.get("label", tier_key))
@@ -96,6 +110,8 @@ def load_universe_items(path: Path) -> list[UniverseItem]:
                 )
                 items.append(UniverseItem(
                     asset=asset,
+                    bucket=bucket_key,
+                    bucket_label=bucket_label,
                     theme=theme_key,
                     theme_label=theme_label,
                     tier=tier_key,
@@ -108,6 +124,40 @@ def load_universe_items(path: Path) -> list[UniverseItem]:
 
     logger.info("universe loaded: %d assets across %d themes", len(items), len(themes))
     return items
+
+
+def detect_unregistered_themes(path: Path) -> list[str]:
+    """返回 stock_universe.yaml 中存在但未在 config/themes_two_directions.yaml 注册的 theme 键。
+
+    未注册 theme = 配置关系不完整：其资产不会进入任何主题候选。
+    展示层允许继续运行（bucket 为空），正式发布应由调用方决定阻止或标记 degraded。
+    """
+    cfg = load_universe(path)
+    registered = set(themes_cfg.load_themes())
+    return [k for k in (cfg.get("themes", {}) or {}) if k not in registered]
+
+
+def cross_theme_assets(path: Path) -> dict[str, list[str]]:
+    """同一资产（code）出现在多个 theme 的归属清单。
+
+    允许同一资产在多个主题注册（多主题属性），但需要在报告/组合层明确主归属语义：
+      primary 归属 = 首个 bucket 顺序（core < quality < tactical），
+      Position 权重归属属于 Layer 4（v0.4.3 不做）。
+
+    Returns:
+        {asset_key: [theme_key, ...]}（仅返回出现 ≥2 个 theme 的资产）
+    """
+    cfg = load_universe(path)
+    code_themes: dict[str, list[str]] = {}
+    for theme_key, theme_cfg in (cfg.get("themes", {}) or {}).items():
+        for tier_cfg in theme_cfg.get("tiers", []):
+            for a in tier_cfg.get("assets", []):
+                symbol = str(a.get("symbol", "")).strip()
+                if symbol:
+                    code_themes.setdefault(symbol, [])
+                    if theme_key not in code_themes[symbol]:
+                        code_themes[symbol].append(theme_key)
+    return {code: themes for code, themes in code_themes.items() if len(themes) > 1}
 
 
 # ── Layer ② 行业确认注入 ─────────────────────────────────────────

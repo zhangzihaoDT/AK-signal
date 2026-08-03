@@ -1137,17 +1137,17 @@ def _evidence_source_label(sources: list[str], provisional: bool) -> str:
 
 
 def cmd_confirm(args: argparse.Namespace) -> None:
-    """Layer ② 行业确认：重点行业群共振 + 龙头/广度 + ETF—行业背离。
+    """Layer ② 主题确认（Theme Confirmation）：主题行业证据 + 龙头/广度 + ETF—行业背离。
 
     流程：
-      1. 计算 10 个重点行业的 RPS 明细（群共振 / 强弱 / 加速）
+      1. 计算两方向主题焦点行业（config/themes_two_directions.yaml）的 RPS 明细（确认/强弱/加速）
       2. 对进入强势区/观察区的重点行业做成分股穿透（驱动分类）
-      3. 落结构化明细 confirmation_{date}.parquet
-      4. 生成 sw_industry_confirmation_{date}.html
+      3. 落结构化明细 confirmation_{date}.parquet（含 bucket/theme 列）
+      4. 生成 sw_industry_confirmation_{date}.html（按 Bucket → Theme 展示）
     """
     logger = build_logger(args.log_level)
     logger.info("=" * 60)
-    logger.info("LAYER ② CONFIRM: AI/科技/半导体 行业群确认")
+    logger.info("LAYER ② THEME CONFIRM: 主题确认")
     logger.info("=" * 60)
 
     raw_dir = sw_industry_raw_dir()
@@ -1175,12 +1175,22 @@ def cmd_confirm(args: argparse.Namespace) -> None:
         return
     resonance = confirmation.classify_group_resonance(focus_df)
     theme_resonance = confirmation.compute_theme_resonance(focus_df)
+    bucket_resonance = confirmation.compute_bucket_resonance(focus_df)
     market_context = confirmation.compute_market_context(metrics_df)
     divergence = confirmation.classify_divergence(focus_df, market_context.get("market_median_rps15"))
+    # 每主题独立背离（报告按主题展示行业群 vs 全市场）
+    divergence_map: dict[str, Any] = {}
+    for theme_key in confirmation.THEMES:
+        tdf = focus_df[focus_df["theme"] == theme_key]
+        if not tdf.empty:
+            divergence_map[theme_key] = confirmation.classify_divergence(
+                tdf, market_context.get("market_median_rps15"))
 
     logger.info("群共振: %s | %s", resonance["status"], resonance["verdict"])
     for tr in theme_resonance:
         logger.info("  主题[%s]: %s（%s）中位RPS15=%s", tr["theme_label"], tr["status"], tr["summary"], tr["median_rps15"])
+    for br in bucket_resonance:
+        logger.info("  bucket[%s]: %s（%s）中位RPS15=%s", br["bucket_label"], br["status"], br["summary"], br["median_rps15"])
     logger.info("背离: %s", divergence["note"])
 
     # 2. 对需要验证的重点行业做成分股穿透
@@ -1257,8 +1267,8 @@ def cmd_confirm(args: argparse.Namespace) -> None:
     # 4. 生成 HTML 报告
     reports_dir = sw_industry_rps_output_dir()
     confirmation_report.render_confirmation_report(
-        final_df, resonance, theme_resonance, divergence, market_context,
-        drilldown_results, reports_dir, date_str,
+        final_df, resonance, theme_resonance, bucket_resonance, divergence_map,
+        market_context, drilldown_results, reports_dir, date_str,
     )
 
 
@@ -1425,7 +1435,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_drill.add_argument("--output-csv", action="store_true", help="输出 CSV 到 outputs/sw_industry_rps/")
     p_drill.add_argument("--log-level", default="INFO")
 
-    p_confirm = sub.add_parser("confirm", help="[Layer ②] AI/科技/半导体 行业群确认（群共振 + 龙头/广度 + 背离）")
+    p_confirm = sub.add_parser("confirm", help="[Layer ②] 主题确认（Theme Confirmation：行业证据 + 龙头/广度 + 背离）")
     p_confirm.add_argument("--window", type=int, default=10, help="贡献分析回看窗口（交易日数，默认 10）")
     p_confirm.add_argument("--max-drill", type=int, default=10, help="最多穿透的行业数（默认 10 = 全部重点行业，结构字段全覆盖）")
     p_confirm.add_argument("--log-level", default="INFO")

@@ -1009,6 +1009,7 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
         bucket_table = rotation.build_bucket_table(rotation_df)
         focus = rotation.focus_group(rotation_df, market)
         regime = rotation.assess_market_regime(bucket_table)
+        theme_groups = rotation.theme_focus_groups(rotation_df)
 
         cards_path = output_dir / f"candidate_cards_{date_str}.json"
         cards_list: list[dict] = []
@@ -1027,6 +1028,7 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
             wl, cards_list, output_dir, date_str,
             n_indicators=len(wl),
             account_candidates=account_df,
+            theme_groups=theme_groups,
         )
     else:
         logger.error("rotation metrics empty — skip rotation report")

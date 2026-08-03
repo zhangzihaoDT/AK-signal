@@ -1,14 +1,16 @@
 """
-Layer ② 申万二级行业确认 — HTML 报告
+Layer ② 主题确认（Theme Confirmation）— HTML 报告（v0.4.3 两方向）
 
 生成 sw_industry_confirmation_{date}.html，回答 ARCHITECTURE.md ② 的核心问题：
-「ETF 的强势是否得到了底层行业的支持？」
+「每个主题是否被底层行业证据支持？」
 
 报告结构：
-  ① 群共振判断   重点行业群中多少进入强势区（单一 vs 群共振）
-  ② 重点行业明细  RPS5/10/15、ΔRPS15、加速、强势层级
+  ① 主题确认判断  全局 + 按主题（Theme）共振表 + 按组合意图（Bucket）聚合
+  ② 证据明细     SW 行业（确认因子之一）：全部焦点行业 RPS5/10/15、ΔRPS15、加速、强势层级
   ③ 龙头 vs 广泛  强势行业的驱动分类（贡献集中度 × 广度）+ 前三大贡献者
-  ④ ETF—行业背离 行业群相对全市场强度（ETF 侧接入为后续）
+  ④ ETF—行业背离 每主题行业群相对全市场强度
+
+注：SW 行业 / ETF / 参与率 / HHI 都是 Theme 的确认因子，不是确认目标本身。
 """
 
 from __future__ import annotations
@@ -102,7 +104,8 @@ def render_confirmation_report(
     focus_df: pd.DataFrame,
     resonance: dict[str, Any],
     theme_resonance: list[dict[str, Any]],
-    divergence: dict[str, Any],
+    bucket_resonance: list[dict[str, Any]],
+    divergence_map: dict[str, dict[str, Any]],
     market_context: dict[str, Any],
     drilldown_results: dict[str, Any],
     output_dir: Path,
@@ -113,17 +116,20 @@ def render_confirmation_report(
     html_path = output_dir / f"sw_industry_confirmation_{date_str}.html"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    n_core = int((focus_df["relevance"] == "core").sum()) if not focus_df.empty else 0
+    n_rel = len(focus_df) - n_core
     parts = [
         "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>",
-        f"<title>② 申万二级行业确认 · {date_str}</title>",
+        f"<title>② 主题确认 · {date_str}</title>",
         f"<style>{CSS}</style></head><body><div class='container'>",
-        "<h1>② 申万二级行业确认</h1>",
-        f"<div class='subtitle'>报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · AI/科技/半导体 重点行业群（核心 3 + 相关 7，按 3 个子主题分层）</div>",
+        "<h1>② 主题确认（Theme Confirmation）</h1>",
+        f"<div class='subtitle'>报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · "
+        f"主题确认因子：SW 行业焦点组（{len(focus_df)} 个，核心 {n_core} · 相关 {n_rel}），按 Bucket（Core/Quality）→ Theme 分层</div>",
     ]
 
     # ══════════════════ SECTION 1: 群共振 ══════════════════
-    parts.append('<div class="section"><h2>① 群共振判断</h2>')
-    parts.append("<p>核心问题：ETF 的强势是否得到了底层行业的支持？行业群是单一强势还是同步共振？</p>")
+    parts.append('<div class="section"><h2>① 主题确认判断</h2>')
+    parts.append("<p>核心问题：每个主题的 ETF 强势是否得到了底层行业的支持？行业群是单一强势还是同步共振？</p>")
 
     parts.append('<div class="metrics">')
     metric_items = [
@@ -138,9 +144,8 @@ def render_confirmation_report(
         parts.append(f'<div class="metric-card"><div class="metric-value">{val}</div><div class="metric-label">{lbl}</div></div>')
     parts.append('</div>')
 
-    n = len(focus_df)
     parts.append('<div class="judgment">')
-    parts.append(f'重点行业数：<span class="k">{n}</span>（核心 3 · 相关 7）<br>')
+    parts.append(f'焦点行业数：<span class="k">{len(focus_df)}</span>（核心 {n_core} · 相关 {n_rel}）<br>')
     parts.append(f'进入 RPS15 强势区(≥90)：<span class="v">{resonance.get("n_strong", 0)}</span><br>')
     parts.append(f'进入 RPS15 观察区(≥80)：<span class="v">{resonance.get("n_observe", 0)}</span><br>')
     parts.append(f'核心行业强势(≥90)：<span class="v">{resonance.get("n_core_strong", 0)}</span><br>')
@@ -149,17 +154,35 @@ def render_confirmation_report(
     parts.append('</div>')
     parts.append(f"<div class='verdict'><b>这一层判断：</b>{resonance.get('verdict', '—')}</div>")
 
-    # 子主题共振分层
-    if theme_resonance:
-        parts.append("<h3>子主题分层（区分 AI Core 共振 vs 科技整体共振）</h3>")
+    # Bucket 聚合表
+    if bucket_resonance:
+        parts.append("<h3>组合意图聚合（Core / Quality / Tactical）</h3>")
         parts.append("<table><tr>")
-        parts.append("<th>子主题</th><th class='num'>行业数</th><th class='num'>强势(≥90)</th><th class='num'>观察(≥80)</th>")
+        parts.append("<th>Bucket</th><th>目标</th><th class='num'>行业数</th><th class='num'>强势(≥90)</th><th class='num'>观察(≥80)</th>")
+        parts.append("<th class='num'>中位 RPS15</th><th>状态</th></tr>")
+        for br in bucket_resonance:
+            tag = {"群共振": "tag-strong", "局部走强": "tag-observe", "整体弱势": "tag-weak"}.get(br["status"], "tag-none")
+            parts.append(
+                f"<tr><td><b>{br['bucket_label']}</b></td><td>{br['objective']}</td>"
+                f"<td class='num'>{br['n']}</td>"
+                f"<td class='num'>{br['n_strong']}</td>"
+                f"<td class='num'>{br['n_observe']}</td>"
+                f"<td class='num'>{_num(br['median_rps15'])}</td>"
+                f"<td><span class='tag {tag}'>{br['status']}</span> · {br['summary']}</td></tr>")
+        parts.append("</table>")
+        parts.append("<p style='font-size:12px'>Bucket 是「为什么持有」的组合意图：Core 长期增长 / Quality 稳定现金流 / Tactical 周期机会。行业确认用于判断当前哪个意图被底层行业支撑。</p>")
+
+    # 主题共振表
+    if theme_resonance:
+        parts.append("<h3>主题共振（每 Theme 独立确认）</h3>")
+        parts.append("<table><tr>")
+        parts.append("<th>Bucket</th><th>主题</th><th class='num'>行业数</th><th class='num'>强势(≥90)</th><th class='num'>观察(≥80)</th>")
         parts.append("<th class='num'>中位 RPS15</th><th class='num'>中位 ΔRPS15</th><th>状态</th></tr>")
         theme_rank = {"群共振": "tag-strong", "局部走强": "tag-observe", "整体弱势": "tag-weak"}
         for tr in theme_resonance:
             tag = theme_rank.get(tr["status"], "tag-none")
             parts.append(
-                f"<tr><td>{tr['theme_label']}</td>"
+                f"<tr><td>{tr.get('bucket_label', '—')}</td><td>{tr['theme_label']}</td>"
                 f"<td class='num'>{tr['n']}</td>"
                 f"<td class='num'>{tr['n_strong']}</td>"
                 f"<td class='num'>{tr['n_observe']}</td>"
@@ -167,15 +190,15 @@ def render_confirmation_report(
                 f"<td class='num'>{_sign(tr['median_delta_rps15'])}</td>"
                 f"<td><span class='tag {tag}'>{tr['status']}</span> · {tr['summary']}</td></tr>")
         parts.append("</table>")
-        parts.append("<p style='font-size:12px'>当 AI Core 与 TMT 基础设施产业周期不同步时，可据此识别「不是科技整体共振，而是 AI Core 共振」。</p>")
+        parts.append("<p style='font-size:12px'>同一主题内产业周期可能不同步，主题级共振用于识别「是主题内群共振，还是单一行业行情」。</p>")
 
     parts.append('</div>')
 
-    # ══════════════════ SECTION 2: 重点行业明细 ══════════════════
-    parts.append('<div class="section"><h2>② 重点行业明细</h2>')
+    # ══════════════════ SECTION 2: 证据明细（SW 行业） ══════════════════
+    parts.append('<div class="section"><h2>② 证据明细 · SW 行业</h2>')
     if not focus_df.empty:
         parts.append("<table><tr>")
-        parts.append("<th>行业</th><th>关联</th><th>子主题</th><th class='num'>RPS5</th><th class='num'>RPS10</th><th class='num'>RPS15</th>")
+        parts.append("<th>行业</th><th>Bucket</th><th>主题</th><th>关联</th><th class='num'>RPS5</th><th class='num'>RPS10</th><th class='num'>RPS15</th>")
         parts.append("<th class='num'>ΔRPS15</th><th class='num'>短期动能</th><th>强势层级</th><th>驱动分类</th><th class='num'>参与率</th><th>重构质量</th>")
         parts.append("</tr>")
         for _, r in focus_df.iterrows():
@@ -188,8 +211,9 @@ def render_confirmation_report(
             ql = r.get("reconstruction_quality", "") or ""
             parts.append(
                 f"<tr><td>{r['industry_name']}</td>"
-                f"<td><span class='tag {rt}'>{rl}</span></td>"
+                f"<td>{r.get('bucket_label', '')}</td>"
                 f"<td>{r.get('theme_label', '')}</td>"
+                f"<td><span class='tag {rt}'>{rl}</span></td>"
                 f"<td class='num'>{_num(r['RPS5'])}</td>"
                 f"<td class='num'>{_num(r['RPS10'])}</td>"
                 f"<td class='num'>{_num(r['RPS15'])}</td>"
@@ -230,24 +254,27 @@ def render_confirmation_report(
         parts.append("<p>当前无重点行业进入强势区/观察区，未进行成分股穿透。</p>")
     parts.append('</div>')
 
-    # ══════════════════ SECTION 4: ETF—行业背离 ══════════════════
-    parts.append('<div class="section"><h2>④ ETF—行业背离</h2>')
-    parts.append("<p>行业群相对全市场的中观强度（行业侧近似）。完整「ETF vs 行业」双覆盖需接入 ETF 侧数据（后续）。</p>")
-    parts.append('<div class="metrics">')
-    metric_items = [
-        (_num(divergence.get("group_median_rps15")), "行业群中位 RPS15"),
-        (_num(divergence.get("market_median_rps15")), "全市场中位 RPS15"),
-        (_sign(divergence.get("gap")), "差值"),
-        (divergence.get("status", "—"), "背离状态"),
-    ]
-    for val, lbl in metric_items:
-        parts.append(f'<div class="metric-card"><div class="metric-value">{val}</div><div class="metric-label">{lbl}</div></div>')
-    parts.append('</div>')
-    parts.append(f"<div class='insight'><strong>背离判断：</strong>{divergence.get('note', '—')}</div>")
+    # ══════════════════ SECTION 4: ETF—行业背离（每主题） ══════════════════
+    parts.append('<div class="section"><h2>④ ETF—行业背离（按主题）</h2>')
+    parts.append("<p>每个主题行业群相对全市场的中观强度（行业侧近似）。完整「ETF vs 行业」双覆盖需接入 ETF 侧数据（后续）。</p>")
+    if divergence_map:
+        parts.append("<table><tr><th>主题</th><th class='num'>行业群中位 RPS15</th><th class='num'>全市场中位 RPS15</th><th class='num'>差值</th><th>状态</th><th>判断</th></tr>")
+        for theme_key, dv in divergence_map.items():
+            tag = {"行业支持": "tag-strong", "行业背离": "tag-weak", "中性": "tag-neutral", "无数据": "tag-none"}.get(dv.get("status", ""), "tag-none")
+            parts.append(
+                f"<tr><td>{theme_key}</td>"
+                f"<td class='num'>{_num(dv.get('group_median_rps15'))}</td>"
+                f"<td class='num'>{_num(dv.get('market_median_rps15'))}</td>"
+                f"<td class='num'>{_sign(dv.get('gap'))}</td>"
+                f"<td><span class='tag {tag}'>{dv.get('status', '—')}</span></td>"
+                f"<td>{dv.get('note', '—')}</td></tr>")
+        parts.append("</table>")
+    else:
+        parts.append("<p>无主题背离数据。</p>")
     parts.append('</div>')
 
     # ── Footer ──
-    parts.append(f'<hr><div style="text-align:center;font-size:12px;color:var(--zh-muted);padding:20px 0">AKsignal · Layer ② 申万二级行业确认 · 报告自动生成于 {now_str}</div>')
+    parts.append(f'<hr><div style="text-align:center;font-size:12px;color:var(--zh-muted);padding:20px 0">AKsignal · Layer ② 主题确认（Theme Confirmation） · 报告自动生成于 {now_str}</div>')
     parts.append("</div></body></html>")
 
     html_path.write_text("\n".join(parts), encoding="utf-8")

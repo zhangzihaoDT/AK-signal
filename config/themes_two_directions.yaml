@@ -1,0 +1,98 @@
+# AKsignal 两方向主题框架配置（v0.4.3）— 单一事实源
+#
+# 结构：bucket（组合意图） → theme（市场方向） → industries（申万二级行业）+ etf_keywords
+#
+#   方向一  Core      AI 基础设施（长期增长）
+#   方向二  Quality   高现金流资产（电力 / 三大运营商 / 公用事业，稳定现金流资产）
+#
+#   bucket       为什么持有（Core / Quality）
+#   theme        持有什么方向（AI 基础设施 / 高现金流资产）
+#   industries   该主题关联的申万二级行业（Layer ② 行业确认的焦点组）
+#     relevance   core = 核心 / related = 相关
+#   etf_keywords  Layer ③ 从 Layer① 全市场 rotation 按名称关键词挑选 ETF 候选
+#
+# 消费方：
+#   Layer ①  etf_signal.rotation    每主题 ETF 焦点组（rotation 报告）
+#   Layer ②  sw_industry_rps.confirm  每主题行业群共振
+#   Layer ③  selection              每主题候选资产（ETF + 个股观察池）
+#
+# 匹配规则：ETF 名称按 bucket 顺序、theme 顺序逐个关键词匹配，首个命中生效。
+# 注意区分「AI 基础设施」与「AI 应用」：AI 应用（软件开发/IT 服务）不纳入基础设施主题。
+#
+# 高现金流资产为「质量信号」占位（signal_model=quality_equity，maturity=PARTIAL）：
+# 当前用 SW 行业确认近似，完整股息/现金流质量 adapter 属 v0.5。
+#
+# Future Themes（Not Enabled）：Resource Cycle（有色/钢铁/煤炭）、High-end Equipment（高端装备）、
+# Aerospace / Shipping（航空航天/船舶）等不在当前两方向，仅是「未启用」而非被否定，
+# 可在本文件重新打开。若启用商品类 theme（如 copper/aluminum），表达的是「权益/ETF 代理」
+# （ETF + 申万有色行业 + 资源股），非商品期货趋势系统，须标 maturity: PARTIAL。
+
+version: "0.4.3"
+
+buckets:
+  core:
+    label: "核心"
+    objective: "获取长期收益"
+    order: 1
+    themes:
+      ai_infrastructure:
+        label: "AI 基础设施"
+        signal_model: equity_theme
+        maturity: LIVE
+        objective: "AI 算力/芯片/通信基础设施（不含 AI 应用）"
+        industries:
+          - {code: "801081.SI", name: "半导体", relevance: core}
+          - {code: "801083.SI", name: "元件", relevance: core}
+          - {code: "801102.SI", name: "通信设备", relevance: core}
+          - {code: "801101.SI", name: "计算机设备", relevance: related}
+          - {code: "801084.SI", name: "光学光电子", relevance: related}
+          - {code: "801078.SI", name: "自动化设备", relevance: related}
+          - {code: "801085.SI", name: "消费电子", relevance: related}
+        etf_keywords:
+          - "人工智能"
+          - "ai"
+          - "芯片"
+          - "半导体"
+          - "集成电路"
+          - "科创芯片"
+          - "电子"
+          - "算力"
+          - "通信"
+          - "计算机"
+          - "云计算"
+          - "大数据"
+          - "信息技术"
+          - "存储"
+          - "光模块"
+
+  quality:
+    label: "质量"
+    objective: "高现金流防守"
+    order: 2
+    themes:
+      high_cashflow:
+        label: "高现金流资产"
+        signal_model: quality_equity
+        maturity: PARTIAL
+        objective: "电力（火电/水电/核电）/ 三大运营商 / 公用事业（高速·公路·港口）"
+        industries:
+          - {code: "801161.SI", name: "电力", relevance: core}
+          - {code: "801223.SI", name: "通信服务", relevance: core}
+          - {code: "801179.SI", name: "铁路公路", relevance: core}
+          - {code: "801992.SI", name: "航运港口", relevance: core}
+          - {code: "801163.SI", name: "燃气Ⅱ", relevance: related}
+        etf_keywords:
+          - "电力"
+          - "绿电"
+          - "绿色电力"
+          - "水电"
+          - "核电"
+          - "清洁能源"
+          - "电信"
+          - "运营商"
+          - "联通"
+          - "公用事业"
+          - "高速"
+          - "港口"
+          - "交通运输"
+          - "铁路"

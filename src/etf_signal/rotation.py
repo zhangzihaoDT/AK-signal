@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from src.common import themes as themes_cfg
 from . import classifier
 
 logger = logging.getLogger("etf_signal.rotation")
@@ -132,11 +133,16 @@ def _latest_returns(closes: pd.DataFrame, periods: tuple[int, ...]) -> dict[str,
 
 
 def is_tech_etf(fund_name: str) -> bool:
-    """按名称关键词判定是否属于 AI/科技/半导体 焦点组。"""
+    """按名称关键词判定是否属于 AI/科技/半导体 焦点组（向后兼容）。"""
     if not fund_name:
         return False
     name = str(fund_name).lower()
     return any(kw in name for kw in TECH_KEYWORDS)
+
+
+def match_theme(fund_name: str) -> str | None:
+    """按 config/themes_two_directions.yaml 关键词匹配首个主题（v0.4.3 多主题）。"""
+    return themes_cfg.match_theme(fund_name)
 
 
 def compute_rotation_metrics(
@@ -219,6 +225,8 @@ def compute_rotation_metrics(
                        for k, v in classifier.BUCKET_DEFINITIONS.items()}
     etf["asset_class"] = etf["asset_bucket"].map(asset_class_map).fillna("未分类")
     etf["is_tech"] = etf["fund_name"].apply(is_tech_etf)
+    # v0.4.3 多主题：按主题关键词打标（兼容旧 parquet 缺列场景）
+    etf["theme"] = etf["fund_name"].apply(match_theme)
 
     numeric_cols = ["rps15", "rps20", "rps60", "rank15", "rank15_prev5", "rank_change_5d",
                     "return_5d", "return_10d", "return_15d", "return_20d", "return_60d"]
@@ -351,6 +359,65 @@ def focus_group(etf: pd.DataFrame, market: dict[str, Any]) -> dict[str, Any]:
         "top10_excess": round(top10 - expected_top10, 1),
         "verdict": verdict,
     }
+
+
+def _theme_focus_one(etf: pd.DataFrame, theme_key: str, label: str, bucket_key: str, bucket_label: str) -> dict[str, Any]:
+    """单个主题的 ETF 焦点组判断块。"""
+    sub = etf[etf["theme"] == theme_key]
+    if sub.empty:
+        return {"theme": theme_key, "theme_label": label, "bucket": bucket_key,
+                "bucket_label": bucket_label, "etf_count": 0}
+    rps = sub["rps15"].dropna()
+    n = len(sub)
+    top10 = int((rps >= 90).sum())
+    top20 = int((rps >= 80).sum())
+    median_rps = round(float(rps.median()), 1) if not rps.empty else None
+    rank_change = _median_round(sub["rank_change_5d"])
+    expected_top10 = n * 0.10
+    return {
+        "theme": theme_key,
+        "theme_label": label,
+        "bucket": bucket_key,
+        "bucket_label": bucket_label,
+        "etf_count": n,
+        "top10": top10,
+        "top20": top20,
+        "top10_excess": round(top10 - expected_top10, 1),
+        "median_rps15": median_rps,
+        "rank_change_5d": rank_change,
+        "verdict": _judge_theme_momentum(n, top10, top20, median_rps, rank_change),
+    }
+
+
+def theme_focus_groups(etf: pd.DataFrame) -> list[dict[str, Any]]:
+    """v0.4.3 多主题焦点组：对 config/themes_two_directions.yaml 中每个 theme 输出独立判断块。
+
+    兼容旧 rotation parquet（无 theme 列）：按名称现场匹配。
+    """
+    if etf.empty or "theme" not in etf.columns:
+        etf = etf.copy()
+        etf["theme"] = etf["fund_name"].apply(match_theme)
+    groups: list[dict[str, Any]] = []
+    for b in themes_cfg.load_buckets():
+        for th in b.themes:
+            groups.append(_theme_focus_one(etf, th.key, th.label, b.key, b.label))
+    return groups
+
+
+def _judge_theme_momentum(
+    n: int, top10: int, top20: int, median_rps: float | None, rank_change: float,
+) -> str:
+    """判断某主题是否正在成为 A 股主线（通用版）。"""
+    if n == 0 or median_rps is None:
+        return "无有效样本"
+    top10_ratio = top10 / n
+    if median_rps >= 70 and top10_ratio >= 0.25 and rank_change > 0:
+        return "正在成为主线：RPS 中位强势、Top10% 集中度显著、5 日排名整体抬升"
+    if median_rps >= 60 and top10_ratio >= 0.15:
+        return "初步走强：相对强度高于市场，但集中度或动量尚不足以确认主线"
+    if median_rps < 40:
+        return "明显弱于市场：该主题当前不是主线方向"
+    return "处于市场中位，尚未形成明确主线"
 
 
 def _judge_tech_momentum(
