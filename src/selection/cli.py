@@ -251,12 +251,13 @@ def cmd_run(args: argparse.Namespace) -> None:
     for sub in candidates.get("subthemes", []):
         n_core = len(sub.get("core_etf", []))
         n_sub = len(sub.get("sub_industry_etf", []))
-        n_lead = len(sub.get("leaders", []))
-        n_hb = len(sub.get("high_beta", []))
-        n_eq = len(sub.get("equipment", []))
-        logger.info("[%s] %s | %s | 核心ETF=%d 细分ETF=%d 龙头=%d 高弹性=%d 上游=%d",
+        n_cand = len(sub.get("stock_candidates", []))
+        wl = sub.get("stock_watchlist", {})
+        n_wl = sum(len(wl.get(t, [])) for t in ("leaders", "high_beta", "equipment"))
+        logger.info("[%s] %s | %s | 核心ETF=%d 细分ETF=%d 个股候选=%d 观察池=%d",
                     sub.get("subtheme", ""), sub.get("subtheme_label", ""),
-                    sub.get("expression_label", ""), n_core, n_sub, n_lead, n_hb, n_eq)
+                    sub.get("expression_label", ""), n_core, n_sub, n_cand, n_wl)
+    logger.info("recommended_actions: %d", len(candidates.get("recommended_actions", [])))
 
     logger.info("candidates json: %s", json_path)
     logger.info("candidates html: %s", html_path)

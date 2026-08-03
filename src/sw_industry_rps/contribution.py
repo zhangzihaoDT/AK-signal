@@ -129,6 +129,18 @@ def compute_drilldown(
     window: int = 10,
 ) -> DrilldownResult:
     lgr = logging.getLogger("sw_industry_rps.contribution")
+    # legulegu 成分股仅提供 近1/近5日涨幅 列：请求窗口列不存在时回退到最近可用列，
+    # 使结构穿透可基于缓存成分股零网络完成；有效窗口随之调整以保证重构口径一致。
+    leg_col = f"近{window}日涨幅"
+    if leg_col not in constituents.columns:
+        for alt_window in (5, 1):
+            alt_col = f"近{alt_window}日涨幅"
+            if alt_col in constituents.columns:
+                leg_col = alt_col
+                window = alt_window
+                break
+        else:
+            leg_col = None
     ind_ret = compute_industry_return(industry_hist, breakout_date, window)
     if ind_ret is None:
         return DrilldownResult(
@@ -149,9 +161,8 @@ def compute_drilldown(
     start_str = start_dt.strftime("%Y%m%d")
     end_str = end_dt.strftime("%Y%m%d")
 
-    # 检查 legulegu 是否有该窗口的涨幅列
-    leg_col = f"近{window}日涨幅"
-    has_leg_return = leg_col in constituents.columns
+    # 检查 legulegu 是否有该窗口的涨幅列（已回退到可用列）
+    has_leg_return = leg_col is not None and leg_col in constituents.columns
 
     # 按代理权重降序排列：优先抓取核心股票
     constituents_sorted = constituents.sort_values("weight", ascending=False).reset_index(drop=True)

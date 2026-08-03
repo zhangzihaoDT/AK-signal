@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import pandas as pd
 
 from src.selection import selection
@@ -81,7 +82,8 @@ class TestSubthemeEvaluation:
         subs = selection.evaluate_subthemes(conf)
         assert subs["ai_core"]["confirmed"] is True
         assert subs["ai_core"]["n_observe"] == 2
-        assert subs["ai_core"]["median_participation"] == 0.7
+        # 原始中位数保留，不因展示舍入而损失精度（[0.78, 0.65] → 0.715）
+        assert subs["ai_core"]["median_participation"] == pytest.approx(0.715)
         assert subs["digital_infrastructure"]["confirmed"] is False
 
 

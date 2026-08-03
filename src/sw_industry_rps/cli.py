@@ -1187,11 +1187,14 @@ def cmd_confirm(args: argparse.Namespace) -> None:
     #    Layer ② 仅验证进入观察区（RPS15>=80）的行业；行业弱时穿透无意义且触发上游限频
     #    复用 focus_df（calculate 产出的指标筛选），不重算指标
     candidates = focus_df.sort_values("RPS15", ascending=False)
-    drill_codes = candidates[candidates["RPS15"] >= confirmation.OBSERVE_THRESHOLD]["industry_code"].tolist()[:max_drill]
+    # 结构穿透不再以 RPS15>=观察阈值为门（弱势市场会全部为空）：
+    # 按 RPS15 取 top max_drill，保证 participation/HHI/Top3 进入 Selection。
+    # 弱行业结构同样刻画「广泛走弱 vs 少数带动」，对风险判断有效。
+    drill_codes = candidates["industry_code"].tolist()[:max_drill]
 
     drilldown_results: dict[str, Any] = {}
     if not drill_codes:
-        logger.info("重点行业均未进入观察区（RPS15<%.0f）— 跳过成分股穿透", confirmation.OBSERVE_THRESHOLD)
+        logger.info("无重点行业可穿透 — 跳过成分股结构")
     else:
         logger.info("drilldown candidates (%d): %s", len(drill_codes), ", ".join(drill_codes))
         for idx, code in enumerate(drill_codes):
@@ -1424,7 +1427,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     p_confirm = sub.add_parser("confirm", help="[Layer ②] AI/科技/半导体 行业群确认（群共振 + 龙头/广度 + 背离）")
     p_confirm.add_argument("--window", type=int, default=10, help="贡献分析回看窗口（交易日数，默认 10）")
-    p_confirm.add_argument("--max-drill", type=int, default=5, help="最多穿透的行业数（默认 5）")
+    p_confirm.add_argument("--max-drill", type=int, default=10, help="最多穿透的行业数（默认 10 = 全部重点行业，结构字段全覆盖）")
     p_confirm.add_argument("--log-level", default="INFO")
 
     p_run = sub.add_parser("run-day", help="依次执行 update → calculate → report")
