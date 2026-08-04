@@ -8,8 +8,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.replay import parity, schema
-from src.replay.engine import replay_single_date
+from src.research.replay import engine
+from src.research.signals import schema
+from src.research.validation import parity
 
 
 class TestSchema:
@@ -130,7 +131,7 @@ class TestCheckParity:
 class TestSingleDateReplayIntegration:
     def test_replay_parity_20260803(self, tmp_path):
         """已有正式产物日期：纯离线重放，parity 必须 PASS。"""
-        df = replay_single_date("20260803", out_dir=None)
+        df = engine.replay_single_date("20260803", out_dir=None)
         assert not df.empty
         assert df["signal_origin"].iloc[0] == "replayed"
         assert df["rule_version"].iloc[0] == "v0.4.3"

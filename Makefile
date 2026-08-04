@@ -127,10 +127,10 @@ select-offline: ## Layer ③ 交易候选（强制离线，仅读缓存/产物�
 DATE ?= 20260803
 
 replay-single: ## [v0.5] 单日期历史信号重放（纯离线；DATE=YYYYMMDD）
-	$(PYTHON) $(SRC_MAIN) replay single --date $(DATE)
+	$(PYTHON) $(SRC_MAIN) research replay single --date $(DATE)
 
 replay-parity: ## [v0.5] 单日期重放 + 与正式产物 parity 校验（DATE=YYYYMMDD）
-	$(PYTHON) $(SRC_MAIN) replay parity --date $(DATE)
+	$(PYTHON) $(SRC_MAIN) research replay parity --date $(DATE)
 
 # ── 开发维护 ──────────────────────────────────────────────────
 

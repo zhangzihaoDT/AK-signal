@@ -22,7 +22,7 @@ from src.common.paths import (
     sw_industry_confirmation_dir, outputs_dir,
 )
 
-logger = logging.getLogger("replay.parity")
+logger = logging.getLogger("research.validation.parity")
 
 # 数值字段允许的绝对误差
 FLOAT_ATOL = 0.02

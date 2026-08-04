@@ -13,8 +13,8 @@ import sys
 from pathlib import Path
 
 from src.common.paths import outputs_dir
-from . import engine as replay_engine
-from . import parity as replay_parity
+from src.research.replay import engine as replay_engine
+from src.research.validation import parity as replay_parity
 
 
 def _replay_dir() -> Path:

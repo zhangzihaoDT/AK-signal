@@ -37,11 +37,11 @@ from src.sw_industry_rps import confirmation as sw_confirmation
 from src.selection import selection as sel_module
 from src.selection.universe import load_universe_items
 from src.trend_engine import inputs as trend_inputs
-from . import schema as sch
+from src.research.signals import schema as sch
 
 
 def build_logger(level: str = "INFO") -> logging.Logger:
-    logger = logging.getLogger("replay")
+    logger = logging.getLogger("research.replay")
     if logger.handlers:
         return logger
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
