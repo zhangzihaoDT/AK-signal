@@ -10,7 +10,7 @@ SRC_MAIN = src/main.py
 	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-report sw-rps-confirm \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown \
 	select select-inputs select-offline \
-	replay-single replay-parity replay-range event-study \
+	replay-single replay-parity replay-range event-study backtest-trades \
 	test install clean
 
 help: ## 显示帮助信息
@@ -129,6 +129,8 @@ START ?=
 END ?=
 LAYERS ?= 123
 SIGNALS ?=
+THEME ?= ai_infrastructure
+EXIT ?= signal_exit
 
 replay-single: ## [v0.5] 单日期历史信号重放（纯离线；DATE=YYYYMMDD）
 	$(PYTHON) $(SRC_MAIN) research replay single --date $(DATE)
@@ -141,6 +143,9 @@ replay-range: ## [v0.5] 区间历史信号重放（START/END=YYYYMMDD, LAYERS=12
 
 event-study: ## [v0.5.1] 事件研究（SIGNALS=信号parquet, START/END可选, LAYERS=123）
 	$(PYTHON) $(SRC_MAIN) research event-study --signals $(SIGNALS) --layers $(LAYERS)
+
+backtest-trades: ## [v0.5.2] 交易层逐笔模拟（THEME=主题, EXIT=退出策略, SIGNALS=信号）
+	$(PYTHON) $(SRC_MAIN) backtest trades --signals $(SIGNALS) --theme $(THEME) --entity-type etf --exit-policy $(EXIT)
 
 # ── 开发维护 ──────────────────────────────────────────────────
 

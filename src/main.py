@@ -80,6 +80,12 @@ def main() -> None:
             research_main()
             return
 
+        if cmd == "backtest":
+            from src.backtest.cli import main as backtest_main
+            sys.argv = [sys.argv[0], *argv[1:]]
+            backtest_main()
+            return
+
         if cmd == "replay":  # 兼容别名：research replay
             from src.research.cli import main as research_main
             sys.argv = [sys.argv[0], *["replay", *argv[1:]]]
