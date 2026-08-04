@@ -56,10 +56,12 @@ class PortfolioAccount:
         self.positions: dict[str, dict[str, Any]] = {}
         self.orders: list[dict[str, Any]] = []
         self.nav: dict[str, float] = {}
+        self.theme_pnl: dict[str, float] = {}      # 主题已实现盈亏
+        self.theme_entries: dict[str, int] = {}     # 主题已成交笔数
 
     # ── 撮合 ────────────────────────────────────────────────────────
 
-    def _buy(self, code: str, price: float, weight: float, date: str) -> bool:
+    def _buy(self, code: str, price: float, weight: float, date: str, theme: str = "") -> bool:
         if code in self.positions:
             self._reject(code, date, "no_pyramiding")
             return False
@@ -79,8 +81,10 @@ class PortfolioAccount:
         self.cash -= cost
         self.positions[code] = {
             "shares": shares, "entry_price": price, "entry_date": date,
-            "weight": weight, "alloc_value": cost, "last_price": price,
+            "weight": weight, "alloc_value": cost, "last_price": price, "theme": theme,
+            "cost": cost,
         }
+        self.theme_entries[theme] = self.theme_entries.get(theme, 0) + 1
         self.orders.append({"date": date, "code": code, "action": "buy",
                             "shares": shares, "price": price, "status": "filled"})
         return True
@@ -91,6 +95,9 @@ class PortfolioAccount:
             return False
         notional = pos["shares"] * price
         proceeds = notional * (1.0 - self.slippage_pct / 100.0) - notional * (self.fee_pct / 100.0)
+        pnl = proceeds - pos["cost"]
+        theme = pos.get("theme", "")
+        self.theme_pnl[theme] = self.theme_pnl.get(theme, 0.0) + pnl
         self.cash += proceeds
         self.orders.append({"date": date, "code": code, "action": "sell",
                             "shares": pos["shares"], "price": price, "status": "filled"})
@@ -123,7 +130,8 @@ class PortfolioAccount:
                     self._sell(t["entity_code"], float(t["exit_fill_price"]), d)
             for t in sorted(entries.get(d, []), key=lambda x: str(x["trade_id"])):
                 self._buy(t["entity_code"], float(t["entry_fill_price"]),
-                          float(t.get("weight", 1.0)), d)
+                          float(t.get("weight", 1.0)), d,
+                          str(t.get("theme", "") or ""))
             self._mark(d, closes)
         # 数据末端剩余持仓按最后收盘盯市
         if self.positions:
@@ -150,3 +158,23 @@ class PortfolioAccount:
         if not df.empty:
             df = df.sort_values("date").reset_index(drop=True)
         return df
+
+    def contribution(self) -> dict[str, dict[str, Any]]:
+        """按主题的收益贡献（已实现 P&L + 期末未实现 + 成交笔数）。"""
+        unreal: dict[str, float] = {}
+        for pos in self.positions.values():
+            theme = pos.get("theme", "")
+            value = pos["shares"] * pos["last_price"] - pos["cost"]
+            unreal[theme] = unreal.get(theme, 0.0) + value
+        themes = set(self.theme_pnl) | set(unreal) | set(self.theme_entries)
+        out: dict[str, dict[str, Any]] = {}
+        for th in sorted(themes):
+            realized = self.theme_pnl.get(th, 0.0)
+            out[th or "未分类"] = {
+                "n_trades": self.theme_entries.get(th, 0),
+                "realized_pnl": round(realized, 2),
+                "unrealized_pnl": round(unreal.get(th, 0.0), 2),
+                "total_pnl": round(realized + unreal.get(th, 0.0), 2),
+                "total_pnl_pct": round((realized + unreal.get(th, 0.0)) / self.initial_capital * 100, 2),
+            }
+        return out

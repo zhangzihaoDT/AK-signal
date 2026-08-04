@@ -76,3 +76,39 @@ class TestPortfolioAccount:
         cfg = sim.load_strategies(p)
         assert cfg["ai_20"]["label"] == "AI-20"
         assert cfg["ai_20"]["horizon"] == 20
+
+
+class TestPortfolioMetrics:
+    def test_calmar(self):
+        # 先涨后回撤再涨：最大回撤 < 0 → Calmar 有定义
+        eq = [1.0, 1.1, 1.2, 1.0, 0.9, 1.1, 1.2, 1.3]
+        nav = pd.DataFrame({"date": ["d%d" % i for i in range(len(eq))], "equity": eq})
+        m = sim.nav_metrics(nav)
+        assert m["calmar"] is not None
+        assert m["max_drawdown_pct"] < 0
+
+    def test_calmar_undefined_no_drawdown(self):
+        nav = pd.DataFrame({"date": ["d%d" % i for i in range(100)],
+                            "equity": [1.0 * (1.01 ** i) for i in range(100)]})
+        m = sim.nav_metrics(nav)
+        assert m["calmar"] is None  # 无回撤 → Calmar 未定义
+
+    def test_relative_metrics(self):
+        nav = pd.DataFrame({"date": ["2026-07-01", "2026-07-02", "2026-07-03"],
+                            "equity": [100.0, 110.0, 121.0]})
+        bench = pd.Series([1.0, 1.1, 1.2], index=pd.to_datetime(
+            ["2026-07-01", "2026-07-02", "2026-07-03"]))
+        r = sim.relative_metrics(nav, bench)
+        assert r["bench_total_pct"] == 20.0
+        assert abs(r["excess_pct"] - 1.0) < 0.01  # 21% - 20%
+        assert r["win_vs_bench"] is not None
+
+    def test_theme_contribution(self):
+        acc = PortfolioAccount(initial_capital=100_000, fee_pct=0.0, slippage_pct=0.0)
+        trades = _trades()
+        trades["theme"] = ["ai_infrastructure", "ai_infrastructure", "ai_infrastructure"]
+        acc.run(trades, _closes())
+        c = acc.contribution()
+        assert "ai_infrastructure" in c
+        assert c["ai_infrastructure"]["n_trades"] == 3
+        assert c["ai_infrastructure"]["total_pnl"] > 0

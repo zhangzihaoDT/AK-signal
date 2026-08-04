@@ -182,4 +182,7 @@ make test             # 全部测试
   | Core+Quality-B | 173 | +23.0% | **-11.2%** | 1.18 |
   - HC-20 风险调整最优（Sharpe 2.47、回撤最小）；AI-MA 在共享账户因再投资复利总收益高于 AI-20（对照实验保留）
   - Core+Quality-A 总收益最高但回撤最大（AI 权重高）；Mode B（60/40）以更平滑换取更低收益
+- **指标**：累计/年化收益、最大回撤、Sharpe、**Calmar**、**相对 HS300（510300 代理）超额**、**主题收益贡献（AI vs HC）**；SVG 净值曲线含基准虚线
+  - 相对 HS300：本区间（2024.1-2026.8）HS300 累计约 +42%，多数主题策略累计跑输（AI-20 超额 -21%、HC-20 -37%、AI-MA -9%），仅 Core+Quality-A 持平（+0.2%）——策略价值在风险调整（HC Calmar 7.6）与回撤控制，非原始超额
+  - 主题贡献（Core+Quality-B）：AI 18.6%（70 笔）+ HC 4.9%（33 笔）≈ 总收益 23%
 - 命令：`python src/main.py backtest portfolio --signals <parquet> [--modes A,B] [--fee 0.05 --slippage 0.05]`
