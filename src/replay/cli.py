@@ -1,0 +1,62 @@
+"""
+Replay CLI — 历史信号重放与 parity 校验。
+
+子命令：
+  single   单日期重放（纯离线，输出 historical_signals_{date}.parquet）
+  parity   单日期重放 + 与正式产物逐字段一致性校验（输出 replay_validation_{date}.json）
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from src.common.paths import outputs_dir
+from . import engine as replay_engine
+from . import parity as replay_parity
+
+
+def _replay_dir() -> Path:
+    return outputs_dir() / "replay"
+
+
+def cmd_single(args: argparse.Namespace) -> int:
+    if not getattr(args, "date", ""):
+        print("error: --date YYYYMMDD required")
+        return 2
+    df = replay_engine.replay_single_date(args.date, out_dir=_replay_dir(), log_level=args.log_level)
+    return 0 if not df.empty else 1
+
+
+def cmd_parity(args: argparse.Namespace) -> int:
+    if not getattr(args, "date", ""):
+        print("error: --date YYYYMMDD required")
+        return 2
+    df = replay_engine.replay_single_date(args.date, out_dir=_replay_dir(), log_level=args.log_level)
+    report = replay_parity.check_parity(args.date, df, out_dir=_replay_dir())
+    print(replay_parity.format_report(report))
+    return 0 if report["ok"] else 1
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="v0.5 Historical Signal Replay")
+    sub = p.add_subparsers(dest="command")
+    p_single = sub.add_parser("single", help="单日期历史信号重放")
+    p_single.add_argument("--date", default="", help="目标 trade_date YYYYMMDD（必填）")
+    p_single.add_argument("--log-level", default="INFO")
+    p_parity = sub.add_parser("parity", help="重放 + 与正式产物一致性校验")
+    p_parity.add_argument("--date", default="", help="目标 trade_date YYYYMMDD（必填）")
+    p_parity.add_argument("--log-level", default="INFO")
+    return p
+
+
+def main() -> None:
+    args = build_arg_parser().parse_args()
+    command = getattr(args, "command", "parity")
+    if command == "single":
+        sys.exit(cmd_single(args))
+    elif command == "parity":
+        sys.exit(cmd_parity(args))
+    else:
+        sys.exit(cmd_parity(args))

@@ -189,14 +189,16 @@ def build_stock_metrics(
     *,
     trade_date: str,
     offline: bool = True,
+    persist: bool = True,
     log_level: str = "INFO",
 ) -> pd.DataFrame:
-    """构建并落盘 outputs/selection_inputs/stock_metrics_{trade_date}.parquet。
+    """构建 outputs/selection_inputs/stock_metrics_{trade_date}.parquet（可内存计算不落盘）。
 
     Args:
         items: universe 资产列表（内部只处理股票 tier）
         trade_date: 目标 trade_date YYYYMMDD（产物命名 + 行内 trade_date）
         offline: 仅用缓存（确定性，不联网）；False = 允许在线补数（轻量重试、无缓存记 missing）
+        persist: False 时只返回 DataFrame，不写 parquet（Replay 内存调用，避免覆盖正式产物）
     """
     from src.common.paths import processed_dir as common_processed_dir
 
@@ -222,14 +224,16 @@ def build_stock_metrics(
     if not df.empty:
         df = df.sort_values("asset_id").reset_index(drop=True)
 
-    path = stock_metrics_path(trade_date)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(path, index=False)
+    if persist:
+        path = stock_metrics_path(trade_date)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(path, index=False)
     elapsed = (datetime.now() - t0).total_seconds()
 
     counts = df["data_status"].value_counts().to_dict() if not df.empty else {}
-    lgr.info("stock trend inputs built: %d/%d | current=%d stale=%d missing=%d | online=%s | %.1fs -> %s",
+    lgr.info("stock trend inputs built: %d/%d | current=%d stale=%d missing=%d | online=%s | %.1fs%s",
              len(df), len(stock),
              counts.get("current", 0), counts.get("stale", 0), counts.get("missing", 0),
-             "off" if offline else "on", elapsed, path)
+             "off" if offline else "on", elapsed,
+             "" if persist else " (in-memory)")
     return df

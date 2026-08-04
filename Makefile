@@ -9,7 +9,9 @@ SRC_MAIN = src/main.py
 	etf-retry-uncovered \
 	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-report sw-rps-confirm \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown \
-	select select-inputs select-offline test install clean
+	select select-inputs select-offline \
+	replay-single replay-parity \
+	test install clean
 
 help: ## 显示帮助信息
 	@grep -E '^[-a-zA-Z_0-9]+:.*## ' $(MAKEFILE_LIST) | sort | \
@@ -119,6 +121,16 @@ select: ## Layer ③ 交易标的筛选（读 Layer①/② + 预计算个股趋�
 
 select-offline: ## Layer ③ 交易候选（强制离线，仅读缓存/产物）
 	$(PYTHON) $(SRC_MAIN) select run --offline
+
+# ── v0.5 Historical Replay ───────────────────────────────────────
+
+DATE ?= 20260803
+
+replay-single: ## [v0.5] 单日期历史信号重放（纯离线；DATE=YYYYMMDD）
+	$(PYTHON) $(SRC_MAIN) replay single --date $(DATE)
+
+replay-parity: ## [v0.5] 单日期重放 + 与正式产物 parity 校验（DATE=YYYYMMDD）
+	$(PYTHON) $(SRC_MAIN) replay parity --date $(DATE)
 
 # ── 开发维护 ──────────────────────────────────────────────────
 

@@ -74,6 +74,12 @@ def main() -> None:
             fv_main()
             return
 
+        if cmd == "replay":
+            from src.replay.cli import main as replay_main
+            sys.argv = [sys.argv[0], *argv[1:]]
+            replay_main()
+            return
+
     # 无命令时默认走 Layer ③（原 stock_trend 已并入 trend_engine，不再有独立入口）
     from src.selection.cli import main as selection_main
     selection_main()

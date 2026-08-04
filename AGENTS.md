@@ -95,6 +95,8 @@ make etf-pipeline     # 仅 ETF 发现链路
 make sw-rps-run-day   # SW-RPS 全流程：update(含probe)→calculate→report→confirm
 make select-inputs    # 构建个股趋势输入（离线读缓存）
 make select           # Layer ③ 交易候选（读预计算趋势，默认禁止联网）
+make replay-single    # v0.5 单日期历史信号重放（DATE=YYYYMMDD）
+make replay-parity    # v0.5 重放 + 与正式产物一致性校验
 make test             # 全部测试
 ```
 
@@ -107,3 +109,11 @@ make test             # 全部测试
 - Layer ② 主题确认：`outputs/sw_industry_rps/sw_industry_confirmation_{date}.html` + `data/processed/sw_industry/confirmation_{trade_date}.parquet`（含 data_status/source/coverage/generated_at，多主题 bucket/theme 行业证据共振/龙头广度/背离）
 - Layer ③ 个股趋势输入：`outputs/selection_inputs/stock_metrics_{trade_date}.parquet`（预计算趋势指标，Selection 只读此产物）
 - Layer ③ 交易候选：`outputs/selection/tradable_candidates_{date}.json`（结构化候选对象，`layer3.buckets[].themes[]`）+ `.html`（可视化）
+
+## v0.5 Historical Replay（src/replay/）
+
+- **定位**：历史信号重放（v0.5.0）——用共享规则函数对指定 trade_date 纯离线重放 Layer①/②/③ 信号，产出 `historical_signals_{date}.parquet`（统一 schema：trade_date/entity_type/entity_code/theme/layer/rps15/trend_score/trend_state/confirmation_status/selection_status/recommended_action/signal_reason/source_trade_date/data_status/rule_version/config_hash/signal_origin）
+- **与 daily pipeline 分离**：只调用纯计算函数（rotation / confirmation / selection），跳过 drilldown、报表、网络
+- **Parity 验收**：`replay parity --date` 把重放结果与正式产物逐字段对比——数值（rps15 等）容差、状态字段（trend_state/confirmation_status/selection_status/recommended_action）必须完全一致；缺正式产物的层标记 not_checked
+- **已通过**：20260803（Layer1 1259/1259、Layer2 12/12、Layer3 25/25）、20260731（Layer1 1255/1255、Layer2 12/12，无正式 selection）
+- 命令：`python src/main.py replay single|parity --date YYYYMMDD`
