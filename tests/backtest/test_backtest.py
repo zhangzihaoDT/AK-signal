@@ -67,16 +67,19 @@ class TestExit:
         assert exit_mod.signal_exit_date(dates, dates[0]) == dates[1]
         assert exit_mod.signal_exit_date(dates, dates[4]) is None
 
-    def test_ma20_exit_as_of(self):
-        # 前 12 日上涨（close>ma20），后 13 日下跌跌破 ma20
+    def test_ma_exit_as_of_and_window(self):
+        # 前 12 日上涨（close>MA），后 13 日下跌跌破 MA
         dates = _dates(25)
         closes = pd.Series(
             [100 + i for i in range(12)] + [111 - j * 4 for j in range(1, 14)],
             index=pd.to_datetime(dates),
         )
-        d = exit_mod.ma20_exit_date(closes, dates[0])
+        d = exit_mod.ma_exit_date(closes, dates[0], window=20)
         assert d is not None
         assert pd.Timestamp(d) >= pd.Timestamp(dates[12])  # 在下跌段触发，无 look-ahead
+        # 小窗口更早触发（MA10 跌破更快）
+        d10 = exit_mod.ma_exit_date(closes, dates[0], window=10)
+        assert d10 is not None
 
     def test_fixed_horizon_trading_days(self):
         dates = _dates(25)
@@ -171,3 +174,34 @@ class TestMetrics:
         assert rec["win_rate"] == 0.5
         assert abs(rec["mean_return_pct"] - 1.5) < 1e-6
         assert rec["profit_factor"] == pytest.approx(5.0 / 2.0)
+
+
+class TestRound2:
+    def test_trade_return_fee_semantics(self):
+        """fee 单边 %，双边合计扣 fee*2 个百分点（5bp=0.05% → 0.10pp）。"""
+        from src.backtest.trades import _trade_return
+        base = _trade_return(100.0, 103.0, 0.0, 0.0)
+        with_fee = _trade_return(100.0, 103.0, 0.05, 0.0)
+        assert abs(base - with_fee - 0.10) < 1e-6
+
+    def test_sensitivity_by_year_and_by_etf(self):
+        from src.backtest import sensitivity as sens
+        trades = pd.DataFrame([
+            {"exit_policy": "fixed_20", "entity_code": "512480", "entry_status": "filled",
+             "exit_status": "closed", "return_pct": 5.0, "holding_days": 20,
+             "entry_fill_date": "2024-03-01"},
+            {"exit_policy": "fixed_20", "entity_code": "159819", "entry_status": "filled",
+             "exit_status": "closed", "return_pct": 2.0, "holding_days": 20,
+             "entry_fill_date": "2025-03-01"},
+            {"exit_policy": "fixed_20", "entity_code": "159819", "entry_status": "filled",
+             "exit_status": "closed", "return_pct": -1.0, "holding_days": 20,
+             "entry_fill_date": "2025-06-01"},
+        ])
+        yr = sens._by_year(trades)
+        assert {r["year"] for r in yr["rows"]} == {2024, 2025}
+        etf = sens._by_etf(trades)
+        assert etf[0]["n_entities"] == 2
+        assert etf[0]["top5_share"] == 1.0
+        # 排除最强年后：2025 均值 = (2.0-1.0)/2 = 0.5
+        eb = yr["exclude_best"]["fixed_20"]
+        assert abs(eb["mean_excluding_best"] - 0.5) < 1e-6

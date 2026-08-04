@@ -99,7 +99,8 @@ def _biz_days_between(a: Any, b: Any) -> int:
 def _trade_return(buy_price: float, sell_price: float, fee: float, slippage: float) -> float:
     buy_eff = buy_price * (1.0 + slippage)
     sell_eff = sell_price * (1.0 - slippage)
-    return round((sell_eff / buy_eff - 1.0) * 100.0 - fee * 200.0, 4)
+    # fee 单位为 % of notional（单边），双边合计扣除 fee * 2（百分点）
+    return round((sell_eff / buy_eff - 1.0) * 100.0 - fee * 2.0, 4)
 
 
 def _unfilled_entry(
@@ -117,20 +118,53 @@ def _unfilled_entry(
     }
 
 
+def build_exit_configs(
+    policies: tuple[str, ...],
+    *,
+    horizon: int = 20,
+    ma_window: int = 20,
+    fee: float = 0.0,
+    slippage: float = 0.0,
+) -> list[dict[str, Any]]:
+    """把策略名展开为参数化配置（label/policy/params/fee/slippage）。"""
+    out: list[dict[str, Any]] = []
+    for p in policies:
+        if p == "signal_exit":
+            out.append({"label": "signal_exit", "policy": "signal_exit",
+                        "params": {}, "fee": fee, "slippage": slippage})
+        elif p == "ma_exit":
+            out.append({"label": f"ma{ma_window}_exit", "policy": "ma_exit",
+                        "params": {"window": ma_window}, "fee": fee, "slippage": slippage})
+        elif p == "ma20_exit":  # 兼容别名
+            out.append({"label": "ma20_exit", "policy": "ma_exit",
+                        "params": {"window": 20}, "fee": fee, "slippage": slippage})
+        elif p == "fixed_horizon":
+            out.append({"label": f"fixed_{horizon}", "policy": "fixed_horizon",
+                        "params": {"horizon": horizon}, "fee": fee, "slippage": slippage})
+        else:
+            raise ValueError(f"unknown exit policy: {p} (options: {exit_mod.EXIT_POLICIES})")
+    return out
+
+
 def run_backtest(
     signals: pd.DataFrame,
     *,
     theme: str,
     entity_type: str = "etf",
     exit_policies: tuple[str, ...] = ("signal_exit",),
+    exit_configs: list[dict[str, Any]] | None = None,
     horizon: int = 20,
+    ma_window: int = 20,
     fee: float = 0.0,
     slippage: float = 0.0,
     cache: dict[str, Any] | None = None,
     start_date: str = "",
     end_date: str = "",
 ) -> pd.DataFrame:
-    """对指定主题/实体类型执行逐笔交易模拟（每个退出策略独立跑）。
+    """对指定主题/实体类型执行逐笔交易模拟（每个退出配置独立跑）。
+
+    exit_configs 优先（扫描用，可含不同 horizon/window/fee）；否则由
+    exit_policies + horizon/ma_window/fee/slippage 展开默认配置。
 
     Returns:
         TRADE_COLUMNS DataFrame
@@ -157,12 +191,18 @@ def run_backtest(
     exit_map = build_exit_map(signals)
     etf_pivots = build_etf_pivots(cache) if entity_type == "etf" else None
 
+    configs = exit_configs or build_exit_configs(
+        exit_policies, horizon=horizon, ma_window=ma_window, fee=fee, slippage=slippage)
+
     trades: list[dict[str, Any]] = []
     tid = 0
 
-    for policy in exit_policies:
-        if policy not in exit_mod.EXIT_POLICIES:
-            raise ValueError(f"unknown exit policy: {policy} (options: {exit_mod.EXIT_POLICIES})")
+    for cfg in configs:
+        policy = cfg["policy"]
+        label = cfg["label"]
+        params = cfg.get("params", {}) or {}
+        cfee = float(cfg.get("fee", fee))
+        cslippage = float(cfg.get("slippage", slippage))
         for code, g in entries.groupby("entity_code"):
             name = str(name_map.get(str(code), code))
             prices = load_entity_prices(entity_type, str(code), etf_pivots=etf_pivots)
@@ -170,8 +210,8 @@ def run_backtest(
                 for entry in g.sort_values("trade_date").itertuples():
                     tid += 1
                     trades.append(_unfilled_entry(
-                        tid, str(code), name, theme, policy, str(entry.trade_date),
-                        "no_price_data", fee, slippage))
+                        tid, str(code), name, theme, label, str(entry.trade_date),
+                        "no_price_data", cfee, cslippage))
                 continue
             open_s, close_s, dates = prices
             exit_dates = exit_map.get(str(code), []) if policy == "signal_exit" else []
@@ -187,30 +227,31 @@ def run_backtest(
                 if fill_price is None:
                     tid += 1
                     trades.append(_unfilled_entry(
-                        tid, str(code), name, theme, policy, esd,
-                        "no_next_open", fee, slippage))
+                        tid, str(code), name, theme, label, esd,
+                        "no_next_open", cfee, cslippage))
                     continue
 
                 # 退出：策略独立决定退出信号日
                 exit_sig: str | None = None
                 if policy == "signal_exit":
                     exit_sig = exit_mod.signal_exit_date(exit_dates, esd)
-                elif policy == "ma20_exit":
-                    exit_sig = exit_mod.ma20_exit_date(close_s, fill_date)
+                elif policy == "ma_exit":
+                    exit_sig = exit_mod.ma_exit_date(
+                        close_s, fill_date, window=int(params.get("window", 20)))
                 elif policy == "fixed_horizon":
                     exit_sig = exit_mod.fixed_horizon_exit_signal_date(
-                        pd.DatetimeIndex(dates), fill_date, horizon)
+                        pd.DatetimeIndex(dates), fill_date, int(params.get("horizon", 20)))
 
-                exd, xprice, xstatus, xreason = _resolve_exit(exit_sig, open_s, close_s, policy)
+                exd, xprice, xstatus, xreason = _resolve_exit(exit_sig, open_s, close_s, label)
                 sell_price = float(xprice) if xprice is not None else None
-                ret = _trade_return(fill_price, sell_price, fee, slippage) if sell_price else None
+                ret = _trade_return(fill_price, sell_price, cfee, cslippage) if sell_price else None
                 holding_days = _biz_days_between(fill_date, exd) if exd else None
                 last_exit_fill = exd
 
                 tid += 1
                 trades.append({
                     "trade_id": tid, "entity_code": str(code), "entity_name": name,
-                    "theme": theme, "exit_policy": policy,
+                    "theme": theme, "exit_policy": label,
                     "entry_signal_date": esd, "entry_fill_date": fill_date,
                     "entry_fill_price": round(fill_price, 4), "entry_status": "filled",
                     "entry_unfilled_reason": "",
@@ -218,7 +259,7 @@ def run_backtest(
                     "exit_fill_price": round(sell_price, 4) if sell_price is not None else None,
                     "exit_status": xstatus, "exit_reason": xreason,
                     "return_pct": ret, "holding_days": holding_days,
-                    "fee_pct": fee, "slippage_pct": slippage,
+                    "fee_pct": cfee, "slippage_pct": cslippage,
                 })
 
     df = pd.DataFrame(trades, columns=TRADE_COLUMNS)

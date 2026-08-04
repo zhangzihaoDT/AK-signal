@@ -10,7 +10,7 @@ SRC_MAIN = src/main.py
 	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-report sw-rps-confirm \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown \
 	select select-inputs select-offline \
-	replay-single replay-parity replay-range event-study backtest-trades \
+	replay-single replay-parity replay-range event-study backtest-trades backtest-sensitivity \
 	test install clean
 
 help: ## 显示帮助信息
@@ -146,6 +146,9 @@ event-study: ## [v0.5.1] 事件研究（SIGNALS=信号parquet, START/END可选, 
 
 backtest-trades: ## [v0.5.2] 交易层逐笔模拟（THEME=主题, EXIT=退出策略, SIGNALS=信号）
 	$(PYTHON) $(SRC_MAIN) backtest trades --signals $(SIGNALS) --theme $(THEME) --entity-type etf --exit-policy $(EXIT)
+
+backtest-sensitivity: ## [v0.5.2] 退出规则稳健性（固定/MA/分年/分ETF/成本扫描）
+	$(PYTHON) $(SRC_MAIN) backtest sensitivity --signals $(SIGNALS) --theme $(THEME) --entity-type etf
 
 # ── 开发维护 ──────────────────────────────────────────────────
 

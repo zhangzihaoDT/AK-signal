@@ -159,3 +159,106 @@ def _fmt(v: Any) -> str:
     if isinstance(v, float):
         return f"{v:.2f}"
     return str(v)
+
+
+def _pct(v: Any) -> str:
+    if v is None or (isinstance(v, float) and v != v):
+        return "—"
+    return f"{v * 100:.1f}%"
+
+
+def render_sensitivity_html(
+    result: dict[str, Any],
+    output_dir: Path,
+    label: str,
+) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    html_path = output_dir / f"sensitivity_{label}.html"
+
+    parts = [
+        "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>",
+        "<meta name='viewport' content='width=device-width, initial-scale=1.0'>",
+        f"<title>退出规则稳健性 · {label}</title><style>{CSS}</style></head><body><div class='container'>",
+        "<h1>⑥ 退出规则稳健性验证（v0.5.2 第二轮）</h1>",
+        f"<div class='subtitle'>{label} · 生成于 {now_str} · 目的不是找最优参数，"
+        f"而是验证是否存在稳定的参数平台区间 · 独立等名义本金</div>",
+    ]
+
+    # 1. fixed scan
+    parts.append('<div class="section"><h2>① 固定持有期扫描</h2>')
+    parts.append("<table><tr><th>持有期</th><th class='num'>成交</th><th class='num'>胜率</th>"
+                 "<th class='num'>均值%</th><th class='num'>中位%</th><th class='num'>盈亏比</th>"
+                 "<th class='num'>累计单位</th><th class='num'>均持有</th><th class='num'>笔/年</th></tr>")
+    for r in result["fixed_scan"]:
+        parts.append(f"<tr><td>{r['label']}</td><td class='num'>{r['n']}</td>"
+                     f"<td class='num'>{_pct(r.get('win_rate'))}</td><td class='num'>{_fmt(r.get('mean_ret'))}</td>"
+                     f"<td class='num'>{_fmt(r.get('median_ret'))}</td><td class='num'>{_fmt(r.get('profit_factor'))}</td>"
+                     f"<td class='num'>{_fmt(r.get('total_units'))}</td><td class='num'>{_fmt(r.get('avg_holding_days'))}</td>"
+                     f"<td class='num'>{_fmt(r.get('trades_per_year'))}</td></tr>")
+    parts.append("</table></div>")
+
+    # 2. ma scan
+    parts.append('<div class="section"><h2>② MA 参数扫描</h2>')
+    parts.append("<table><tr><th>窗口</th><th class='num'>成交</th><th class='num'>胜率</th>"
+                 "<th class='num'>均值%</th><th class='num'>中位%</th><th class='num'>盈亏比</th>"
+                 "<th class='num'>累计单位</th><th class='num'>大盈利贡献</th>"
+                 "<th class='num'>均持有</th><th class='num'>笔/年</th></tr>")
+    for r in result["ma_scan"]:
+        parts.append(f"<tr><td>{r['label']}</td><td class='num'>{r['n']}</td>"
+                     f"<td class='num'>{_pct(r.get('win_rate'))}</td><td class='num'>{_fmt(r.get('mean_ret'))}</td>"
+                     f"<td class='num'>{_fmt(r.get('median_ret'))}</td><td class='num'>{_fmt(r.get('profit_factor'))}</td>"
+                     f"<td class='num'>{_fmt(r.get('total_units'))}</td><td class='num'>{_pct(r.get('big_win_share'))}</td>"
+                     f"<td class='num'>{_fmt(r.get('avg_holding_days'))}</td>"
+                     f"<td class='num'>{_fmt(r.get('trades_per_year'))}</td></tr>")
+    parts.append("</table></div>")
+
+    # 3. by year
+    by_year = result["by_year"]
+    parts.append('<div class="section"><h2>③ 分年份验证</h2>')
+    parts.append("<table><tr><th>策略</th><th class='num'>年份</th><th class='num'>成交</th>"
+                 "<th class='num'>胜率</th><th class='num'>均值%</th><th class='num'>累计单位</th><th>为正</th></tr>")
+    for r in by_year["rows"]:
+        pos = "✅" if r.get("positive") else "❌"
+        parts.append(f"<tr><td>{r['policy']}</td><td class='num'>{r['year']}</td><td class='num'>{r['n']}</td>"
+                     f"<td class='num'>{_pct(r.get('win_rate'))}</td><td class='num'>{_fmt(r.get('mean_ret'))}</td>"
+                     f"<td class='num'>{_fmt(r.get('total_units'))}</td><td>{pos}</td></tr>")
+    parts.append("</table>")
+    if by_year["exclude_best"]:
+        parts.append("<div class='insight'><b>排除最强年份后：</b><br>")
+        for policy, eb in by_year["exclude_best"].items():
+            parts.append(f"<small>{policy}：最强年 {eb['best_year']}（均值 {_fmt(eb['best_mean'])}%）"
+                         f"；排除后均值 {_fmt(eb['mean_excluding_best'])}%（{eb['n_years_excluding_best']} 年）</small><br>")
+        parts.append("</div>")
+    parts.append('</div>')
+
+    # 4. by etf
+    parts.append('<div class="section"><h2>④ 分 ETF 验证（Top 5 贡献占比）</h2>')
+    for e in result["by_etf"]:
+        parts.append(f"<div class='insight'><b>{e['policy']}</b>：{e['n_entities']} 只 ETF，"
+                     f"Top5 贡献占比 <b>{_pct(e.get('top5_share'))}</b></div>")
+        parts.append("<table><tr><th>ETF</th><th class='num'>成交</th><th class='num'>均值%</th>"
+                     "<th class='num'>累计单位</th><th class='num'>贡献占比</th></tr>")
+        for t in e["top"]:
+            parts.append(f"<tr><td>{t['entity_code']}</td><td class='num'>{t['n']}</td>"
+                         f"<td class='num'>{_fmt(t.get('mean_ret'))}</td><td class='num'>{_fmt(t.get('total_units'))}</td>"
+                         f"<td class='num'>{_pct(t.get('share'))}</td></tr>")
+        parts.append("</table>")
+    parts.append('</div>')
+
+    # 5. cost scan
+    parts.append('<div class="section"><h2>⑤ 成本敏感性（bp = 双边合计）</h2>')
+    parts.append("<table><tr><th>策略</th><th class='num'>成本bp</th><th class='num'>成交</th>"
+                 "<th class='num'>胜率</th><th class='num'>均值%</th><th class='num'>累计单位</th></tr>")
+    for r in result["cost_scan"]:
+        parts.append(f"<tr><td>{r['base']}</td><td class='num'>{r['cost_bp']}</td><td class='num'>{r['n']}</td>"
+                     f"<td class='num'>{_pct(r.get('win_rate'))}</td><td class='num'>{_fmt(r.get('mean_ret'))}</td>"
+                     f"<td class='num'>{_fmt(r.get('total_units'))}</td></tr>")
+    parts.append("</table></div>")
+
+    parts.append(
+        "<hr><div style='text-align:center;font-size:12px;color:var(--muted);padding:16px 0'>"
+        "AKsignal · v0.5.2 退出规则稳健性验证 · 不构成交易建议</div>")
+    parts.append("</div></body></html>")
+    html_path.write_text("\n".join(parts), encoding="utf-8")
+    return html_path

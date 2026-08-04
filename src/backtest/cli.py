@@ -20,6 +20,7 @@ import pandas as pd
 from src.common.paths import outputs_dir
 from . import trades as bt_trades
 from . import metrics as bt_metrics
+from . import sensitivity as bt_sensitivity
 
 
 def _out_dir() -> Path:
@@ -87,6 +88,33 @@ def _pct_pct(v) -> str:
     return "—" if v is None else f"{v:.2f}%"
 
 
+def cmd_sensitivity(args: argparse.Namespace) -> int:
+    signals, label = _load_signals(args.signals)
+    result = bt_sensitivity.run_sensitivity(
+        signals,
+        theme=args.theme,
+        entity_type=args.entity_type,
+        fixed_horizons=tuple(int(x) for x in args.horizons.split(",") if x.strip().isdigit())
+        or (5, 10, 20, 40, 60),
+        ma_windows=tuple(int(x) for x in args.ma_windows.split(",") if x.strip().isdigit())
+        or (10, 20, 30, 60),
+        costs=tuple(int(x) for x in args.costs.split(",") if x.strip().isdigit())
+        or (0, 5, 10, 20),
+    )
+    out_dir = _out_dir()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    json_path = out_dir / f"sensitivity_{args.theme}_{args.entity_type}_{label}.json"
+    json_path.write_text(json.dumps(result, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    html_path = bt_metrics.render_sensitivity_html(
+        result, out_dir, f"{args.theme}_{args.entity_type}_{label}")
+
+    print(f"sensitivity: fixed={len(result['fixed_scan'])} ma={len(result['ma_scan'])} "
+          f"cost={len(result['cost_scan'])}")
+    print(f"  json: {json_path}")
+    print(f"  html: {html_path}")
+    return 0
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="v0.5.2 Trade-level Backtest")
     sub = p.add_subparsers(dest="command")
@@ -96,13 +124,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_trades.add_argument("--entity-type", default="etf", choices=["etf", "stock"],
                           help="实体类型（第一轮：etf）")
     p_trades.add_argument("--exit-policy", default="signal_exit",
-                          help="退出策略，逗号分隔或 all（signal_exit,ma20_exit,fixed_horizon）")
+                          help="退出策略，逗号分隔或 all（signal_exit,ma_exit,fixed_horizon）")
     p_trades.add_argument("--horizon", type=int, default=20, help="fixed_horizon 持有交易日数")
+    p_trades.add_argument("--ma-window", type=int, default=20, help="ma_exit 窗口（默认 20）")
     p_trades.add_argument("--fee", type=float, default=0.0, help="手续费（% of notional，双边各计）")
     p_trades.add_argument("--slippage", type=float, default=0.0, help="滑点（% of price）")
     p_trades.add_argument("--start", default="", help="入场信号日起点 YYYYMMDD")
     p_trades.add_argument("--end", default="", help="入场信号日终点 YYYYMMDD")
     p_trades.add_argument("--log-level", default="INFO")
+
+    p_sens = sub.add_parser("sensitivity", help="退出规则稳健性验证（固定/MA/分年/分ETF/成本）")
+    p_sens.add_argument("--signals", default="", help="historical_signals parquet 路径")
+    p_sens.add_argument("--theme", required=True, help="主题")
+    p_sens.add_argument("--entity-type", default="etf", choices=["etf", "stock"])
+    p_sens.add_argument("--horizons", default="5,10,20,40,60", help="固定持有期扫描")
+    p_sens.add_argument("--ma-windows", default="10,20,30,60", help="MA 窗口扫描")
+    p_sens.add_argument("--costs", default="0,5,10,20", help="成本扫描（bp）")
+    p_sens.add_argument("--log-level", default="INFO")
     return p
 
 
@@ -111,5 +149,7 @@ def main() -> None:
     command = getattr(args, "command", "trades")
     if command == "trades":
         sys.exit(cmd_trades(args))
+    elif command == "sensitivity":
+        sys.exit(cmd_sensitivity(args))
     else:
         sys.exit(cmd_trades(args))

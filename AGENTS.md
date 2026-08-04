@@ -100,6 +100,7 @@ make replay-parity    # v0.5 重放 + 与正式产物一致性校验
 make replay-range     # v0.5 区间重放（START/END=YYYYMMDD, LAYERS=123|12）
 make event-study      # v0.5.1 事件研究（SIGNALS=信号parquet）
 make backtest-trades  # v0.5.2 交易层逐笔模拟（THEME=主题, EXIT=退出策略）
+make backtest-sensitivity  # v0.5.2 退出规则稳健性扫描
 make test             # 全部测试
 ```
 
@@ -142,4 +143,10 @@ make test             # 全部测试
 - **冻结约束**：持仓期间再次 entry 不重复开仓（按上一笔持仓了结日比较）；Exit 是 Strategy Policy 动作非 Selection SELL；信号日无下一交易日价格 → 订单标记 `unfilled`；停牌/缺失开盘价显式记录；fixed_horizon 按交易日；MA20 只用判断日当日及以前数据；手续费/滑点保留配置字段（默认 0）
 - **产物**：`outputs/research/backtest/trades_{theme}_{entity}_{label}.parquet` + `metrics_*.json` + `backtest_*.html`
 - **实盘（2024-01..2026-05，AI 基础设施 ETF）**：fixed_horizon(20d) 852 笔 胜率 53.2% 均值 +3.23% 最强；ma20_exit 1003 笔 胜率 42.7% +2.82%；signal_exit 1657 笔 胜率 41.3% +0.56% 最弱（中位持有 3 日，过早退出）
-- 命令：`python src/main.py backtest trades --signals <parquet> --theme ai_infrastructure --entity-type etf --exit-policy all`
+- **第二轮稳健性**（`backtest sensitivity`，参数化 exit_configs）：
+  - 固定持有期单调上升（5→60 日），非 10-30 平台——20 日非孤立尖峰但无平台区间
+  - MA 扫描：ma20/ma30 PF≈2.27 最高、中位为负、大盈利贡献 ~40%（典型趋势策略特征）
+  - 分年份：**2024 三种策略均负**（AI 弱势年）；排除最强年后 fixed_20 +2.08%、ma20 +1.94% 仍成立，signal_exit 转负 -0.43%
+  - 分 ETF：fixed/ma 的 Top5 贡献仅 ~19%（74 只分散）；signal_exit ~40%
+  - 成本：fixed_20 在 20bp 仍 +2.83% 稳健；signal_exit 边收益几乎被成本吃光（0.56%→0.16%）——确认其高换手劣势
+- 命令：`python src/main.py backtest trades|sensitivity --signals <parquet> --theme ai_infrastructure --entity-type etf`

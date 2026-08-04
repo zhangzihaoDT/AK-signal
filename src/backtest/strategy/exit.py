@@ -1,9 +1,9 @@
 """
 退出规则（Exit Policy）— 独立实验，不做策略库。
 
-v0.5.2 第一轮三个退出策略：
+v0.5.2 退出策略（可参数化）：
   signal_exit    信号退出：趋势信号态 on→off（使用 signals 中的 exit 事件）
-  ma20_exit      MA20 退出：收盘价 < MA20（MA20 只用判断日当日及以前数据，as-of）
+  ma_exit        MA 退出：收盘价 < MA{W}（MA 只用判断日当日及以前数据，as-of；W 默认 20）
   fixed_horizon  固定持有 N 个交易日（按交易日，非自然日）
 
 统一成交语义：退出信号日 X → 下一交易日开盘成交（T+1 open）。
@@ -17,7 +17,7 @@ import pandas as pd
 
 from src.research.event_study.events import extract_events
 
-EXIT_POLICIES = ("signal_exit", "ma20_exit", "fixed_horizon")
+EXIT_POLICIES = ("signal_exit", "ma_exit", "fixed_horizon")
 
 
 def exit_event_dates(signals: pd.DataFrame, entity_code: str) -> list[str]:
@@ -35,21 +35,21 @@ def signal_exit_date(exit_dates: list[str], after_date: str) -> str | None:
     return None
 
 
-def ma20_exit_date(
+def ma_exit_date(
     close_series: pd.Series,
     entry_fill_date: Any,
+    window: int = 20,
 ) -> str | None:
-    """MA20 退出：自入场成交日起首个 close < MA20 的交易日。
+    """MA 退出：自入场成交日起首个 close < MA{window} 的交易日。
 
-    MA20 = close 过去 20 日（含当日）均值，只用判断日当日及以前数据。
+    MA = close 过去 window 日（含当日）均值，只用判断日当日及以前数据。
     """
     if close_series is None or close_series.empty:
         return None
-    ma20 = close_series.rolling(20, min_periods=20).mean()
-    mask = close_series < ma20
+    ma = close_series.rolling(window, min_periods=window).mean()
+    mask = close_series < ma
     start = pd.Timestamp(entry_fill_date)
-    after = close_series.index[close_series.index >= start]
-    for d in after:
+    for d in close_series.index[close_series.index >= start]:
         if mask.get(d, False):
             return d.strftime("%Y%m%d")
     return None
