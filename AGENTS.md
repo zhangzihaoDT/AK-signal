@@ -149,4 +149,17 @@ make test             # 全部测试
   - 分年份：**2024 三种策略均负**（AI 弱势年）；排除最强年后 fixed_20 +2.08%、ma20 +1.94% 仍成立，signal_exit 转负 -0.43%
   - 分 ETF：fixed/ma 的 Top5 贡献仅 ~19%（74 只分散）；signal_exit ~40%
   - 成本：fixed_20 在 20bp 仍 +2.83% 稳健；signal_exit 边收益几乎被成本吃光（0.56%→0.16%）——确认其高换手劣势
-- 命令：`python src/main.py backtest trades|sensitivity --signals <parquet> --theme ai_infrastructure --entity-type etf`
+- **Universe 范围**（`--universe-mode`，产物记录 universe_mode/universe_size/universe_config_hash）：
+  - `configured`（默认）= config/stock_universe.yaml 资产池（AI 8 / HC 6）；`theme-matched` = 全市场关键词（AI 74 / HC 19）
+  - 默认：backtest trades/sensitivity → configured；event-study → theme-matched（信号普适性）
+- **四组矩阵（fixed_20，2024-01..2026-05）**：
+  | 组 | n | 胜率 | 均值 | PF | 排除最强年 | Top5占比 |
+  |---|---|---|---|---|---|---|
+  | AI theme-matched | 852 | 53.2% | +3.23% | 1.98 | +2.08% | 19% |
+  | AI configured | 121 | 50.4% | +2.69% | 1.75 | +1.78% | 91% |
+  | HC theme-matched | 143 | 62.9% | +1.98% | 2.59 | +0.85% | 55% |
+  | HC configured | 52 | 65.4% | +2.03% | 2.54 | +1.08% | 98% |
+  - **高现金流是最稳健主题**：三年全正（2024/2025/2026 ✓）、胜率 65%、PF 2.5；AI 两模式 2024 均为负
+  - 固定资产池捕获大部分信号（AI 池 2.69% vs 全市场 3.23%；HC 池内外接近），但 ETF 贡献高度集中（AI 91% / HC 98%），幸存者偏差风险高
+  - HC 的 fixed_20 显著优于 ma20（2.0% vs 0.2-0.4%）；AI 两者接近（ma20 PF 略高）
+- 命令：`python src/main.py backtest trades|sensitivity --signals <parquet> --theme ai_infrastructure --entity-type etf [--universe-mode configured|theme-matched]`

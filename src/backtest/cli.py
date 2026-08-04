@@ -51,23 +51,28 @@ def cmd_trades(args: argparse.Namespace) -> int:
         entity_type=args.entity_type,
         exit_policies=policies,
         horizon=args.horizon,
+        ma_window=args.ma_window,
         fee=args.fee,
         slippage=args.slippage,
+        universe_mode=args.universe_mode,
         start_date=args.start,
         end_date=args.end,
     )
 
     out_dir = _out_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
-    trades_path = out_dir / f"trades_{args.theme}_{args.entity_type}_{label}.parquet"
+    suffix = f"{args.theme}_{args.entity_type}_{label}_{args.universe_mode}"
+    trades_path = out_dir / f"trades_{suffix}.parquet"
     trades.to_parquet(trades_path, index=False)
 
     metrics = bt_metrics.compute_metrics(trades)
-    metrics_path = out_dir / f"metrics_{args.theme}_{args.entity_type}_{label}.json"
+    metrics["universe_mode"] = args.universe_mode
+    metrics["universe_size"] = int(trades["universe_size"].iloc[0]) if not trades.empty else 0
+    metrics["universe_config_hash"] = trades["universe_config_hash"].iloc[0] if not trades.empty else ""
+    metrics_path = out_dir / f"metrics_{suffix}.json"
     metrics_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
-    html_path = bt_metrics.render_report_html(
-        trades, metrics, out_dir, f"{args.theme}_{args.entity_type}_{label}")
+    html_path = bt_metrics.render_report_html(trades, metrics, out_dir, suffix)
 
     print(f"backtest: {len(trades)} trades, {len(policies)} policies")
     for policy, m in metrics.get("policies", {}).items():
@@ -94,6 +99,7 @@ def cmd_sensitivity(args: argparse.Namespace) -> int:
         signals,
         theme=args.theme,
         entity_type=args.entity_type,
+        universe_mode=args.universe_mode,
         fixed_horizons=tuple(int(x) for x in args.horizons.split(",") if x.strip().isdigit())
         or (5, 10, 20, 40, 60),
         ma_windows=tuple(int(x) for x in args.ma_windows.split(",") if x.strip().isdigit())
@@ -103,13 +109,15 @@ def cmd_sensitivity(args: argparse.Namespace) -> int:
     )
     out_dir = _out_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
-    json_path = out_dir / f"sensitivity_{args.theme}_{args.entity_type}_{label}.json"
+    suffix = f"{args.theme}_{args.entity_type}_{label}_{args.universe_mode}"
+    json_path = out_dir / f"sensitivity_{suffix}.json"
     json_path.write_text(json.dumps(result, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     html_path = bt_metrics.render_sensitivity_html(
-        result, out_dir, f"{args.theme}_{args.entity_type}_{label}")
+        result, out_dir, suffix)
 
     print(f"sensitivity: fixed={len(result['fixed_scan'])} ma={len(result['ma_scan'])} "
-          f"cost={len(result['cost_scan'])}")
+          f"cost={len(result['cost_scan'])} | universe={result['universe_mode']}"
+          f"({result['universe_size']}) hash={result['universe_config_hash']}")
     print(f"  json: {json_path}")
     print(f"  html: {html_path}")
     return 0
@@ -129,6 +137,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_trades.add_argument("--ma-window", type=int, default=20, help="ma_exit 窗口（默认 20）")
     p_trades.add_argument("--fee", type=float, default=0.0, help="手续费（% of notional，双边各计）")
     p_trades.add_argument("--slippage", type=float, default=0.0, help="滑点（% of price）")
+    p_trades.add_argument("--universe-mode", choices=["configured", "theme-matched"],
+                          default="configured",
+                          help="资产范围：configured=固定资产池（默认）；theme-matched=全市场关键词")
     p_trades.add_argument("--start", default="", help="入场信号日起点 YYYYMMDD")
     p_trades.add_argument("--end", default="", help="入场信号日终点 YYYYMMDD")
     p_trades.add_argument("--log-level", default="INFO")
@@ -137,6 +148,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_sens.add_argument("--signals", default="", help="historical_signals parquet 路径")
     p_sens.add_argument("--theme", required=True, help="主题")
     p_sens.add_argument("--entity-type", default="etf", choices=["etf", "stock"])
+    p_sens.add_argument("--universe-mode", choices=["configured", "theme-matched"],
+                        default="configured",
+                        help="资产范围：configured=固定资产池（默认）；theme-matched=全市场关键词")
     p_sens.add_argument("--horizons", default="5,10,20,40,60", help="固定持有期扫描")
     p_sens.add_argument("--ma-windows", default="10,20,30,60", help="MA 窗口扫描")
     p_sens.add_argument("--costs", default="0,5,10,20", help="成本扫描（bp）")

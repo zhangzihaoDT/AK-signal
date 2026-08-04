@@ -34,6 +34,7 @@ TRADE_COLUMNS = [
     "exit_signal_date", "exit_fill_date", "exit_fill_price",
     "exit_status", "exit_reason",
     "return_pct", "holding_days", "fee_pct", "slippage_pct",
+    "universe_mode", "universe_size", "universe_config_hash",
 ]
 
 
@@ -106,6 +107,7 @@ def _trade_return(buy_price: float, sell_price: float, fee: float, slippage: flo
 def _unfilled_entry(
     tid: int, code: str, name: str, theme: str, policy: str, esd: str, reason: str,
     fee: float, slippage: float,
+    uni_mode: str = "", uni_size: int = 0, uni_hash: str = "",
 ) -> dict[str, Any]:
     return {
         "trade_id": tid, "entity_code": code, "entity_name": name, "theme": theme,
@@ -115,6 +117,7 @@ def _unfilled_entry(
         "exit_signal_date": "", "exit_fill_date": "", "exit_fill_price": None,
         "exit_status": "", "exit_reason": "",
         "return_pct": None, "holding_days": None, "fee_pct": fee, "slippage_pct": slippage,
+        "universe_mode": uni_mode, "universe_size": uni_size, "universe_config_hash": uni_hash,
     }
 
 
@@ -157,6 +160,7 @@ def run_backtest(
     ma_window: int = 20,
     fee: float = 0.0,
     slippage: float = 0.0,
+    universe_mode: str = "configured",
     cache: dict[str, Any] | None = None,
     start_date: str = "",
     end_date: str = "",
@@ -165,6 +169,7 @@ def run_backtest(
 
     exit_configs 优先（扫描用，可含不同 horizon/window/fee）；否则由
     exit_policies + horizon/ma_window/fee/slippage 展开默认配置。
+    universe_mode: configured（资产池，默认）/ theme-matched（全市场关键词）。
 
     Returns:
         TRADE_COLUMNS DataFrame
@@ -172,7 +177,8 @@ def run_backtest(
     if signals is None or signals.empty:
         return pd.DataFrame(columns=TRADE_COLUMNS)
 
-    entries = entry_mod.entry_candidates(signals, entity_type=entity_type, theme=theme)
+    entries = entry_mod.entry_candidates(
+        signals, entity_type=entity_type, theme=theme, universe_mode=universe_mode)
     if entries.empty:
         return pd.DataFrame(columns=TRADE_COLUMNS)
     if start_date:
@@ -194,6 +200,9 @@ def run_backtest(
     configs = exit_configs or build_exit_configs(
         exit_policies, horizon=horizon, ma_window=ma_window, fee=fee, slippage=slippage)
 
+    uni_size = entry_mod.universe_size(signals, theme, universe_mode)
+    uni_hash = entry_mod.universe_config_hash(universe_mode)
+
     trades: list[dict[str, Any]] = []
     tid = 0
 
@@ -211,7 +220,8 @@ def run_backtest(
                     tid += 1
                     trades.append(_unfilled_entry(
                         tid, str(code), name, theme, label, str(entry.trade_date),
-                        "no_price_data", cfee, cslippage))
+                        "no_price_data", cfee, cslippage,
+                        universe_mode, uni_size, uni_hash))
                 continue
             open_s, close_s, dates = prices
             exit_dates = exit_map.get(str(code), []) if policy == "signal_exit" else []
@@ -228,7 +238,8 @@ def run_backtest(
                     tid += 1
                     trades.append(_unfilled_entry(
                         tid, str(code), name, theme, label, esd,
-                        "no_next_open", cfee, cslippage))
+                        "no_next_open", cfee, cslippage,
+                        universe_mode, uni_size, uni_hash))
                     continue
 
                 # 退出：策略独立决定退出信号日
@@ -260,6 +271,8 @@ def run_backtest(
                     "exit_status": xstatus, "exit_reason": xreason,
                     "return_pct": ret, "holding_days": holding_days,
                     "fee_pct": cfee, "slippage_pct": cslippage,
+                    "universe_mode": universe_mode, "universe_size": uni_size,
+                    "universe_config_hash": uni_hash,
                 })
 
     df = pd.DataFrame(trades, columns=TRADE_COLUMNS)

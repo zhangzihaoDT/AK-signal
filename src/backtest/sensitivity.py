@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 
 from .trades import run_backtest
+from .strategy import entry as entry_mod
 
 logger = logging.getLogger("backtest.sensitivity")
 
@@ -145,6 +146,7 @@ def run_sensitivity(
     *,
     theme: str,
     entity_type: str = "etf",
+    universe_mode: str = "configured",
     fixed_horizons: tuple[int, ...] = (5, 10, 20, 40, 60),
     ma_windows: tuple[int, ...] = (10, 20, 30, 60),
     costs: tuple[int, ...] = (0, 5, 10, 20),
@@ -156,12 +158,14 @@ def run_sensitivity(
     fixed_configs = [{"label": f"fixed_{h}", "policy": "fixed_horizon",
                       "params": {"horizon": h}, **zero} for h in fixed_horizons]
     fixed_trades = run_backtest(signals, theme=theme, entity_type=entity_type,
-                                exit_configs=fixed_configs, cache=cache)
+                                exit_configs=fixed_configs, universe_mode=universe_mode,
+                                cache=cache)
 
     ma_configs = [{"label": f"ma{w}_exit", "policy": "ma_exit",
                    "params": {"window": w}, **zero} for w in ma_windows]
     ma_trades = run_backtest(signals, theme=theme, entity_type=entity_type,
-                             exit_configs=ma_configs, cache=cache)
+                             exit_configs=ma_configs, universe_mode=universe_mode,
+                             cache=cache)
 
     ref_configs = [
         {"label": "signal_exit", "policy": "signal_exit", "params": {}, **zero},
@@ -169,7 +173,8 @@ def run_sensitivity(
         {"label": "fixed_20", "policy": "fixed_horizon", "params": {"horizon": 20}, **zero},
     ]
     ref_trades = run_backtest(signals, theme=theme, entity_type=entity_type,
-                              exit_configs=ref_configs, cache=cache)
+                              exit_configs=ref_configs, universe_mode=universe_mode,
+                              cache=cache)
 
     cost_configs: list[dict[str, Any]] = []
     for base_label, policy, params in [
@@ -181,10 +186,14 @@ def run_sensitivity(
             cost_configs.append({"label": f"{base_label}_c{bp}", "policy": policy,
                                  "params": params, "fee": bp / 100.0, "slippage": 0.0})
     cost_trades = run_backtest(signals, theme=theme, entity_type=entity_type,
-                               exit_configs=cost_configs, cache=cache)
+                               exit_configs=cost_configs, universe_mode=universe_mode,
+                               cache=cache)
 
     result = {
         "theme": theme, "entity_type": entity_type,
+        "universe_mode": universe_mode,
+        "universe_size": entry_mod.universe_size(signals, theme, universe_mode),
+        "universe_config_hash": entry_mod.universe_config_hash(universe_mode),
         "fixed_scan": _policy_table(fixed_trades),
         "ma_scan": _policy_table(ma_trades),
         "by_year": _by_year(ref_trades),

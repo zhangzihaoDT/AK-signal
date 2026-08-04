@@ -205,3 +205,30 @@ class TestRound2:
         # 排除最强年后：2025 均值 = (2.0-1.0)/2 = 0.5
         eb = yr["exclude_best"]["fixed_20"]
         assert abs(eb["mean_excluding_best"] - 0.5) < 1e-6
+
+
+class TestUniverseMode:
+    def test_configured_pool_codes(self):
+        from src.backtest.strategy.entry import configured_etf_codes
+        ai = configured_etf_codes("ai_infrastructure")
+        hc = configured_etf_codes("high_cashflow")
+        assert len(ai) == 8
+        assert len(hc) == 6
+        assert "512480" in ai
+        assert "561560" in hc
+
+    def test_entry_candidates_configured_filter(self):
+        from src.backtest.strategy.entry import entry_candidates
+        dates = _dates(3)
+        signals = pd.DataFrame([
+            {"trade_date": dates[0], "entity_type": "etf", "entity_code": "512480",
+             "theme": "ai_infrastructure", "layer": "1", "trend_state": "BUY_CANDIDATE"},
+            {"trade_date": dates[0], "entity_type": "etf", "entity_code": "159131",
+             "theme": "ai_infrastructure", "layer": "1", "trend_state": "BUY_CANDIDATE"},
+        ])
+        matched = entry_candidates(signals, entity_type="etf", theme="ai_infrastructure",
+                                   universe_mode="theme-matched")
+        configured = entry_candidates(signals, entity_type="etf", theme="ai_infrastructure",
+                                      universe_mode="configured")
+        assert {"512480", "159131"} <= set(matched["entity_code"])
+        assert set(configured["entity_code"]) == {"512480"}  # 159131 不在固定资产池

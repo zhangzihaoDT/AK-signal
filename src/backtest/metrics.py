@@ -184,6 +184,10 @@ def render_sensitivity_html(
         f"<div class='subtitle'>{label} · 生成于 {now_str} · 目的不是找最优参数，"
         f"而是验证是否存在稳定的参数平台区间 · 独立等名义本金</div>",
     ]
+    parts.append(
+        f"<div class='insight'><b>Universe：</b>{result.get('universe_mode', '—')}"
+        f"（{result.get('universe_size', '—')} 只 ETF）· config_hash "
+        f"{result.get('universe_config_hash', '—')}</div>")
 
     # 1. fixed scan
     parts.append('<div class="section"><h2>① 固定持有期扫描</h2>')
