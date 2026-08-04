@@ -10,7 +10,7 @@ SRC_MAIN = src/main.py
 	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-report sw-rps-confirm \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown \
 	select select-inputs select-offline \
-	replay-single replay-parity replay-range \
+	replay-single replay-parity replay-range event-study \
 	test install clean
 
 help: ## 显示帮助信息
@@ -128,6 +128,7 @@ DATE ?= 20260803
 START ?=
 END ?=
 LAYERS ?= 123
+SIGNALS ?=
 
 replay-single: ## [v0.5] 单日期历史信号重放（纯离线；DATE=YYYYMMDD）
 	$(PYTHON) $(SRC_MAIN) research replay single --date $(DATE)
@@ -137,6 +138,9 @@ replay-parity: ## [v0.5] 单日期重放 + 与正式产物 parity 校验（DATE=
 
 replay-range: ## [v0.5] 区间历史信号重放（START/END=YYYYMMDD, LAYERS=123|12）
 	$(PYTHON) $(SRC_MAIN) research replay range --start $(START) --end $(END) --layers $(LAYERS)
+
+event-study: ## [v0.5.1] 事件研究（SIGNALS=信号parquet, START/END可选, LAYERS=123）
+	$(PYTHON) $(SRC_MAIN) research event-study --signals $(SIGNALS) --layers $(LAYERS)
 
 # ── 开发维护 ──────────────────────────────────────────────────
 

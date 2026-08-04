@@ -97,6 +97,8 @@ make select-inputs    # 构建个股趋势输入（离线读缓存）
 make select           # Layer ③ 交易候选（读预计算趋势，默认禁止联网）
 make replay-single    # v0.5 单日期历史信号重放（DATE=YYYYMMDD）
 make replay-parity    # v0.5 重放 + 与正式产物一致性校验
+make replay-range     # v0.5 区间重放（START/END=YYYYMMDD, LAYERS=123|12）
+make event-study      # v0.5.1 事件研究（SIGNALS=信号parquet）
 make test             # 全部测试
 ```
 
@@ -121,3 +123,13 @@ make test             # 全部测试
   - **无副作用**：只写 `outputs/research/`，不覆盖正式 daily pipeline 产物（个股趋势 persist=False，不写 processed CSV）
 - **已通过**：20260803（Layer1 1259/1259、Layer2 12/12、Layer3 25/25）、20260731（Layer1 1255/1255、Layer2 12/12，无正式 selection）；区间重放在已有正式日期与单日期重放完全一致
 - 命令：`python src/main.py research replay single|parity|range --date/--start/--end YYYYMMDD`（`replay` 为兼容别名）
+
+## v0.5.1 Event Study（src/research/event_study/）
+
+- **定位**：状态转换事件的前向收益研究——验证「信号出现后资产是否倾向上涨」，不涉及交易账户
+- **事件 = 状态转换，非每日快照**：Entry（off→on）/ Exit（on→off），按层定义信号态：
+  - Layer1 ETF `trend_state`∈{BUY_CANDIDATE, STRONG_WATCH}；Layer2 行业 `confirmation_status`∈{观察, 强势}；Layer3 `selection_status`=RECOMMENDED
+- **指标**：5/10/20/60 日前向收益、基准超额、MFE/MAE、胜率、均值/中位数；区分 entity_type/theme
+- **基准**：同实体宇宙横截面中位前向收益（行业=124 行业、ETF=全市场、个股=universe；离线、全历史，替代过期 HS300 缓存）
+- **非重叠样本**：同实体相邻事件间隔 ≥ horizon 交易日计数
+- 命令：`research event-study --signals <parquet> [--start --end] [--layers 123] [--horizons 5,10,20,60]`
