@@ -182,7 +182,10 @@ make test             # 全部测试
   | Core+Quality-B | 173 | +23.0% | **-11.2%** | 1.18 |
   - HC-20 风险调整最优（Sharpe 2.47、回撤最小）；AI-MA 在共享账户因再投资复利总收益高于 AI-20（对照实验保留）
   - Core+Quality-A 总收益最高但回撤最大（AI 权重高）；Mode B（60/40）以更平滑换取更低收益
-- **指标**：累计/年化收益、最大回撤、Sharpe、**Calmar**、**相对 HS300（510300 代理）超额**、**主题收益贡献（AI vs HC）**；SVG 净值曲线含基准虚线
-  - 相对 HS300：本区间（2024.1-2026.8）HS300 累计约 +42%，多数主题策略累计跑输（AI-20 超额 -21%、HC-20 -37%、AI-MA -9%），仅 Core+Quality-A 持平（+0.2%）——策略价值在风险调整（HC Calmar 7.6）与回撤控制，非原始超额
+- **指标**：累计/年化收益、最大回撤、Sharpe、**Calmar**、**相对 HS300（默认 sh000300 真指数）超额**、**主题收益贡献（AI vs HC）**；SVG 净值曲线含基准虚线
+  - **完整日频 NAV（修复）**：统一交易日历（562 天），无交易日也记录现金/持仓市值/权益/日收益/总敞口/持仓数；年化按实际自然日跨度；Sharpe/波动基于完整日收益；最大回撤含峰值/谷底/恢复日
+  - 相对 HS300：本区间（2024.1-2026.4）sh000300 累计约 +42%，多数主题策略累计跑输（AI-20 超额 -26%、HC-20 -35%、AI-MA -16%），仅 Core+Quality-A 最接近（-12%）——策略价值在风险调整（HC Sharpe 0.78、Calmar 0.70）与回撤控制，非原始超额
+  - **基准切换**：默认 `--benchmark sh000300` 真指数缓存（覆盖检查，`--benchmark-fallback 510300` 仅显式回退，`--no-benchmark-fallback` 禁止静默切换）；`data benchmark refresh` 可独立在线刷新（回测本身离线）
+  - **修正后指标（此前稀疏 NAV 高估了年化/Sharpe/Calmar）**：AI-20 累计 +15.9% 年化 6.5% Sharpe 0.49 Calmar 0.44；AI-MA +26.3% 10.6% 0.74 0.71；HC-20 +6.8% 2.9% 0.78 0.70（回撤 -4.1% 最小）；Core+Quality-A +30.1% 12.0% 0.66 0.56；B +19.8% 8.1% 0.62 0.62
   - 主题贡献（Core+Quality-B）：AI 18.6%（70 笔）+ HC 4.9%（33 笔）≈ 总收益 23%
-- 命令：`python src/main.py backtest portfolio --signals <parquet> [--modes A,B] [--fee 0.05 --slippage 0.05]`
+- 命令：`python src/main.py backtest portfolio --signals <parquet> [--benchmark sh000300] [--modes A,B] [--fee 0.05 --slippage 0.05]`；`python src/main.py data benchmark refresh --symbol sh000300`

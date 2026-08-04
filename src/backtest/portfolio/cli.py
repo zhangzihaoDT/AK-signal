@@ -44,21 +44,30 @@ def cmd_portfolio(args: argparse.Namespace) -> int:
         fee_pct=args.fee,
         slippage_pct=args.slippage,
         modes=tuple(m.strip() for m in args.modes.split(",") if m.strip()),
+        benchmark=args.benchmark,
+        benchmark_fallback=args.benchmark_fallback,
+        allow_benchmark_fallback=not args.no_benchmark_fallback,
+        start_date=args.start,
+        end_date=args.end,
     )
     out_dir = outputs_dir() / "research" / "portfolio"
     out_dir.mkdir(parents=True, exist_ok=True)
     json_path = port_report.save_portfolio_json(result, out_dir, label)
     html_path = port_report.render_portfolio_html(result, out_dir, label)
 
-    print(f"portfolio: label={label}")
+    bm = result["benchmark_meta"]
+    print(f"portfolio: label={label} | calendar={result['params']['calendar_start']}~"
+          f"{result['params']['calendar_end']} ({result['params']['trading_days']} days)")
+    print(f"  benchmark: {bm.get('symbol')} ({bm.get('source')})"
+          f"{' FALLBACK' if bm.get('fallback_used') else ''} covers={bm.get('covers')}")
     for key, v in result["single"].items():
         m = sim.nav_metrics(v["account"].nav_frame())
         print(f"  {v['label']:<14} n={v['n_filled']:>4} total={_pct(m.get('total_return_pct'))} "
-              f"dd={_pct(m.get('max_drawdown_pct'))} sharpe={m.get('sharpe')}")
+              f"dd={_pct(m.get('max_drawdown_pct'))} sharpe={m.get('sharpe')} calmar={m.get('calmar')}")
     for mode, v in result["combined"].items():
         m = sim.nav_metrics(v["account"].nav_frame())
         print(f"  {v['label']:<14} n={v['n_filled']:>4} total={_pct(m.get('total_return_pct'))} "
-              f"dd={_pct(m.get('max_drawdown_pct'))} sharpe={m.get('sharpe')}")
+              f"dd={_pct(m.get('max_drawdown_pct'))} sharpe={m.get('sharpe')} calmar={m.get('calmar')}")
     print(f"  json: {json_path}")
     print(f"  html: {html_path}")
     return 0
@@ -78,6 +87,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--fee", type=float, default=0.05, help="手续费 %（单边）")
     p.add_argument("--slippage", type=float, default=0.05, help="滑点 %（单边）")
     p.add_argument("--modes", default="A,B", help="综合组合资金模式（A=统一等权 / B=AI60+HC40）")
+    p.add_argument("--benchmark", default="sh000300", help="基准（默认 sh000300 真指数）")
+    p.add_argument("--benchmark-fallback", default="510300",
+                   help="基准覆盖不足时的显式 fallback（默认 510300 沪深300ETF）")
+    p.add_argument("--no-benchmark-fallback", action="store_true",
+                   help="基准覆盖不足时不静默回退（报错/标记 degraded）")
+    p.add_argument("--start", default="", help="研究区间起点 YYYYMMDD（默认信号范围）")
+    p.add_argument("--end", default="", help="研究区间终点 YYYYMMDD（默认信号范围）")
     p.add_argument("--log-level", default="INFO")
     return p
 

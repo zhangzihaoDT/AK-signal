@@ -104,7 +104,8 @@ def render_portfolio_html(
         rows.append({"label": lbl, "n_filled": src.get("n_filled", 0), **nav_metrics(nav),
                      "bench_total_pct": rel.get("bench_total_pct"),
                      "excess_pct": rel.get("excess_pct"),
-                     "win_vs_bench": rel.get("win_vs_bench"),
+                     "daily_outp": rel.get("daily_outperformance_rate"),
+                     "roll20_outp": rel.get("rolling_20d_outperformance_rate"),
                      "contribution": acc.contribution(),
                      "bench_nav": src.get("bench_benchmark")})
 
@@ -121,6 +122,7 @@ def render_portfolio_html(
         curves["HS300"] = bench_curve
 
     params = result["params"]
+    bm_meta = result.get("benchmark_meta") or {}
     parts = [
         "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>",
         "<meta name='viewport' content='width=device-width, initial-scale=1.0'>",
@@ -128,9 +130,15 @@ def render_portfolio_html(
         "<h1>⑦ 组合账户回测（v0.6 共享现金账户）</h1>",
         f"<div class='subtitle'>{label} · 生成于 {now_str} · 初始资金 {params['initial_capital']:,.0f}"
         f" · 最大持仓 {params['max_positions']} · 单资产上限 {params['max_weight_per_asset']:.0%}"
-        f" · 费+滑点 {params['fee_pct']:.2f}% + {params['slippage_pct']:.2f}%（单边）"
-        f" · 基准=HS300ETF(510300) 代理</div>",
+        f" · 费+滑点 {params['fee_pct']:.2f}% + {params['slippage_pct']:.2f}%（单边）</div>",
     ]
+    parts.append(
+        f"<div class='insight'><b>统一日历：</b>{params.get('calendar_start')} ~ "
+        f"{params.get('calendar_end')}（{params.get('trading_days')} 个交易日）· "
+        f"<b>基准：</b>{bm_meta.get('symbol', params.get('benchmark_symbol'))}（{params.get('benchmark_source')}）"
+        f"{'<span style=\"color:#C62828\"> · 已 fallback</span>' if params.get('benchmark_fallback_used') else ''}"
+        f" · 覆盖 {bm_meta.get('coverage_start')}~{bm_meta.get('coverage_end')} · "
+        f"NAV 日频={params.get('nav_frequency')} · 年化口径={params.get('annualization_method')}</div>")
 
     parts.append('<div class="section"><h2>净值曲线（归一化，起始=1.0）</h2>')
     parts.append(_svg_curves(curves, dashed=("HS300",)))
@@ -141,7 +149,7 @@ def render_portfolio_html(
                  "<th class='num'>年化</th><th class='num'>最大回撤</th>"
                  "<th class='num'>Sharpe</th><th class='num'>Calmar</th>"
                  "<th class='num'>基准HS300</th><th class='num'>超额</th>"
-                 "<th class='num'>跑赢占比</th></tr>")
+                 "<th class='num'>日跑赢</th><th class='num'>20日跑赢</th></tr>")
     for r in rows:
         parts.append(
             f"<tr><td>{r['label']}</td><td class='num'>{r['n_filled']}</td>"
@@ -152,7 +160,22 @@ def render_portfolio_html(
             f"<td class='num'>{_fmt(r.get('calmar'))}</td>"
             f"<td class='num'>{_fmt(r.get('bench_total_pct'))}%</td>"
             f"<td class='num'>{_fmt(r.get('excess_pct'))}%</td>"
-            f"<td class='num'>{_pct(r.get('win_vs_bench'))}</td></tr>")
+            f"<td class='num'>{_pct(r.get('daily_outp'))}</td>"
+            f"<td class='num'>{_pct(r.get('roll20_outp'))}</td></tr>")
+    parts.append("</table></div>")
+
+    parts.append('<div class="section"><h2>最大回撤详情</h2>')
+    parts.append("<table><tr><th>组合</th><th class='num'>峰值日</th><th class='num'>谷底日</th>"
+                 "<th class='num'>恢复日</th><th class='num'>持续(自然日)</th>"
+                 "<th class='num'>交易日数</th><th class='num'>自然日跨度</th></tr>")
+    for r in rows:
+        parts.append(
+            f"<tr><td>{r['label']}</td><td class='num'>{_fmt(r.get('dd_start'))}</td>"
+            f"<td class='num'>{_fmt(r.get('dd_trough'))}</td>"
+            f"<td class='num'>{_fmt(r.get('dd_recovery'))}</td>"
+            f"<td class='num'>{_fmt(r.get('dd_duration_days'))}</td>"
+            f"<td class='num'>{_fmt(r.get('trading_days'))}</td>"
+            f"<td class='num'>{_fmt(r.get('elapsed_calendar_days'))}</td></tr>")
     parts.append("</table></div>")
 
     parts.append('<div class="section"><h2>主题收益贡献（AI vs HC，占总资金比例）</h2>')
@@ -193,7 +216,11 @@ def save_portfolio_json(
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"portfolio_{label}.json"
-    payload: dict[str, Any] = {"label": label, "params": result["params"], "accounts": {}}
+    payload: dict[str, Any] = {
+        "label": label, "params": result["params"],
+        "benchmark_meta": result.get("benchmark_meta"),
+        "calendar": result.get("calendar"), "accounts": {},
+    }
     for key, v in result["single"].items():
         acc = v["account"]
         nav = acc.nav_frame()
@@ -202,7 +229,9 @@ def save_portfolio_json(
             "theme": v["theme"], "n_filled": v["n_filled"], "n_trades": v["n_trades"],
             "nav": nav.to_dict(orient="records"),
             "metrics": {**nav_metrics(nav), "bench_total_pct": rel.get("bench_total_pct"),
-                        "excess_pct": rel.get("excess_pct"), "win_vs_bench": rel.get("win_vs_bench")},
+                        "excess_pct": rel.get("excess_pct"),
+                        "daily_outperformance_rate": rel.get("daily_outperformance_rate"),
+                        "rolling_20d_outperformance_rate": rel.get("rolling_20d_outperformance_rate")},
             "contribution": acc.contribution(),
             "orders": acc.orders,
         }
@@ -214,7 +243,9 @@ def save_portfolio_json(
             "n_filled": v["n_filled"], "n_trades": v["n_trades"],
             "nav": nav.to_dict(orient="records"),
             "metrics": {**nav_metrics(nav), "bench_total_pct": rel.get("bench_total_pct"),
-                        "excess_pct": rel.get("excess_pct"), "win_vs_bench": rel.get("win_vs_bench")},
+                        "excess_pct": rel.get("excess_pct"),
+                        "daily_outperformance_rate": rel.get("daily_outperformance_rate"),
+                        "rolling_20d_outperformance_rate": rel.get("rolling_20d_outperformance_rate")},
             "contribution": acc.contribution(),
             "orders": acc.orders,
         }
@@ -225,7 +256,9 @@ def save_portfolio_json(
 def _fmt(v: Any) -> str:
     if v is None or (isinstance(v, float) and v != v):
         return "—"
-    return f"{v:.2f}"
+    if isinstance(v, float):
+        return f"{v:.2f}"
+    return str(v)
 
 
 def _pct(v: Any) -> str:

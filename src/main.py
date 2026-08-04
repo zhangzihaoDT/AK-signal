@@ -86,6 +86,12 @@ def main() -> None:
             backtest_main()
             return
 
+        if cmd == "data":
+            from src.data_refresh.cli import main as data_main
+            sys.argv = [sys.argv[0], *argv[1:]]
+            data_main()
+            return
+
         if cmd == "replay":  # 兼容别名：research replay
             from src.research.cli import main as research_main
             sys.argv = [sys.argv[0], *["replay", *argv[1:]]]

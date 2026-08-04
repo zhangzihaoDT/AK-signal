@@ -55,7 +55,7 @@ class PortfolioAccount:
         self.cash = self.initial_capital
         self.positions: dict[str, dict[str, Any]] = {}
         self.orders: list[dict[str, Any]] = []
-        self.nav: dict[str, float] = {}
+        self.daily: list[dict[str, Any]] = []   # 完整交易日账户记录
         self.theme_pnl: dict[str, float] = {}      # 主题已实现盈亏
         self.theme_entries: dict[str, int] = {}     # 主题已成交笔数
 
@@ -108,22 +108,30 @@ class PortfolioAccount:
         self.orders.append({"date": date, "code": code, "action": "buy",
                             "shares": 0, "price": None, "status": "rejected", "reason": reason})
 
-    # ── 逐日模拟 ────────────────────────────────────────────────────
+    # ── 逐日模拟（完整交易日历） ───────────────────────────────────
 
-    def run(self, trades: pd.DataFrame, closes: dict[str, pd.Series]) -> "PortfolioAccount":
-        """按入场/出场成交日逐日推进，每日收盘盯市。"""
+    def run(self, trades: pd.DataFrame, closes: dict[str, pd.Series],
+            calendar: list[str]) -> "PortfolioAccount":
+        """按统一交易日历逐日推进，无交易日也记录账户权益（每日收盘盯市）。"""
         filled = trades[trades["entry_status"] == "filled"].copy()
         if filled.empty:
+            for d in calendar:
+                self._mark(d, closes)
+                self._record(d)
             return self
 
-        entries = {str(t["entry_fill_date"]): [] for _, t in filled.iterrows()}
-        exits = {str(t["exit_fill_date"]): [] for _, t in filled.iterrows()}
+        cal_end = calendar[-1] if calendar else ""
+        entries: dict[str, list[pd.Series]] = {}
+        exits: dict[str, list[pd.Series]] = {}
         for _, t in filled.iterrows():
-            entries.setdefault(str(t["entry_fill_date"]), []).append(t)
-            exits.setdefault(str(t["exit_fill_date"]), []).append(t)
+            ed, xd = str(t["entry_fill_date"]), str(t["exit_fill_date"])
+            if ed and ed <= cal_end:
+                entries.setdefault(ed, []).append(t)
+            # 超过研究窗口的退出（open_at_end 到数据末端）：持到窗口末，不再强制卖出
+            if xd and xd <= cal_end:
+                exits.setdefault(xd, []).append(t)
 
-        dates = sorted(set(entries) | set(exits))
-        for d in dates:
+        for d in calendar:
             # 先卖后买：释放的现金可用于当日新仓
             for t in exits.get(d, []):
                 if t["entity_code"] in self.positions:
@@ -133,10 +141,7 @@ class PortfolioAccount:
                           float(t.get("weight", 1.0)), d,
                           str(t.get("theme", "") or ""))
             self._mark(d, closes)
-        # 数据末端剩余持仓按最后收盘盯市
-        if self.positions:
-            last = dates[-1]
-            self._mark(last, closes)
+            self._record(d)
         return self
 
     def _mark(self, date: str, closes: dict[str, pd.Series]) -> None:
@@ -150,13 +155,25 @@ class PortfolioAccount:
                     if pd.notna(v):
                         px = float(v)
             pos["last_price"] = px
-        equity = self.cash + sum(p["shares"] * p["last_price"] for p in self.positions.values())
-        self.nav[date] = round(equity, 2)
+
+    def _record(self, date: str) -> None:
+        mv = sum(p["shares"] * p["last_price"] for p in self.positions.values())
+        equity = self.cash + mv
+        self.daily.append({
+            "date": date,
+            "cash": round(self.cash, 2),
+            "position_market_value": round(mv, 2),
+            "equity": round(equity, 2),
+            "gross_exposure": round(mv / equity, 4) if equity > 0 else 0.0,
+            "position_count": int(len(self.positions)),
+        })
 
     def nav_frame(self) -> pd.DataFrame:
-        df = pd.DataFrame([{"date": d, "equity": v} for d, v in self.nav.items()])
+        df = pd.DataFrame(self.daily)
         if not df.empty:
             df = df.sort_values("date").reset_index(drop=True)
+            df["daily_return"] = (df["equity"].pct_change()).round(6)
+            df["daily_return"] = df["daily_return"].fillna(0.0)
         return df
 
     def contribution(self) -> dict[str, dict[str, Any]]:

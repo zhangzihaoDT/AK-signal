@@ -190,6 +190,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_port.add_argument("--fee", type=float, default=0.05, help="手续费 %（单边）")
     p_port.add_argument("--slippage", type=float, default=0.05, help="滑点 %（单边）")
     p_port.add_argument("--modes", default="A,B", help="综合组合资金模式（A/B）")
+    p_port.add_argument("--benchmark", default="sh000300", help="基准（默认 sh000300 真指数）")
+    p_port.add_argument("--benchmark-fallback", default="510300", help="基准覆盖不足的显式 fallback")
+    p_port.add_argument("--no-benchmark-fallback", action="store_true",
+                        help="基准覆盖不足时不静默回退")
+    p_port.add_argument("--start", default="", help="研究区间起点 YYYYMMDD")
+    p_port.add_argument("--end", default="", help="研究区间终点 YYYYMMDD")
     p_port.add_argument("--log-level", default="INFO")
     return p
 

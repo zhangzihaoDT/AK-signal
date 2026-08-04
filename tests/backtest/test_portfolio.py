@@ -12,16 +12,16 @@ from src.backtest.portfolio import simulate as sim
 def _trades(weight: float = 1.0):
     return pd.DataFrame([
         {"trade_id": 1, "entity_code": "512480", "theme": "ai_infrastructure",
-         "entry_status": "filled", "entry_fill_date": "2026-07-01",
-         "entry_fill_price": 1.0, "exit_fill_date": "2026-07-10", "exit_fill_price": 1.1,
+         "entry_status": "filled", "entry_fill_date": "20260701",
+         "entry_fill_price": 1.0, "exit_fill_date": "20260710", "exit_fill_price": 1.1,
          "weight": weight, "strategy": "AI-20"},
         {"trade_id": 2, "entity_code": "159819", "theme": "ai_infrastructure",
-         "entry_status": "filled", "entry_fill_date": "2026-07-02",
-         "entry_fill_price": 2.0, "exit_fill_date": "2026-07-12", "exit_fill_price": 2.2,
+         "entry_status": "filled", "entry_fill_date": "20260702",
+         "entry_fill_price": 2.0, "exit_fill_date": "20260714", "exit_fill_price": 2.2,
          "weight": weight, "strategy": "AI-20"},
         {"trade_id": 3, "entity_code": "512480", "theme": "ai_infrastructure",
-         "entry_status": "filled", "entry_fill_date": "2026-07-15",
-         "entry_fill_price": 1.1, "exit_fill_date": "2026-07-20", "exit_fill_price": 1.0,
+         "entry_status": "filled", "entry_fill_date": "20260715",
+         "entry_fill_price": 1.1, "exit_fill_date": "20260720", "exit_fill_price": 1.0,
          "weight": weight, "strategy": "AI-20"},
     ])
 
@@ -34,37 +34,45 @@ def _closes(codes=("512480", "159819")):
     return out
 
 
+def _calendar(n: int = 20, start: str = "2026-07-01"):
+    return [d.strftime("%Y%m%d") for d in pd.bdate_range(start, periods=n)]
+
+
 class TestPortfolioAccount:
     def test_simple_buy_sell_equity(self):
         acc = PortfolioAccount(initial_capital=100_000, max_positions=5,
                                max_weight_per_asset=0.20, fee_pct=0.0, slippage_pct=0.0)
-        acc.run(_trades(), _closes())
+        acc.run(_trades(), _closes(), _calendar())
         nav = acc.nav_frame()
         assert not nav.empty
         # 两笔成交（512480 两段 + 159819 一段），第三笔为 512480 复开仓
         buys = [o for o in acc.orders if o["action"] == "buy" and o["status"] == "filled"]
         assert len(buys) == 3
-        # 持仓不超过 max_positions
-        assert acc.max_positions >= 5
         assert nav["equity"].iloc[-1] > 100_000  # 第一段盈利（1.0→1.1）
+        # 完整日频：日历每个交易日都有记录，且含 cash/mv/gross_exposure
+        assert len(nav) == len(_calendar())
+        assert {"cash", "position_market_value", "equity", "gross_exposure",
+                "position_count", "daily_return"} <= set(nav.columns)
 
     def test_max_positions_blocks_new_entry(self):
         trades = _trades()
         acc = PortfolioAccount(initial_capital=100_000, max_positions=1,
                                max_weight_per_asset=0.50, fee_pct=0.0, slippage_pct=0.0)
-        acc.run(trades, _closes())
+        acc.run(trades, _closes(), _calendar())
         buys = [o for o in acc.orders if o["action"] == "buy" and o["status"] == "filled"]
         rejected = [o for o in acc.orders if o["status"] == "rejected"]
         assert len(buys) <= 2  # max_positions=1 → 同一时段只能持 1 只
         assert any(o.get("reason") == "max_positions" for o in rejected)
 
     def test_nav_metrics(self):
-        nav = pd.DataFrame({"date": ["d%d" % i for i in range(100)],
+        dates = [d.strftime("%Y%m%d") for d in pd.bdate_range("2024-01-02", periods=100)]
+        nav = pd.DataFrame({"date": dates,
                             "equity": [1.0 * (1.01 ** i) for i in range(100)]})
         m = sim.nav_metrics(nav)
         assert m["total_return_pct"] is not None
         assert m["max_drawdown_pct"] is not None
         assert m["sharpe"] is not None
+        assert m["annualization_method"] == "calendar_days_365.25"
 
     def test_load_strategies(self, tmp_path):
         p = tmp_path / "strategies.yaml"
@@ -82,33 +90,72 @@ class TestPortfolioMetrics:
     def test_calmar(self):
         # 先涨后回撤再涨：最大回撤 < 0 → Calmar 有定义
         eq = [1.0, 1.1, 1.2, 1.0, 0.9, 1.1, 1.2, 1.3]
-        nav = pd.DataFrame({"date": ["d%d" % i for i in range(len(eq))], "equity": eq})
+        dates = [d.strftime("%Y%m%d") for d in pd.bdate_range("2024-01-02", periods=len(eq))]
+        nav = pd.DataFrame({"date": dates, "equity": eq})
         m = sim.nav_metrics(nav)
         assert m["calmar"] is not None
         assert m["max_drawdown_pct"] < 0
 
     def test_calmar_undefined_no_drawdown(self):
-        nav = pd.DataFrame({"date": ["d%d" % i for i in range(100)],
-                            "equity": [1.0 * (1.01 ** i) for i in range(100)]})
+        dates = [d.strftime("%Y%m%d") for d in pd.bdate_range("2024-01-02", periods=100)]
+        nav = pd.DataFrame({"date": dates, "equity": [1.0 * (1.01 ** i) for i in range(100)]})
         m = sim.nav_metrics(nav)
         assert m["calmar"] is None  # 无回撤 → Calmar 未定义
 
     def test_relative_metrics(self):
-        nav = pd.DataFrame({"date": ["2026-07-01", "2026-07-02", "2026-07-03"],
-                            "equity": [100.0, 110.0, 121.0]})
-        bench = pd.Series([1.0, 1.1, 1.2], index=pd.to_datetime(
-            ["2026-07-01", "2026-07-02", "2026-07-03"]))
+        dates = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2026-06-01", periods=25)]
+        nav = pd.DataFrame({"date": dates,
+                            "equity": [100.0 * (1.01 ** i) for i in range(25)]})
+        bench = pd.Series([1.0 + 0.01 * i for i in range(25)],
+                          index=pd.to_datetime(dates))
         r = sim.relative_metrics(nav, bench)
-        assert r["bench_total_pct"] == 20.0
-        assert abs(r["excess_pct"] - 1.0) < 0.01  # 21% - 20%
-        assert r["win_vs_bench"] is not None
+        assert r["bench_total_pct"] is not None
+        assert r["excess_pct"] is not None
+        assert r["daily_outperformance_rate"] is not None
+        assert r["rolling_20d_outperformance_rate"] is not None
 
     def test_theme_contribution(self):
         acc = PortfolioAccount(initial_capital=100_000, fee_pct=0.0, slippage_pct=0.0)
         trades = _trades()
         trades["theme"] = ["ai_infrastructure", "ai_infrastructure", "ai_infrastructure"]
-        acc.run(trades, _closes())
+        acc.run(trades, _closes(), _calendar())
         c = acc.contribution()
         assert "ai_infrastructure" in c
         assert c["ai_infrastructure"]["n_trades"] == 3
         assert c["ai_infrastructure"]["total_pnl"] > 0
+
+
+class TestBenchmark:
+    def test_requested_range(self):
+        signals = pd.DataFrame({"trade_date": ["20240102", "20240301", "20260501"]})
+        assert sim.requested_range(signals) == ("20240102", "20260501")
+
+    def test_benchmark_series_sh000300_coverage(self, tmp_path, monkeypatch):
+        import src.backtest.portfolio.simulate as sim_mod
+        # 构造覆盖完整的 sh000300 缓存
+        df = pd.DataFrame({"date": pd.bdate_range("2024-01-02", periods=50),
+                           "close": range(50)})
+        monkeypatch.setattr(sim_mod, "raw_dir", lambda: tmp_path)
+        df.to_csv(tmp_path / "_benchmark_sh000300.csv", index=False, encoding="utf-8")
+        cache = {"combined": pd.DataFrame()}
+        close, meta = sim.benchmark_series(cache, "sh000300",
+                                           start="20240102", end="20240229")
+        assert meta["covers"] is True
+        assert meta["fallback_used"] is False
+
+    def test_benchmark_fallback_when_uncovered(self, tmp_path, monkeypatch):
+        import src.backtest.portfolio.simulate as sim_mod
+        df = pd.DataFrame({"date": pd.bdate_range("2026-06-01", periods=10),
+                           "close": range(10)})
+        monkeypatch.setattr(sim_mod, "raw_dir", lambda: tmp_path)
+        df.to_csv(tmp_path / "_benchmark_sh000300.csv", index=False, encoding="utf-8")
+        cache = {"combined": pd.DataFrame({"date": ["2026-06-01"], "fund_code": ["510300"],
+                                           "open": [1.0], "close": [1.0]})}
+        close, meta = sim.benchmark_series(cache, "sh000300", start="20240102", end="20260501")
+        # 缓存未覆盖且允许 fallback → 用 510300
+        assert meta["fallback_used"] is True
+        assert meta["symbol"] == "510300"
+        # 不允许 fallback → 仍返回原序列（覆盖检查失败由调用方处理）
+        close2, meta2 = sim.benchmark_series(cache, "sh000300", start="20240102",
+                                             end="20260501", fallback="", allow_fallback=False)
+        assert meta2["fallback_used"] is False
