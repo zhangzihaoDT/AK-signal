@@ -161,3 +161,25 @@ class TestBenchmark:
         close2, meta2 = sim.benchmark_series(cache, "sh000300", start="20240102",
                                              end="20260501", fallback="", allow_fallback=False)
         assert meta2["fallback_used"] is False
+
+
+class TestConstruction:
+    def test_compute_position_value_equality_score_cash(self):
+        from src.backtest.portfolio.allocation import compute_position_value
+        eq = compute_position_value(1_000_000, 1.0, 5, 0.30)
+        assert abs(eq - 200_000) < 1  # 20% 等权
+        scored = compute_position_value(1_000_000, 1.0, 5, 0.30, score=90.0)
+        assert abs(scored - 300_000) < 1  # 90/50 → 36% → cap 30%
+        cash = compute_position_value(1_000_000, 1.0, 5, 0.30, deploy_ratio=0.6)
+        assert abs(cash - 120_000) < 1  # 60% 资金动用
+
+    def test_top_n_filters_entities(self):
+        from src.backtest.portfolio.construction import _top_n_trades
+        trades = pd.DataFrame([
+            {"trade_id": 1, "entity_code": "A", "entry_status": "filled", "entry_score": 90.0},
+            {"trade_id": 2, "entity_code": "A", "entry_status": "filled", "entry_score": 60.0},
+            {"trade_id": 3, "entity_code": "B", "entry_status": "filled", "entry_score": 50.0},
+            {"trade_id": 4, "entity_code": "C", "entry_status": "filled", "entry_score": 40.0},
+        ])
+        top2 = _top_n_trades(trades, 2)
+        assert set(top2["entity_code"]) == {"A", "B"}

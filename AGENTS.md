@@ -172,6 +172,13 @@ make test             # 全部测试
 - **模块**：`engine.py`（账户引擎：逐日撮合/盯市）、`allocation.py`（仓位分配：equal-weight/max_positions/max_weight_per_asset）、`nav.py`（NAV+绩效+基准）、`metrics.py`（报告）、`simulate.py`（编排）
 - **主题级策略配置**：`config/strategies.yaml`（策略规则按主题配置，不共用全局 Entry/Exit）——AI 主策略 fixed_20（MA20 作对照）、HC 主策略 fixed_20
 - **资金规则**：initial_capital / max_positions / equal-weight / max_weight_per_asset / no_leverage / no_pyramiding / next_open / fee+slippage；不做 ATR
+- **Portfolio Construction 实验**（`backtest construction`，不改入场/出场规则，只改组合构建）——单维度扫描，基线=等权/max5/AI50/cash100：
+  - **Top-N 排名**（3/5/10）：实体越多越好，缩减宇宙只会更差（top_10=18.4% > top_3=8.0%）
+  - **等权 vs Score-Weight**（RPS15 加权）：score-weight 总收益翻倍（18.4%→30.1%）、超额 -23.6%→-11.9%，但回撤扩大（-17.7%）
+  - **Max Position**（3/5/8）：**max_8 最优**（+21.6%、回撤 -8.0%、Sharpe 0.88、Calmar 1.1）
+  - **AI 比例**（50/60/70%）：越高收益越高但 Sharpe 降（0.66→0.59），ai50 风险调整最优
+  - **现金比例**（100/80/60%）：满仓收益最高，降现金只降收益不降 Sharpe
+  - **结论**：5 组组合优化后**全部仍跑输 HS300**（最佳超额 -11.9%）→ 本区间问题在 Strategy 而非 Portfolio；但 max_8 + score-weight 是风险调整与收益的最优组合方向
 - **第一轮五条净值线**：AI-20 / AI-MA / HC-20 / Core+Quality-A（统一等权）/ Core+Quality-B（AI60%+HC40%）
 - **实盘（2024-01..2026-05，1M 初始，max 5 仓，5bp 费+5bp 滑点单边）**：
   | 组合 | 成交 | 总收益 | 最大回撤 | Sharpe |

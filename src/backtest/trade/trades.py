@@ -35,6 +35,7 @@ TRADE_COLUMNS = [
     "exit_status", "exit_reason",
     "return_pct", "holding_days", "fee_pct", "slippage_pct",
     "universe_mode", "universe_size", "universe_config_hash",
+    "entry_score",
 ]
 
 
@@ -95,6 +96,15 @@ def _biz_days_between(a: Any, b: Any) -> int:
         return int(np.busday_count(np.datetime64(s), np.datetime64(e), weekmask="1111100"))
     except Exception:
         return 0
+
+
+def _num(v: Any) -> float | None:
+    if v is None or (isinstance(v, float) and v != v):
+        return None
+    try:
+        return round(float(v), 4)
+    except (TypeError, ValueError):
+        return None
 
 
 def _trade_return(buy_price: float, sell_price: float, fee: float, slippage: float) -> float:
@@ -273,6 +283,7 @@ def run_backtest(
                     "fee_pct": cfee, "slippage_pct": cslippage,
                     "universe_mode": universe_mode, "universe_size": uni_size,
                     "universe_config_hash": uni_hash,
+                    "entry_score": _num(getattr(entry, "rps15", None)),
                 })
 
     df = pd.DataFrame(trades, columns=TRADE_COLUMNS)

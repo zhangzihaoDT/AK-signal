@@ -144,6 +144,35 @@ def cmd_matrix(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_construction(args: argparse.Namespace) -> int:
+    signals, label = _load_signals(args.signals)
+    from .portfolio import construction as bt_construction
+    from .portfolio.metrics import render_construction_html
+    result = bt_construction.run_construction_experiments(
+        signals,
+        initial_capital=args.initial_capital,
+        fee_pct=args.fee,
+        slippage_pct=args.slippage,
+        benchmark=args.benchmark,
+        benchmark_fallback=args.benchmark_fallback,
+    )
+    out_dir = _out_dir()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    json_path = out_dir / f"construction_{label}.json"
+    json_path.write_text(json.dumps(bt_construction.summarize(result), ensure_ascii=False,
+                                    indent=2, default=str), encoding="utf-8")
+    html_path = render_construction_html(result, out_dir, label)
+
+    print(f"construction: baseline total={_pct_pct(result['baseline']['metrics']['total_return_pct'])}")
+    for dim, entries in result["experiments"].items():
+        best = max(entries, key=lambda e: e["metrics"]["sharpe"] or -9)
+        print(f"  {dim:<14} best={best['label']} (sharpe={best['metrics']['sharpe']}, "
+              f"total={_pct_pct(best['metrics']['total_return_pct'])})")
+    print(f"  json: {json_path}")
+    print(f"  html: {html_path}")
+    return 0
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="v0.5.2 Trade-level Backtest")
     sub = p.add_subparsers(dest="command")
@@ -197,6 +226,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_port.add_argument("--start", default="", help="研究区间起点 YYYYMMDD")
     p_port.add_argument("--end", default="", help="研究区间终点 YYYYMMDD")
     p_port.add_argument("--log-level", default="INFO")
+
+    p_con = sub.add_parser("construction", help="v0.6 组合构建实验（Top-N/加权/持仓/比例/现金）")
+    p_con.add_argument("--signals", default="", help="historical_signals parquet 路径")
+    p_con.add_argument("--initial-capital", type=float, default=1_000_000.0)
+    p_con.add_argument("--fee", type=float, default=0.05)
+    p_con.add_argument("--slippage", type=float, default=0.05)
+    p_con.add_argument("--benchmark", default="sh000300")
+    p_con.add_argument("--benchmark-fallback", default="510300")
+    p_con.add_argument("--log-level", default="INFO")
     return p
 
 
@@ -212,5 +250,7 @@ def main() -> None:
     elif command == "portfolio":
         from .portfolio.cli import cmd_portfolio
         sys.exit(cmd_portfolio(args))
+    elif command == "construction":
+        sys.exit(cmd_construction(args))
     else:
         sys.exit(cmd_trades(args))

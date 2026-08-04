@@ -269,3 +269,70 @@ def _pct(v: Any) -> str:
 
 # 复用 simulate.nav_metrics（避免循环导入）
 from .nav import nav_metrics  # noqa: E402
+
+
+def render_construction_html(
+    result: dict[str, Any],
+    output_dir: Path,
+    label: str,
+) -> Path:
+    from .construction import summarize
+    output_dir.mkdir(parents=True, exist_ok=True)
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    html_path = output_dir / f"construction_{label}.html"
+    s = summarize(result)
+
+    parts = [
+        "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>",
+        "<meta name='viewport' content='width=device-width, initial-scale=1.0'>",
+        f"<title>组合构建实验 · {label}</title><style>{CSS}</style></head><body><div class='container'>",
+        "<h1>⑦ 组合构建实验（v0.6 Portfolio Construction）</h1>",
+        f"<div class='subtitle'>{label} · 生成于 {now_str} · 不改入场/出场规则，只改组合构建方式"
+        f" · AI-20 + HC-20 综合账户 · 基准 {result['params'].get('benchmark_symbol')}</div>",
+    ]
+
+    # 基线
+    b = s["baseline"]
+    parts.append('<div class="section"><h2>基线（等权 / max5 / AI50:HC50 / 满仓）</h2>')
+    parts.append(_row_table([b]))
+    parts.append("</div>")
+
+    titles = {
+        "top_n": "实验1 · Top-N 排名（按入场分取前 N 实体）",
+        "score_weight": "实验2 · 等权 vs 按入场分加权",
+        "max_positions": "实验3 · 最大持仓（3/5/8）",
+        "ai_ratio": "实验4 · AI/HC 配置比例",
+        "deploy_ratio": "实验5 · 现金比例（资金动用）",
+    }
+    for dim, title in titles.items():
+        parts.append(f'<div class="section"><h2>{title}</h2>')
+        rows = [b] + s["dimensions"].get(dim, [])
+        parts.append(_row_table(rows))
+        parts.append("</div>")
+
+    parts.append(
+        "<hr><div style='text-align:center;font-size:12px;color:var(--muted);padding:16px 0'>"
+        "AKsignal · v0.6 Portfolio Construction · 结论判别：稳定跑赢 HS300 → 提升来自资金配置；"
+        "否则问题在 Strategy</div>")
+    parts.append("</div></body></html>")
+    html_path.write_text("\n".join(parts), encoding="utf-8")
+    return html_path
+
+
+def _row_table(rows: list[dict[str, Any]]) -> str:
+    parts = ["<table><tr><th>配置</th><th class='num'>累计</th><th class='num'>年化</th>"
+             "<th class='num'>回撤</th><th class='num'>Sharpe</th><th class='num'>Calmar</th>"
+             "<th class='num'>HS300超额</th><th class='num'>日跑赢</th></tr>"]
+    for r in rows:
+        hl = "style='background:#DDEFF8'" if r["label"] == "baseline" else ""
+        parts.append(
+            f"<tr {hl}><td>{r['label']}</td><td class='num'>{_fmt(r['total'])}%</td>"
+            f"<td class='num'>{_fmt(r['annualized'])}%</td><td class='num'>{_fmt(r['max_dd'])}%</td>"
+            f"<td class='num'>{_fmt(r['sharpe'])}</td><td class='num'>{_fmt(r['calmar'])}</td>"
+            f"<td class='num'>{_fmt(r['excess'])}%</td><td class='num'>{_pct(r['daily_outp'])}</td></tr>")
+    parts.append("</table>")
+    return "".join(parts)
+
+
+def _pct(v: Any) -> str:
+    return "—" if v is None or (isinstance(v, float) and v != v) else f"{v * 100:.0f}%"

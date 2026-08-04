@@ -11,7 +11,7 @@ SRC_MAIN = src/main.py
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown \
 	select select-inputs select-offline \
 	replay-single replay-parity replay-range event-study \
-	backtest-trades backtest-sensitivity backtest-matrix backtest-portfolio \
+	backtest-trades backtest-sensitivity backtest-matrix backtest-portfolio backtest-construction \
 	test install clean
 
 help: ## 显示帮助信息
@@ -156,6 +156,9 @@ backtest-matrix: ## [v0.5.2] 四组对比矩阵（configured vs theme-matched）
 
 backtest-portfolio: ## [v0.6] 共享账户组合模拟（单策略 + Core+Quality）
 	$(PYTHON) $(SRC_MAIN) backtest portfolio --signals $(SIGNALS)
+
+backtest-construction: ## [v0.6] 组合构建实验（Top-N/加权/持仓/比例/现金）
+	$(PYTHON) $(SRC_MAIN) backtest construction --signals $(SIGNALS)
 
 # ── 开发维护 ──────────────────────────────────────────────────
 

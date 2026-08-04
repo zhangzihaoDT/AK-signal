@@ -43,6 +43,9 @@ class PortfolioAccount:
         fee_pct: float = 0.05,
         slippage_pct: float = 0.05,
         label: str = "",
+        score_weighted: bool = False,
+        score_reference: float = 50.0,
+        deploy_ratio: float = 1.0,
     ):
         self.initial_capital = float(initial_capital)
         self.max_positions = int(max_positions)
@@ -50,6 +53,9 @@ class PortfolioAccount:
         self.fee_pct = float(fee_pct)
         self.slippage_pct = float(slippage_pct)
         self.label = label
+        self.score_weighted = bool(score_weighted)
+        self.score_reference = float(score_reference)
+        self.deploy_ratio = float(deploy_ratio)
         self.cash = self.initial_capital
         self.positions: dict[str, dict[str, Any]] = {}
         self.orders: list[dict[str, Any]] = []
@@ -59,7 +65,8 @@ class PortfolioAccount:
 
     # ── 撮合 ────────────────────────────────────────────────────────
 
-    def _buy(self, code: str, price: float, weight: float, date: str, theme: str = "") -> bool:
+    def _buy(self, code: str, price: float, weight: float, date: str, theme: str = "",
+             score: float | None = None) -> bool:
         if code in self.positions:
             self._reject(code, date, "no_pyramiding")
             return False
@@ -67,8 +74,10 @@ class PortfolioAccount:
             self._reject(code, date, "max_positions")
             return False
         equity = self.cash + sum(p["shares"] * p["last_price"] for p in self.positions.values())
-        alloc = compute_position_value(equity, weight, self.max_positions,
-                                       self.max_weight_per_asset)
+        alloc = compute_position_value(
+            equity, weight, self.max_positions, self.max_weight_per_asset,
+            score=score if self.score_weighted else None,
+            score_reference=self.score_reference, deploy_ratio=self.deploy_ratio)
         shares = compute_shares(alloc, price, self.slippage_pct)
         notional = shares * price
         cost = notional * (1.0 + self.slippage_pct / 100.0) + notional * (self.fee_pct / 100.0)
@@ -136,7 +145,8 @@ class PortfolioAccount:
             for t in sorted(entries.get(d, []), key=lambda x: str(x["trade_id"])):
                 self._buy(t["entity_code"], float(t["entry_fill_price"]),
                           float(t.get("weight", 1.0)), d,
-                          str(t.get("theme", "") or ""))
+                          str(t.get("theme", "") or ""),
+                          float(t.get("entry_score")) if pd.notna(t.get("entry_score")) else None)
             self._mark(d, closes)
             self._record(d)
         return self
