@@ -18,7 +18,7 @@ import pandas as pd
 
 from src.common.paths import outputs_dir
 from . import simulate as sim
-from . import report as port_report
+from . import metrics as port_report
 
 
 def _load_signals(path: str | None) -> tuple[pd.DataFrame, str]:

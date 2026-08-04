@@ -17,8 +17,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .trades import run_backtest
-from .strategy import entry as entry_mod
+from .trade.trades import run_backtest
+from .trade.strategy import entry as entry_mod
 
 logger = logging.getLogger("backtest.sensitivity")
 

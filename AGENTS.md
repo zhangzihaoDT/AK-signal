@@ -138,10 +138,10 @@ make test             # 全部测试
 - **非重叠样本**：同实体相邻事件间隔 ≥ horizon 交易日计数
 - 命令：`research event-study --signals <parquet> [--start --end] [--layers 123] [--horizons 5,10,20,60]`
 
-## v0.5.2 Trade Simulation（src/backtest/）
+## v0.5.2 Trade Simulation（src/backtest/trade/）
 
 - **定位**：逐笔交易模拟（第一轮）——独立等名义本金（每笔 1 单位，无共享现金账户），只回答「同一入场规则下，哪种退出策略更有效」
-- **模块**：`strategy/entry.py`（入场：首次进入趋势信号态 + 主题行业确认成立）、`strategy/exit.py`（signal_exit / ma20_exit / fixed_horizon）、`execution/next_open.py`（T+1 开盘）、`trades.py`、`metrics.py`、`cli.py`
+- **模块**：`strategy/entry.py`（入场：首次进入趋势信号态 + 主题行业确认成立）、`strategy/exit.py`（signal_exit / ma20_exit / fixed_horizon）、`execution/next_open.py`（T+1 开盘）、`trades.py`、`metrics.py`、`cli.py`（顶层 backtest）
 - **冻结约束**：持仓期间再次 entry 不重复开仓（按上一笔持仓了结日比较）；Exit 是 Strategy Policy 动作非 Selection SELL；信号日无下一交易日价格 → 订单标记 `unfilled`；停牌/缺失开盘价显式记录；fixed_horizon 按交易日；MA20 只用判断日当日及以前数据；手续费/滑点保留配置字段（默认 0）
 - **产物**：`outputs/research/backtest/trades_{theme}_{entity}_{label}.parquet` + `metrics_*.json` + `backtest_*.html`
 - **实盘（2024-01..2026-05，AI 基础设施 ETF）**：fixed_horizon(20d) 852 笔 胜率 53.2% 均值 +3.23% 最强；ma20_exit 1003 笔 胜率 42.7% +2.82%；signal_exit 1657 笔 胜率 41.3% +0.56% 最弱（中位持有 3 日，过早退出）
@@ -166,11 +166,12 @@ make test             # 全部测试
   - HC 的 fixed_20 显著优于 ma20（2.0% vs 0.2-0.4%）；AI 两者接近（ma20 PF 略高）
 - 命令：`python src/main.py backtest trades|sensitivity --signals <parquet> --theme ai_infrastructure --entity-type etf [--universe-mode configured|theme-matched]`
 
-## v0.6 Portfolio & Risk（src/backtest/portfolio/）
+## v0.6 Portfolio Simulation（src/backtest/portfolio/）
 
-- **定位**：共享现金账户模拟（第一轮）——initial_capital / max_positions / equal-weight / max_weight_per_asset / no_leverage / no_pyramiding / next_open / fee+slippage；不做 ATR
+- **定位**：共享现金账户模拟（组合层）——有限资金下整个策略组合的表现；回答「整个账户好不好」，与 v0.5.2 Trade（一笔交易好不好）分层
+- **模块**：`engine.py`（账户引擎：逐日撮合/盯市）、`allocation.py`（仓位分配：equal-weight/max_positions/max_weight_per_asset）、`nav.py`（NAV+绩效+基准）、`metrics.py`（报告）、`simulate.py`（编排）
 - **主题级策略配置**：`config/strategies.yaml`（策略规则按主题配置，不共用全局 Entry/Exit）——AI 主策略 fixed_20（MA20 作对照）、HC 主策略 fixed_20
-- **账户模型**：`PortfolioAccount`（先卖后买、现金约束、每日收盘盯市、SVG 净值曲线）
+- **资金规则**：initial_capital / max_positions / equal-weight / max_weight_per_asset / no_leverage / no_pyramiding / next_open / fee+slippage；不做 ATR
 - **第一轮五条净值线**：AI-20 / AI-MA / HC-20 / Core+Quality-A（统一等权）/ Core+Quality-B（AI60%+HC40%）
 - **实盘（2024-01..2026-05，1M 初始，max 5 仓，5bp 费+5bp 滑点单边）**：
   | 组合 | 成交 | 总收益 | 最大回撤 | Sharpe |

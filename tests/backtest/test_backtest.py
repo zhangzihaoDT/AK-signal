@@ -5,11 +5,11 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.backtest import metrics as bt_metrics
-from src.backtest import trades as bt_trades
-from src.backtest.execution.next_open import next_open
-from src.backtest.strategy import entry as entry_mod
-from src.backtest.strategy import exit as exit_mod
+from src.backtest.trade import metrics as bt_metrics
+from src.backtest.trade import trades as bt_trades
+from src.backtest.trade.execution.next_open import next_open
+from src.backtest.trade.strategy import entry as entry_mod
+from src.backtest.trade.strategy import exit as exit_mod
 
 
 def _dates(n: int) -> list[str]:
@@ -179,7 +179,7 @@ class TestMetrics:
 class TestRound2:
     def test_trade_return_fee_semantics(self):
         """fee 单边 %，双边合计扣 fee*2 个百分点（5bp=0.05% → 0.10pp）。"""
-        from src.backtest.trades import _trade_return
+        from src.backtest.trade.trades import _trade_return
         base = _trade_return(100.0, 103.0, 0.0, 0.0)
         with_fee = _trade_return(100.0, 103.0, 0.05, 0.0)
         assert abs(base - with_fee - 0.10) < 1e-6
@@ -209,7 +209,7 @@ class TestRound2:
 
 class TestUniverseMode:
     def test_configured_pool_codes(self):
-        from src.backtest.strategy.entry import configured_etf_codes
+        from src.backtest.trade.strategy.entry import configured_etf_codes
         ai = configured_etf_codes("ai_infrastructure")
         hc = configured_etf_codes("high_cashflow")
         assert len(ai) == 8
@@ -218,7 +218,7 @@ class TestUniverseMode:
         assert "561560" in hc
 
     def test_entry_candidates_configured_filter(self):
-        from src.backtest.strategy.entry import entry_candidates
+        from src.backtest.trade.strategy.entry import entry_candidates
         dates = _dates(3)
         signals = pd.DataFrame([
             {"trade_date": dates[0], "entity_type": "etf", "entity_code": "512480",

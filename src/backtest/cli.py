@@ -18,8 +18,8 @@ from pathlib import Path
 import pandas as pd
 
 from src.common.paths import outputs_dir
-from . import trades as bt_trades
-from . import metrics as bt_metrics
+from .trade import trades as bt_trades
+from .trade import metrics as bt_metrics
 from . import sensitivity as bt_sensitivity
 from . import matrix as bt_matrix
 

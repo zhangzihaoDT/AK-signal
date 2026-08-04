@@ -9,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 
-from src.backtest.metrics import CSS
+from src.backtest.trade.metrics import CSS
 
 
 def _svg_curves(curves: dict[str, pd.DataFrame], dashed: tuple[str, ...] = (),
@@ -268,4 +268,4 @@ def _pct(v: Any) -> str:
 
 
 # 复用 simulate.nav_metrics（避免循环导入）
-from .simulate import nav_metrics  # noqa: E402
+from .nav import nav_metrics  # noqa: E402

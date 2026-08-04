@@ -14,7 +14,7 @@ from typing import Any
 
 import pandas as pd
 
-from src.backtest.metrics import CSS
+from src.backtest.trade.metrics import CSS
 
 GROUPS = [
     ("AI 基础设施 · 全市场关键词", "ai_infrastructure", "theme-matched"),

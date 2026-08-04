@@ -1,22 +1,20 @@
 """
-共享账户模拟（v0.6 第一轮）。
+共享账户引擎（Portfolio Engine）— 逐日撮合与盯市。
 
-相对 v0.5.2 的独立等名义本金，这里建立共享现金账户：
-  initial_capital / max_positions / equal-weight 仓位 / max_weight_per_asset
-  no_leverage / no_pyramiding / next_open 成交 / fee + slippage
-
-多策略合并到一个账户时，允许主题权重（Mode B：AI 60% / HC 40%）。
+资金规则（allocation.py）：equal-weight / max_positions / max_weight_per_asset
+/ no_leverage / no_pyramiding；T+1 开盘成交；费+滑点；完整交易日历日频 NAV。
 """
 
 from __future__ import annotations
 
 import logging
-import math
 from typing import Any
 
 import pandas as pd
 
-logger = logging.getLogger("backtest.portfolio.account")
+from .allocation import compute_position_value, compute_shares
+
+logger = logging.getLogger("backtest.portfolio.engine")
 
 
 def build_close_prices(cache: dict[str, Any]) -> dict[str, pd.Series]:
@@ -69,10 +67,9 @@ class PortfolioAccount:
             self._reject(code, date, "max_positions")
             return False
         equity = self.cash + sum(p["shares"] * p["last_price"] for p in self.positions.values())
-        alloc = min(equity * weight / self.max_positions,
-                    equity * self.max_weight_per_asset)
-        buy_eff = price * (1.0 + self.slippage_pct / 100.0)
-        shares = int(alloc / buy_eff)
+        alloc = compute_position_value(equity, weight, self.max_positions,
+                                       self.max_weight_per_asset)
+        shares = compute_shares(alloc, price, self.slippage_pct)
         notional = shares * price
         cost = notional * (1.0 + self.slippage_pct / 100.0) + notional * (self.fee_pct / 100.0)
         if shares <= 0 or cost > self.cash:

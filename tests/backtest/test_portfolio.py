@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.backtest.portfolio.account import PortfolioAccount
+from src.backtest.portfolio.engine import PortfolioAccount
 from src.backtest.portfolio import simulate as sim
 
 
@@ -131,11 +131,12 @@ class TestBenchmark:
         assert sim.requested_range(signals) == ("20240102", "20260501")
 
     def test_benchmark_series_sh000300_coverage(self, tmp_path, monkeypatch):
+        import src.backtest.portfolio.nav as nav_mod
         import src.backtest.portfolio.simulate as sim_mod
         # 构造覆盖完整的 sh000300 缓存
         df = pd.DataFrame({"date": pd.bdate_range("2024-01-02", periods=50),
                            "close": range(50)})
-        monkeypatch.setattr(sim_mod, "raw_dir", lambda: tmp_path)
+        monkeypatch.setattr(nav_mod, "raw_dir", lambda: tmp_path)
         df.to_csv(tmp_path / "_benchmark_sh000300.csv", index=False, encoding="utf-8")
         cache = {"combined": pd.DataFrame()}
         close, meta = sim.benchmark_series(cache, "sh000300",
@@ -144,10 +145,11 @@ class TestBenchmark:
         assert meta["fallback_used"] is False
 
     def test_benchmark_fallback_when_uncovered(self, tmp_path, monkeypatch):
+        import src.backtest.portfolio.nav as nav_mod
         import src.backtest.portfolio.simulate as sim_mod
         df = pd.DataFrame({"date": pd.bdate_range("2026-06-01", periods=10),
                            "close": range(10)})
-        monkeypatch.setattr(sim_mod, "raw_dir", lambda: tmp_path)
+        monkeypatch.setattr(nav_mod, "raw_dir", lambda: tmp_path)
         df.to_csv(tmp_path / "_benchmark_sh000300.csv", index=False, encoding="utf-8")
         cache = {"combined": pd.DataFrame({"date": ["2026-06-01"], "fund_code": ["510300"],
                                            "open": [1.0], "close": [1.0]})}
