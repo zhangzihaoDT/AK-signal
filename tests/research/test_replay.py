@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from src.research.replay import engine
+from src.research.replay import range as replay_range
 from src.research.signals import schema
 from src.research.validation import parity
 
@@ -139,3 +140,62 @@ class TestSingleDateReplayIntegration:
         assert r["ok"] is True, r
         assert r["layers"]["layer1"]["matched"] > 1000
         assert r["layers"]["layer2"]["matched"] >= 10
+
+
+class TestReplayCalendar:
+    def _cache(self):
+        return {"combined": pd.DataFrame({
+            "date": pd.to_datetime(["2026-07-31", "2026-08-03", "2026-08-04", "2026-08-05"]),
+            "fund_code": ["512480"] * 4,
+            "close": [1.0] * 4,
+        })}
+
+    def test_filters_range(self):
+        cal = engine.replay_calendar(self._cache(), "20260801", "20260805")
+        assert cal == ["20260803", "20260804", "20260805"]
+
+    def test_empty_cache(self):
+        assert engine.replay_calendar({"combined": pd.DataFrame()}, "20260801", "20260805") == []
+
+
+class TestCoverageTable:
+    def test_counts_and_rate(self):
+        replayed = pd.DataFrame([
+            {"trade_date": "20260803", "layer": "1", "entity_code": "512480"},
+            {"trade_date": "20260803", "layer": "1", "entity_code": "159819"},
+            {"trade_date": "20260803", "layer": "2", "entity_code": "801161.SI"},
+        ])
+        cache = {"combined": pd.DataFrame({"fund_code": ["512480", "159819", "561560"]})}
+        cov = replay_range._coverage_table(cache, replayed)
+        assert len(cov) == 1
+        assert cov[0]["priced_etf_count"] == 2
+        assert cov[0]["eligible_etf_count"] == 3
+        assert abs(cov[0]["coverage_rate"] - round(2 / 3, 4)) < 1e-6
+
+
+@pytest.mark.skipif(
+    not (Path("data/etf_signal/daily/rotation_20260803.parquet").exists()
+         and Path("data/processed/sw_industry/confirmation_20260803.parquet").exists()),
+    reason="formal products for 20260803 not present",
+)
+class TestRangeReplayIntegration:
+    def test_range_consistency_with_single_date(self):
+        """区间重放在已有正式日期与单日期重放完全一致（同代码路径保证）。"""
+        cache = engine.build_replay_cache()
+        rng = replay_range.replay_range("20260731", "20260803", layers="123", out_dir=None, cache=cache)
+        single = engine.replay_single_date("20260803", out_dir=None, cache=cache)
+
+        r = rng[rng["trade_date"] == "20260803"].reset_index(drop=True)
+        s = single.reset_index(drop=True)
+        assert len(r) == len(s) == 1296
+
+        def _key(df):
+            return df.set_index(["layer", "entity_type", "entity_code"])
+
+        k1, k2 = _key(r), _key(s)
+        assert set(k1.index) == set(k2.index)
+        for c in ("rps15", "trend_score", "trend_state", "confirmation_status",
+                  "selection_status", "recommended_action"):
+            a = k1[c].astype(str).fillna("<NA>")
+            b = k2[c].astype(str).fillna("<NA>")
+            assert (a != b).sum() == 0, f"field {c} differs"

@@ -82,14 +82,20 @@ def _load_master() -> pd.DataFrame:
 def _replay_layer1(
     trade_date: str,
     logger: logging.Logger,
+    *,
+    master: pd.DataFrame | None = None,
+    combined: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """重放 Layer①，返回 (signal_rows, rotation_df, account_df)。"""
-    master = _load_master()
+    master = master if master is not None else _load_master()
     if master.empty:
         logger.error("no ETF master")
         return sch.empty_frame(), pd.DataFrame(), pd.DataFrame()
 
-    combined = _truncated_combined(master, trade_date)
+    if combined is None:
+        combined = _truncated_combined(master, trade_date)
+    else:
+        combined = combined[pd.to_datetime(combined["date"]) <= pd.Timestamp(trade_date)]
     if combined.empty:
         logger.error("no ETF raw data <= %s", trade_date)
         return sch.empty_frame(), pd.DataFrame(), pd.DataFrame()
@@ -138,9 +144,12 @@ def _replay_layer1(
 def _replay_layer2(
     trade_date: str,
     logger: logging.Logger,
+    *,
+    metrics_df: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """重放 Layer②，返回 (signal_rows, confirmation_focus_df)。"""
-    metrics_df = sw_storage.load_metrics(sw_industry_processed_dir())
+    if metrics_df is None:
+        metrics_df = sw_storage.load_metrics(sw_industry_processed_dir())
     if metrics_df.empty:
         logger.error("no industry metrics")
         return sch.empty_frame(), pd.DataFrame()
@@ -228,12 +237,14 @@ def replay_single_date(
     *,
     out_dir: Path | None = None,
     log_level: str = "INFO",
+    cache: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
     """对单个 trade_date 纯离线重放 Layer①/②/③ 信号。
 
     Args:
         trade_date: 目标 trade_date YYYYMMDD
         out_dir: 产物目录（默认 outputs/replay）；None 时不落盘
+        cache: 预加载输入（区间重放避免重复读盘）：{"master", "combined", "metrics_df"}
 
     Returns:
         historical_signals DataFrame（SIGNAL_COLUMNS）
@@ -243,8 +254,11 @@ def replay_single_date(
     logger.info("REPLAY single date: %s", trade_date)
     logger.info("=" * 60)
 
-    l1, rotation_df, account_df = _replay_layer1(trade_date, logger)
-    l2, confirmation_df = _replay_layer2(trade_date, logger)
+    master = (cache or {}).get("master")
+    combined = (cache or {}).get("combined")
+    metrics_df = (cache or {}).get("metrics_df")
+    l1, rotation_df, account_df = _replay_layer1(trade_date, logger, master=master, combined=combined)
+    l2, confirmation_df = _replay_layer2(trade_date, logger, metrics_df=metrics_df)
 
     l3 = sch.empty_frame()
     if not rotation_df.empty:
@@ -268,6 +282,32 @@ def replay_single_date(
         logger.info("replay saved: %d rows -> %s", len(df), path)
     logger.info("replay complete: %s | %d rows", trade_date, len(df))
     return df
+
+
+# ── 区间重放共享输入 ───────────────────────────────────────────────
+
+def build_replay_cache() -> dict[str, Any]:
+    """预加载单日期重放所需的原始输入（区间重放复用，避免逐日读盘）。"""
+    master = _load_master()
+    combined = _load_all_etf_raw(master)
+    combined["date"] = pd.to_datetime(combined["date"], errors="coerce")
+    metrics_df = sw_storage.load_metrics(sw_industry_processed_dir())
+    return {"master": master, "combined": combined, "metrics_df": metrics_df}
+
+
+def replay_calendar(
+    cache: dict[str, Any],
+    start_date: str,
+    end_date: str,
+) -> list[str]:
+    """区间内重放日历：以 ETF 行情实际交易日为准（∩ 目标区间，升序）。"""
+    combined = cache.get("combined", pd.DataFrame())
+    if combined.empty:
+        return []
+    dates = pd.to_datetime(combined["date"]).dropna()
+    s, e = pd.Timestamp(start_date), pd.Timestamp(end_date)
+    days = sorted({d for d in dates if s <= d <= e})
+    return [d.strftime("%Y%m%d") for d in days]
 
 
 def _num(v: Any) -> float | None:

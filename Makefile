@@ -10,7 +10,7 @@ SRC_MAIN = src/main.py
 	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-report sw-rps-confirm \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown \
 	select select-inputs select-offline \
-	replay-single replay-parity \
+	replay-single replay-parity replay-range \
 	test install clean
 
 help: ## 显示帮助信息
@@ -125,12 +125,18 @@ select-offline: ## Layer ③ 交易候选（强制离线，仅读缓存/产物�
 # ── v0.5 Historical Replay ───────────────────────────────────────
 
 DATE ?= 20260803
+START ?=
+END ?=
+LAYERS ?= 123
 
 replay-single: ## [v0.5] 单日期历史信号重放（纯离线；DATE=YYYYMMDD）
 	$(PYTHON) $(SRC_MAIN) research replay single --date $(DATE)
 
 replay-parity: ## [v0.5] 单日期重放 + 与正式产物 parity 校验（DATE=YYYYMMDD）
 	$(PYTHON) $(SRC_MAIN) research replay parity --date $(DATE)
+
+replay-range: ## [v0.5] 区间历史信号重放（START/END=YYYYMMDD, LAYERS=123|12）
+	$(PYTHON) $(SRC_MAIN) research replay range --start $(START) --end $(END) --layers $(LAYERS)
 
 # ── 开发维护 ──────────────────────────────────────────────────
 
