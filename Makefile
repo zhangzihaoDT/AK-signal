@@ -10,7 +10,8 @@ SRC_MAIN = src/main.py
 	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-report sw-rps-confirm \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown \
 	select select-inputs select-offline \
-	replay-single replay-parity replay-range event-study backtest-trades backtest-sensitivity \
+	replay-single replay-parity replay-range event-study \
+	backtest-trades backtest-sensitivity backtest-matrix backtest-portfolio \
 	test install clean
 
 help: ## 显示帮助信息
@@ -149,6 +150,12 @@ backtest-trades: ## [v0.5.2] 交易层逐笔模拟（THEME=主题, EXIT=退出�
 
 backtest-sensitivity: ## [v0.5.2] 退出规则稳健性（固定/MA/分年/分ETF/成本扫描）
 	$(PYTHON) $(SRC_MAIN) backtest sensitivity --signals $(SIGNALS) --theme $(THEME) --entity-type etf
+
+backtest-matrix: ## [v0.5.2] 四组对比矩阵（configured vs theme-matched）
+	$(PYTHON) $(SRC_MAIN) backtest matrix --signals $(SIGNALS)
+
+backtest-portfolio: ## [v0.6] 共享账户组合模拟（单策略 + Core+Quality）
+	$(PYTHON) $(SRC_MAIN) backtest portfolio --signals $(SIGNALS)
 
 # ── 开发维护 ──────────────────────────────────────────────────
 

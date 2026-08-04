@@ -21,6 +21,7 @@ from src.common.paths import outputs_dir
 from . import trades as bt_trades
 from . import metrics as bt_metrics
 from . import sensitivity as bt_sensitivity
+from . import matrix as bt_matrix
 
 
 def _out_dir() -> Path:
@@ -123,6 +124,26 @@ def cmd_sensitivity(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_matrix(args: argparse.Namespace) -> int:
+    signals, label = _load_signals(args.signals)
+    out_dir = _out_dir()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    matrix = bt_matrix.build_matrix(out_dir, label)
+    json_path = out_dir / f"matrix_{label}.json"
+    json_path.write_text(json.dumps(matrix, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    html_path = bt_matrix.render_matrix_html(matrix, out_dir, label)
+    print(f"matrix: {len(matrix['groups'])} groups (label={label})")
+    for g in matrix["groups"]:
+        if g.get("missing"):
+            print(f"  {g['name']}: 缺 sensitivity 报告")
+        else:
+            f = g["fixed_20"]
+            print(f"  {g['name']:<24} n={f.get('n', 0):>4} mean={_pct_pct(f.get('mean_ret'))} "
+                  f"win={_pct_fraction(f.get('win_rate'))} top5={_pct_fraction(g.get('top5_share'))}")
+    print(f"  html: {html_path}")
+    return 0
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="v0.5.2 Trade-level Backtest")
     sub = p.add_subparsers(dest="command")
@@ -155,6 +176,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_sens.add_argument("--ma-windows", default="10,20,30,60", help="MA 窗口扫描")
     p_sens.add_argument("--costs", default="0,5,10,20", help="成本扫描（bp）")
     p_sens.add_argument("--log-level", default="INFO")
+
+    p_matrix = sub.add_parser("matrix", help="四组对比矩阵（configured vs theme-matched × AI/HC）")
+    p_matrix.add_argument("--signals", default="", help="historical_signals parquet 路径（决定 label）")
+    p_matrix.add_argument("--log-level", default="INFO")
+
+    p_port = sub.add_parser("portfolio", help="v0.6 共享账户组合模拟（单策略 + Core+Quality）")
+    p_port.add_argument("--signals", default="", help="historical_signals parquet 路径")
+    p_port.add_argument("--config", default="", help="策略配置 yaml（默认 config/strategies.yaml）")
+    p_port.add_argument("--initial-capital", type=float, default=1_000_000.0)
+    p_port.add_argument("--max-positions", type=int, default=5)
+    p_port.add_argument("--max-weight", type=float, default=0.20)
+    p_port.add_argument("--fee", type=float, default=0.05, help="手续费 %（单边）")
+    p_port.add_argument("--slippage", type=float, default=0.05, help="滑点 %（单边）")
+    p_port.add_argument("--modes", default="A,B", help="综合组合资金模式（A/B）")
+    p_port.add_argument("--log-level", default="INFO")
     return p
 
 
@@ -165,5 +201,10 @@ def main() -> None:
         sys.exit(cmd_trades(args))
     elif command == "sensitivity":
         sys.exit(cmd_sensitivity(args))
+    elif command == "matrix":
+        sys.exit(cmd_matrix(args))
+    elif command == "portfolio":
+        from .portfolio.cli import cmd_portfolio
+        sys.exit(cmd_portfolio(args))
     else:
         sys.exit(cmd_trades(args))

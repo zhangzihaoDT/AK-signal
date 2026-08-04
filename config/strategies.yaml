@@ -1,0 +1,32 @@
+# v0.6 主题级策略配置
+#
+# 架构结论：策略规则按主题配置，不共用全局 EntryPolicy / ExitPolicy。
+# v0.5.2 四组矩阵证明：AI 用 fixed_20/MA20，HC 只用 fixed_20（MA 不适合）。
+#
+# weight 用于 Core+Quality 综合组合 Mode B（AI 60% / HC 40%）；
+# Mode A（全组合统一等权）忽略 weight，全部按 1/max_positions 分配。
+
+strategies:
+  ai_20:
+    label: AI-20
+    theme: ai_infrastructure
+    universe_mode: configured
+    exit_policy: fixed_horizon
+    horizon: 20
+    weight: 0.6        # Mode B 的 AI 权重
+
+  ai_ma:
+    label: AI-MA
+    theme: ai_infrastructure
+    universe_mode: configured
+    exit_policy: ma_exit
+    ma_window: 20
+    weight: 0.6        # 对照实验（不进综合组合主策略）
+
+  hc_20:
+    label: HC-20
+    theme: high_cashflow
+    universe_mode: configured
+    exit_policy: fixed_horizon
+    horizon: 20
+    weight: 0.4        # Mode B 的 HC 权重

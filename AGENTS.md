@@ -101,6 +101,8 @@ make replay-range     # v0.5 区间重放（START/END=YYYYMMDD, LAYERS=123|12）
 make event-study      # v0.5.1 事件研究（SIGNALS=信号parquet）
 make backtest-trades  # v0.5.2 交易层逐笔模拟（THEME=主题, EXIT=退出策略）
 make backtest-sensitivity  # v0.5.2 退出规则稳健性扫描
+make backtest-matrix  # v0.5.2 四组对比矩阵
+make backtest-portfolio  # v0.6 共享账户组合模拟
 make test             # 全部测试
 ```
 
@@ -163,3 +165,21 @@ make test             # 全部测试
   - 固定资产池捕获大部分信号（AI 池 2.69% vs 全市场 3.23%；HC 池内外接近），但 ETF 贡献高度集中（AI 91% / HC 98%），幸存者偏差风险高
   - HC 的 fixed_20 显著优于 ma20（2.0% vs 0.2-0.4%）；AI 两者接近（ma20 PF 略高）
 - 命令：`python src/main.py backtest trades|sensitivity --signals <parquet> --theme ai_infrastructure --entity-type etf [--universe-mode configured|theme-matched]`
+
+## v0.6 Portfolio & Risk（src/backtest/portfolio/）
+
+- **定位**：共享现金账户模拟（第一轮）——initial_capital / max_positions / equal-weight / max_weight_per_asset / no_leverage / no_pyramiding / next_open / fee+slippage；不做 ATR
+- **主题级策略配置**：`config/strategies.yaml`（策略规则按主题配置，不共用全局 Entry/Exit）——AI 主策略 fixed_20（MA20 作对照）、HC 主策略 fixed_20
+- **账户模型**：`PortfolioAccount`（先卖后买、现金约束、每日收盘盯市、SVG 净值曲线）
+- **第一轮五条净值线**：AI-20 / AI-MA / HC-20 / Core+Quality-A（统一等权）/ Core+Quality-B（AI60%+HC40%）
+- **实盘（2024-01..2026-05，1M 初始，max 5 仓，5bp 费+5bp 滑点单边）**：
+  | 组合 | 成交 | 总收益 | 最大回撤 | Sharpe |
+  |---|---|---|---|---|
+  | AI-20 | 121 | +21.5% | -13.3% | 1.22 |
+  | AI-MA | 146 | +35.5% | -13.5% | 1.49 |
+  | HC-20 | 52 | +7.3% | **-3.9%** | **2.47** |
+  | Core+Quality-A | 173 | **+41.4%** | -17.6% | 1.35 |
+  | Core+Quality-B | 173 | +23.0% | **-11.2%** | 1.18 |
+  - HC-20 风险调整最优（Sharpe 2.47、回撤最小）；AI-MA 在共享账户因再投资复利总收益高于 AI-20（对照实验保留）
+  - Core+Quality-A 总收益最高但回撤最大（AI 权重高）；Mode B（60/40）以更平滑换取更低收益
+- 命令：`python src/main.py backtest portfolio --signals <parquet> [--modes A,B] [--fee 0.05 --slippage 0.05]`
