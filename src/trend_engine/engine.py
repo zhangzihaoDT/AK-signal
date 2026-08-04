@@ -407,6 +407,7 @@ def analyze_asset(
     prev_score_by_symbol: dict[str, int],
     prev_available: bool,
     report_date: date,
+    persist_processed: bool = True,
 ) -> dict[str, object]:
     df_ind = indicators.add_indicators(df_raw)
     df_ind["date"] = pd.to_datetime(df_ind["date"], errors="coerce").astype("datetime64[ns]")
@@ -420,9 +421,10 @@ def analyze_asset(
     else:
         df_ind["relative_strength_20d"] = pd.NA
 
-    processed_dir.mkdir(parents=True, exist_ok=True)
-    processed_path = processed_dir / f"{asset.market}_{asset.symbol}.csv"
-    df_ind.to_csv(processed_path, index=False, encoding="utf-8")
+    if persist_processed:
+        processed_dir.mkdir(parents=True, exist_ok=True)
+        processed_path = processed_dir / f"{asset.market}_{asset.symbol}.csv"
+        df_ind.to_csv(processed_path, index=False, encoding="utf-8")
 
     score_value, details = scoring.score_latest_row(df_ind)
     label = scoring.score_trend_label(score_value)
@@ -503,6 +505,7 @@ def compute_trends(
     offline: bool = False,
     as_of_date: str = "",
     only_symbols: str = "",
+    persist_processed: bool = True,
     log_level: str = "INFO",
 ) -> pd.DataFrame:
     """对一组标的批量计算趋势评分。
@@ -512,6 +515,7 @@ def compute_trends(
                （selection.universe.UniverseItem 满足该鸭子类型）
         as_of_date: 把行情截断到该日期（YYYY-MM-DD / YYYYMMDD）再计算，
                     避免使用目标日期之后的盘中/最新数据（look-ahead）。
+        persist_processed: 是否写 data/processed/{market}_{symbol}.csv（Replay 传 False 避免副作用）。
 
     Returns:
         排序后的趋势 DataFrame（含 name/symbol/score_trend/watch_level/action 等）
@@ -617,6 +621,7 @@ def compute_trends(
                 asset=asset, note=note, data_source=data_source, df_raw=df_raw,
                 bench=bench, processed_dir=processed_dir,
                 prev_score_by_symbol={}, prev_available=False, report_date=report_date,
+                persist_processed=persist_processed,
             )
             rows.append(row)
         except Exception as e:

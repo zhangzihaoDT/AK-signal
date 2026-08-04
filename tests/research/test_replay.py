@@ -199,3 +199,78 @@ class TestRangeReplayIntegration:
             a = k1[c].astype(str).fillna("<NA>")
             b = k2[c].astype(str).fillna("<NA>")
             assert (a != b).sum() == 0, f"field {c} differs"
+
+    def test_resume_and_dedup_and_determinism(self, tmp_path):
+        """resume 跳过已完成日期；汇总无重复主键；重复执行结果一致。"""
+        cache = engine.build_replay_cache()
+        out_dir = tmp_path / "research"
+        df1 = replay_range.replay_range("20260731", "20260803", layers="123",
+                                        out_dir=out_dir, cache=cache, resume=True)
+        # 无重复主键
+        assert df1.duplicated(subset=replay_range.PRIMARY_KEY).sum() == 0
+        # 第二次执行：全部 skipped，结果一致（assert_frame_equal 将 NaN 视为相等）
+        df2 = replay_range.replay_range("20260731", "20260803", layers="123",
+                                        out_dir=out_dir, cache=cache, resume=True)
+        pd.testing.assert_frame_equal(df1.reset_index(drop=True), df2.reset_index(drop=True))
+        man = json.loads((out_dir / "replay_range_20260731_20260803_manifest.json").read_text(encoding="utf-8"))
+        assert set(man["date_status"].values()) == {"skipped"}
+        assert man["status_counts"]["skipped"] == 2
+        # 强制重放：全部 completed，结果仍一致
+        df3 = replay_range.replay_range("20260731", "20260803", layers="123",
+                                        out_dir=out_dir, cache=cache, resume=False)
+        man3 = json.loads((out_dir / "replay_range_20260731_20260803_manifest.json").read_text(encoding="utf-8"))
+        assert set(man3["date_status"].values()) == {"completed"}
+        pd.testing.assert_frame_equal(df3.reset_index(drop=True), df1.reset_index(drop=True))
+
+
+def _fake_signal_row(trade_date: str, code: str = "512480") -> dict:
+    row = {c: "" for c in schema.SIGNAL_COLUMNS}
+    row.update({
+        "trade_date": trade_date, "signal_origin": "replayed", "entity_type": "etf",
+        "entity_code": code, "layer": "1", "rps15": 90.0, "trend_state": "BUY_CANDIDATE",
+        "source_trade_date": trade_date, "data_status": "current",
+        "rule_version": "v0.4.3", "config_hash": "x",
+    })
+    return row
+
+
+class TestRangeFaultTolerance:
+    def _cache(self):
+        return {
+            "combined": pd.DataFrame({
+                "date": pd.to_datetime(["2026-08-03", "2026-08-04"]),
+                "fund_code": ["512480", "512480"], "close": [1.0, 1.0],
+            }),
+            "master": pd.DataFrame(), "metrics_df": pd.DataFrame(),
+        }
+
+    def test_failed_date_does_not_abort(self, monkeypatch, tmp_path):
+        def fake_single(d, **kw):
+            if d == "20260803":
+                raise RuntimeError("boom")
+            return pd.DataFrame([_fake_signal_row("20260804")])
+
+        monkeypatch.setattr(replay_range.replay_engine, "replay_single_date", fake_single)
+        out_dir = tmp_path / "research"
+        df = replay_range.replay_range("20260803", "20260804", layers="1",
+                                       out_dir=out_dir, cache=self._cache(), resume=False)
+        man = json.loads((out_dir / "replay_range_20260803_20260804_manifest.json").read_text(encoding="utf-8"))
+        assert man["status_counts"]["failed"] == 1
+        assert man["status_counts"]["completed"] == 1
+        assert set(man["date_status"].values()) == {"failed", "completed"}
+        assert len(df) == 1
+
+    def test_degraded_detection(self, monkeypatch, tmp_path):
+        def fake_single(d, **kw):
+            if d == "20260803":
+                return pd.DataFrame()  # 无层产出 → degraded
+            return pd.DataFrame([_fake_signal_row("20260804")])
+
+        monkeypatch.setattr(replay_range.replay_engine, "replay_single_date", fake_single)
+        out_dir = tmp_path / "research"
+        df = replay_range.replay_range("20260803", "20260804", layers="1",
+                                       out_dir=out_dir, cache=self._cache(), resume=False)
+        man = json.loads((out_dir / "replay_range_20260803_20260804_manifest.json").read_text(encoding="utf-8"))
+        assert man["status_counts"]["degraded"] == 1
+        assert man["status_counts"]["completed"] == 1
+        assert len(df) == 1

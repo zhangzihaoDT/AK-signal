@@ -198,7 +198,8 @@ def build_stock_metrics(
         items: universe 资产列表（内部只处理股票 tier）
         trade_date: 目标 trade_date YYYYMMDD（产物命名 + 行内 trade_date）
         offline: 仅用缓存（确定性，不联网）；False = 允许在线补数（轻量重试、无缓存记 missing）
-        persist: False 时只返回 DataFrame，不写 parquet（Replay 内存调用，避免覆盖正式产物）
+        persist: False 时只返回 DataFrame，不写 parquet，也不写 processed CSV（Replay 内存调用，
+                 避免覆盖正式产物与 data/processed/CN_*.csv）
     """
     from src.common.paths import processed_dir as common_processed_dir
 
@@ -212,6 +213,7 @@ def build_stock_metrics(
         stock,
         offline=offline,
         as_of_date=trade_date,
+        persist_processed=persist,
         log_level=log_level,
     ) if stock else pd.DataFrame()
 

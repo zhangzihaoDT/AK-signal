@@ -48,6 +48,7 @@ def cmd_range(args: argparse.Namespace) -> int:
     df = replay_range.replay_range(
         args.start, args.end,
         layers=args.layers, out_dir=_replay_dir(), log_level=args.log_level,
+        resume=not getattr(args, "no_resume", False),
     )
     return 0 if not df.empty else 1
 
@@ -65,6 +66,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_range.add_argument("--start", default="", help="起始 trade_date YYYYMMDD（必填）")
     p_range.add_argument("--end", default="", help="结束 trade_date YYYYMMDD（必填）")
     p_range.add_argument("--layers", default="123", help="参与层位（默认 123；12 跳过 Layer③ 慢路径）")
+    p_range.add_argument("--no-resume", action="store_true",
+                         help="忽略已完成日期，全部重放（默认 resume：相同 rule_version+config_hash 跳过）")
     p_range.add_argument("--log-level", default="INFO")
     return p
 
