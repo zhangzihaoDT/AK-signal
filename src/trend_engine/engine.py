@@ -33,12 +33,11 @@ from . import scoring
 
 def build_logger(level: str) -> logging.Logger:
     logger = logging.getLogger("trend_engine")
-    if logger.handlers:
-        return logger
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        logger.addHandler(handler)
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-    logger.addHandler(handler)
     return logger
 
 
@@ -355,8 +354,9 @@ def load_or_fetch_daily(
     eff_max_retries = int(max_retries)
     eff_retry_sleep_base = float(retry_sleep_base)
     if asset.market == "CN" and eff_max_retries == 3 and abs(eff_retry_sleep_base - 1.0) < 1e-9:
-        eff_max_retries = 5
-        eff_retry_sleep_base = 2.0
+        # 日频补数模式：轻量重试（初试 + 1 次重试），不再 5 次 × 多源串行
+        eff_max_retries = 2
+        eff_retry_sleep_base = 1.0
 
     retries = max(1, eff_max_retries)
     cn_sources = ["em", "sina", "tx"]
@@ -501,6 +501,7 @@ def compute_trends(
     refresh_all: bool = False,
     refresh_missing: bool = False,
     offline: bool = False,
+    as_of_date: str = "",
     only_symbols: str = "",
     log_level: str = "INFO",
 ) -> pd.DataFrame:
@@ -509,6 +510,8 @@ def compute_trends(
     Args:
         items: 每项需具备 `asset`（Asset）、`note`、`update_policy` 属性
                （selection.universe.UniverseItem 满足该鸭子类型）
+        as_of_date: 把行情截断到该日期（YYYY-MM-DD / YYYYMMDD）再计算，
+                    避免使用目标日期之后的盘中/最新数据（look-ahead）。
 
     Returns:
         排序后的趋势 DataFrame（含 name/symbol/score_trend/watch_level/action 等）
@@ -545,7 +548,8 @@ def compute_trends(
     eff_end_date = end_date or "22220101"
     fetch_cfg = fetch_data.FetchConfig(start_date=start_date, end_date=eff_end_date, adjust=adjust)
 
-    bench_raw = fetch_data.load_or_fetch_hs300(raw_dir=raw_dir, cfg=fetch_cfg, logger=logger, force=force)
+    bench_raw = fetch_data.load_or_fetch_hs300(raw_dir=raw_dir, cfg=fetch_cfg, logger=logger,
+                                               force=force, offline=offline)
     bench = bench_raw[["date", "close"]].rename(columns={"close": "bench_close"}).copy() if not bench_raw.empty else pd.DataFrame()
     if not bench.empty:
         bench["date"] = pd.to_datetime(bench["date"], errors="coerce").astype("datetime64[ns]")
@@ -590,6 +594,14 @@ def compute_trends(
                     start_date=start_date, end_date=eff_end_date,
                 )
 
+            if as_of_date:
+                # 截断到目标日期，避免使用目标日期之后的最新/盘中数据
+                cutoff = pd.to_datetime(as_of_date)
+                dts = pd.to_datetime(df_raw["date"], errors="coerce")
+                df_raw = df_raw[dts <= cutoff].copy()
+                if df_raw.empty:
+                    raise RuntimeError(f"no data as of {as_of_date} for {asset.market}_{asset.symbol}")
+
             try:
                 latest_data_date = pd.to_datetime(df_raw["date"], errors="coerce").dropna().max()
                 latest_date = latest_data_date.date() if latest_data_date is not None and pd.notna(latest_data_date) else None
@@ -622,10 +634,12 @@ def compute_trends(
                 "relative_strength_20d": None, "risk_flags": "", "reason": str(e), "note": note,
             })
 
-        if asset.market == "CN":
-            time.sleep(random.uniform(2.0, 4.0))
-        else:
-            time.sleep(random.uniform(0.5, 2.0))
+        if not offline:
+            # 在线补数才需要限速；离线读缓存无需等待
+            if asset.market == "CN":
+                time.sleep(random.uniform(0.5, 1.0))
+            else:
+                time.sleep(random.uniform(0.2, 0.5))
 
     save_asset_state(state_df, state_path)
     return sort_summary_df(pd.DataFrame(rows))

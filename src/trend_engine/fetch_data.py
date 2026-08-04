@@ -42,6 +42,7 @@ def load_or_fetch_hs300(
     cfg: FetchConfig,
     logger: logging.Logger,
     force: bool = False,
+    offline: bool = False,
 ) -> pd.DataFrame:
     raw_dir.mkdir(parents=True, exist_ok=True)
     raw_path = raw_dir / "_benchmark_sh000300.csv"
@@ -53,6 +54,11 @@ def load_or_fetch_hs300(
                 return df.sort_values("date").reset_index(drop=True)
         except Exception as e:
             logger.warning("failed reading cached raw %s: %s", raw_path, e)
+
+    if offline:
+        # 离线模式：无基准缓存时不联网获取，relative_strength_20d 记为缺失
+        logger.warning("offline: no cached hs300 benchmark, skipping fetch")
+        return pd.DataFrame()
 
     try:
         df = fetch_hs300_daily(cfg)

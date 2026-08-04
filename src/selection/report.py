@@ -75,6 +75,13 @@ def _final_state_label(state: str) -> str:
     return {"RECOMMENDED": "今日候选", "QUALIFIED": "合格观察", "WATCH": "核心监控"}.get(state, state)
 
 
+def _monitor_state_label(a: dict[str, Any]) -> str:
+    """固定观察池的最终状态展示；趋势数据缺失 → 数据缺失。"""
+    if a.get("selection_status") == "unavailable":
+        return "数据缺失"
+    return _final_state_label(str(a.get("state", "")))
+
+
 def _trend_qualified_label(score: Any, trend_status: Any) -> str:
     """趋势资格：趋势分≥70 且 watch_level∈{S,A} 视为达标。"""
     try:
@@ -136,6 +143,17 @@ def render_selection_html(
             f"<div class='align-line'>信号对齐：<b>{align_txt}</b>{lag_txt} · selection_date={alignment.get('selection_date', '')}"
             f" · Layer① ETF {le.get('trade_date', '—')}/{le.get('data_status', '—')}"
             f" · Layer② 行业 {ls.get('trade_date', '—')}/{ls.get('data_status', '—')}</div>")
+
+    # Selection 输入覆盖：ETF 复用 Layer① / 个股趋势产物 / 缺失降级
+    coverage = (meta or {}).get("coverage", {})
+    if coverage:
+        degraded = coverage.get("degraded_assets") or []
+        cov_txt = (f"Selection coverage：<b>{coverage.get('selection_coverage', '—')}</b>"
+                   f"（{coverage.get('selection_coverage_pct', '—')}% · ETF 复用 {coverage.get('etf_reused', '—')}"
+                   f" · 个股输入 {coverage.get('stock_inputs_loaded', '—')} · Online fetch {coverage.get('online_fetches', 0)}）")
+        if degraded:
+            cov_txt += f"<br><small style='color:#C62828'>缺失/不可用 {len(degraded)}：{'、'.join(degraded)}</small>"
+        parts.append(f"<div class='align-line'>{cov_txt}</div>")
 
     # 配置降级提示：未注册 theme / 跨主题资产（不参与确认门控，仅作状态标记）
     config_issues = (meta or {}).get("config_issues") or {}
@@ -284,7 +302,7 @@ def render_selection_html(
                 f"<tr><td>{a.get('name', '')}</td><td>{a.get('_tier', '')}</td><td>{a.get('theme', '')}</td>"
                 f"<td class='num'>{_num(a.get('score_trend'))}</td><td>{a.get('trend_status', '')}</td>"
                 f"<td class='num'>{sc_txt}</td><td>{_trend_qualified_label(a.get('score_trend'), a.get('trend_status'))}</td>"
-                f"<td>{risk_txt}</td><td>{_final_state_label(a.get('state', ''))}</td>"
+                f"<td>{risk_txt}</td><td>{_monitor_state_label(a)}</td>"
                 f"<td>{a.get('state_change', '')}</td><td class='num'>{a.get('days_in_state', '')}d</td>"
                 f"<td>{a.get('last_trend_qualified_date', '')}</td></tr>")
         parts.append("</table>")

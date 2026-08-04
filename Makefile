@@ -3,13 +3,13 @@ SRC_MAIN = src/main.py
 
 .DEFAULT_GOAL = help
 
-.PHONY: help run-day \
+.PHONY: help run-day run-day-check \
 	etf-bootstrap etf-bootstrap-core etf-update etf-calculate \
 	etf-classify etf-layer1 etf-watchlist etf-account etf-account-blacklist etf-card etf-pipeline \
 	etf-retry-uncovered \
 	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-report sw-rps-confirm \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown \
-	select select-offline test install clean
+	select select-inputs select-offline test install clean
 
 help: ## 显示帮助信息
 	@grep -E '^[-a-zA-Z_0-9]+:.*## ' $(MAKEFILE_LIST) | sort | \
@@ -22,7 +22,7 @@ etf-retry-uncovered: ## 专项重试未覆盖 ETF（分批+熔断器重置）
 
 # ── 每日市场扫描（唯一入口） ──────────────────────────────────────
 
-run-day: ## 每日 ETF 全市场信号 + SW-RPS 行业信号
+run-day: ## 每日全流程：ETF 信号 → SW-RPS 信号 → 个股趋势输入 → Layer③ 候选 → Final Validation
 	$(MAKE) etf-update
 	$(MAKE) sw-rps-update
 	$(MAKE) etf-calculate
@@ -30,6 +30,12 @@ run-day: ## 每日 ETF 全市场信号 + SW-RPS 行业信号
 	$(MAKE) etf-pipeline
 	$(MAKE) sw-rps-report
 	$(MAKE) sw-rps-confirm
+	$(MAKE) select-inputs
+	$(MAKE) select
+	$(MAKE) run-day-check
+
+run-day-check: ## [Final Validation] 校验 run-day 各层产物并输出最终结果
+	$(PYTHON) $(SRC_MAIN) final-check
 
 # ── ETF 全市场扫描（主系统） ────────────────────────────────────
 
@@ -105,10 +111,13 @@ sw-rps-confirm: ## [Layer ②] 主题确认（Theme Confirmation：行业证据�
 
 # ── Layer ③ 交易标的筛选（selection 内部调用 trend_engine） ──────
 
-select: ## Layer ③ 交易标的筛选（读 Layer①/② + trend_engine → 候选对象 JSON + HTML）
+select-inputs: ## 构建个股趋势输入产物（离线读缓存，确定性；--allow-online-fetch 可手工补数）
+	$(PYTHON) $(SRC_MAIN) select inputs
+
+select: ## Layer ③ 交易标的筛选（读 Layer①/② + 预计算个股趋势 → 候选对象 JSON + HTML；run-day 默认流程亦含，默认禁止联网）
 	$(PYTHON) $(SRC_MAIN) select run
 
-select-offline: ## Layer ③ 交易候选（仅用缓存行情，不联网）
+select-offline: ## Layer ③ 交易候选（强制离线，仅读缓存/产物）
 	$(PYTHON) $(SRC_MAIN) select run --offline
 
 # ── 开发维护 ──────────────────────────────────────────────────

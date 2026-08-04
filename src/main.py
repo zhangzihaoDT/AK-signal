@@ -8,6 +8,7 @@ AKSignal 顶层命令路由
 用法：
   python src/main.py                        → Layer ③ 交易候选（默认）
   python src/main.py select [run]           → Layer ③ 交易候选
+  python src/main.py final-check            → run-day 末端 Final Validation
   python src/main.py industry <command>     → 申万行业 RPS（Layer ② 确认）
   python src/main.py etf <command>          → ETF 趋势信号（Layer ①）
   python src/main.py run-day                → 申万行业 RPS run-day（向后兼容）
@@ -65,6 +66,12 @@ def main() -> None:
             from src.selection.cli import main as selection_main
             sys.argv = [sys.argv[0], *argv[1:]]
             selection_main()
+            return
+
+        if cmd in ("final-check", "run-day-check"):
+            from src.final_validation.cli import main as fv_main
+            sys.argv = [sys.argv[0], *argv[1:]]
+            fv_main()
             return
 
     # 无命令时默认走 Layer ③（原 stock_trend 已并入 trend_engine，不再有独立入口）

@@ -114,6 +114,8 @@ class AssetCandidate:
     tradable: bool = True
     recommended: bool = True
     state: str = STOCK_STATE_WATCH
+    data_status: str = "current"          # current / stale / missing（来自个股趋势产物）
+    selection_status: str = "available"   # available / unavailable（missing → unavailable）
     # 变化跟踪（固定观察池监控用）
     score_change_1d: int | None = None
     state_change: str = ""
@@ -412,6 +414,8 @@ def select_stock_watchlist(
 
     每个标的状态由 _stock_state 判定（WATCH / QUALIFIED / RECOMMENDED），
     降级与风险警戒同样保留，用于监控状态变化。
+    趋势数据缺失（data_status=missing）的标的标记 selection_status=unavailable，
+    不进入任何候选（不阻塞整体 Selection）。
 
     Returns:
         (leaders, high_beta, equipment)
@@ -440,6 +444,29 @@ def select_stock_watchlist(
             v = trend_row.get(col)
             return default if v is None or (isinstance(v, float) and pd.isna(v)) else v
 
+        data_status = str(_tv("data_status", "current"))
+        if trend_row is None or data_status == "missing":
+            # 局部降级：该资产无可用趋势数据，明确标记 unavailable，不阻塞整体
+            cand = AssetCandidate(
+                code=item.asset.symbol,
+                name=item.asset.name,
+                role=role,
+                asset_type="stock",
+                bucket=item.bucket,
+                theme=theme,
+                score_trend=None,
+                trend_status="UNKNOWN",
+                tradable=True,
+                recommended=False,
+                state=STOCK_STATE_WATCH,
+                data_status=data_status if trend_row is not None else "missing",
+                selection_status="unavailable",
+                risk_gate_passed=False,
+                reason="stock_trend_input_missing",
+            )
+            _append_by_role(cand, role, leaders, high_beta, equipment)
+            continue
+
         watch_level = str(_tv("watch_level", ""))
         action_txt = str(_tv("action", ""))
         score_trend = _round(_tv("score_trend"))
@@ -461,6 +488,8 @@ def select_stock_watchlist(
             tradable=True,  # 黑名单机制：未确认不可交易即默认可交易
             recommended=state == STOCK_STATE_RECOMMENDED,
             state=state,
+            data_status=data_status,
+            selection_status="available",
             score_change_1d=change["score_change_1d"],
             state_change=change["state_change"],
             days_in_state=change["days_in_state"],
@@ -469,14 +498,24 @@ def select_stock_watchlist(
             risk_flags=risk_flags,
             reason=action_txt,
         )
-        if role == "LEADER":
-            leaders.append(cand)
-        elif role == "HIGH_BETA":
-            high_beta.append(cand)
-        else:
-            equipment.append(cand)
+        _append_by_role(cand, role, leaders, high_beta, equipment)
 
     return leaders, high_beta, equipment
+
+
+def _append_by_role(
+    cand: AssetCandidate,
+    role: str,
+    leaders: list[AssetCandidate],
+    high_beta: list[AssetCandidate],
+    equipment: list[AssetCandidate],
+) -> None:
+    if role == "LEADER":
+        leaders.append(cand)
+    elif role == "HIGH_BETA":
+        high_beta.append(cand)
+    else:
+        equipment.append(cand)
 
 
 # ── 4. 表达方式决策 ────────────────────────────────────────────────

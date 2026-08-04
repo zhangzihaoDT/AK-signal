@@ -47,6 +47,7 @@ class DrilldownResult:
     contribution_structure: str       # single_core | leader_concentrated | multi_leader | distributed
     breadth_structure: str            # broad | moderate | narrow | divergent
     top_contributors: list[ContributionRow] = field(default_factory=list)
+    fetch_failures: int = 0           # 多源抓取全部失败的成分股数（不阻塞结果，仅记警告）
 
 
 logger = logging.getLogger("sw_industry_rps.contribution")
@@ -171,6 +172,7 @@ def compute_drilldown(
     # 尝试从缓存加载 legulegu 数据（在 has_leg_return 为 True 时）
     cache_date = breakout_date
     rows: list[ContributionRow] = []
+    fetch_failures = 0
     for _, row in constituents_sorted.iterrows():
         raw_code = row["股票代码"]
         symbol = raw_code.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
@@ -218,6 +220,7 @@ def compute_drilldown(
         # 回退：多源获取（em → sina → tx + 节流 + 退避），成功后落盘
         df = fetch_cn_daily(symbol, start_str, end_str)
         if df is None or df.empty:
+            fetch_failures += 1
             continue
         stock_ret = compute_return(df["close"], window)
         if stock_ret is None:
@@ -244,6 +247,7 @@ def compute_drilldown(
             num_negative=0, participation_rate=0, hhi=0,
             top1_weight=0, top1_share=0, top3_share=0,
             contribution_structure="数据不足", breadth_structure="",
+            fetch_failures=fetch_failures,
         )
 
     # Top1 权重股门控：如果核心股票未获取，不进行贡献分类
@@ -260,6 +264,7 @@ def compute_drilldown(
             num_negative=0, participation_rate=0, hhi=0,
             top1_weight=0, top1_share=0, top3_share=0,
             contribution_structure="数据不足", breadth_structure="",
+            fetch_failures=fetch_failures,
         )
 
     rows.sort(key=lambda r: abs(r.contribution_pct), reverse=True)
@@ -343,4 +348,5 @@ def compute_drilldown(
         contribution_structure=contrib_struct,
         breadth_structure=breadth_struct,
         top_contributors=rows[:10],
+        fetch_failures=fetch_failures,
     )

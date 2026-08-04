@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -147,6 +148,74 @@ def _load_parquet_for_date(directory: Path, pattern: str, date_str: str) -> pd.D
         return pd.DataFrame()
 
 
+def _load_stock_metrics_input(
+    sel_date: str,
+    use_exact: bool,
+    requested_td: str | None,
+) -> tuple[pd.DataFrame, str | None]:
+    """加载个股趋势产物 stock_metrics_{trade_date}.parquet。
+
+    精确模式：只认 selection_date 对应的文件；
+    非精确模式：取最新文件（与 selection_date 的滞后在调用方记录）。
+    均不联网、不降级到其他日期构造数据。
+    """
+    from src.trend_engine import inputs as trend_inputs
+
+    if use_exact:
+        df = trend_inputs.load_stock_metrics(requested_td or sel_date)
+        return df, (requested_td or sel_date) if not df.empty else None
+    td = trend_inputs.latest_stock_metrics_trade_date()
+    if not td:
+        return pd.DataFrame(), None
+    return trend_inputs.load_stock_metrics(td), td
+
+
+def _missing_trend_row(item: Any) -> dict[str, Any]:
+    """构造一条 data_status=missing 的趋势行（局部降级占位）。"""
+    return {
+        "symbol": item.asset.symbol,
+        "name": item.asset.name,
+        "market": item.asset.market,
+        "close": None,
+        "score_trend": 0,
+        "score": 0,
+        "watch_level": "",
+        "action": "",
+        "risk_flags": "",
+        "data_status": "missing",
+        "source": "",
+    }
+
+
+def _ensure_stock_trend_df(
+    stock_items: list[Any],
+    metrics_df: pd.DataFrame,
+    sel_date: str,
+) -> pd.DataFrame:
+    """保证每个股票资产都有一行趋势数据；缺失的资产补 data_status=missing 占位。"""
+    if stock_items and metrics_df.empty:
+        return pd.DataFrame([_missing_trend_row(it) for it in stock_items])
+
+    rows: list[dict[str, Any]] = []
+    for it in stock_items:
+        symbol = it.asset.symbol
+        if not metrics_df.empty and "symbol" in metrics_df.columns:
+            m = metrics_df[metrics_df["symbol"].astype(str) == symbol]
+            if not m.empty:
+                rows.append(m.iloc[0].to_dict())
+                continue
+        rows.append(_missing_trend_row(it))
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    for c in ("symbol", "name", "market", "data_status"):
+        if c not in df.columns:
+            df[c] = ""
+    df["symbol"] = df["symbol"].astype(str)
+    df["data_status"] = df["data_status"].astype(str).str.strip().fillna("missing")
+    return df.reset_index(drop=True)
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     logger = build_logger(args.log_level)
     logger.info("=" * 60)
@@ -231,14 +300,69 @@ def cmd_run(args: argparse.Namespace) -> None:
         return
 
     trend_df = pd.DataFrame()
+    _sel_t0 = time.monotonic()
     if universe_items:
-        from src.trend_engine.engine import compute_trends
-        trend_df = compute_trends(
-            universe_items,
-            offline=getattr(args, "offline", False),
-            log_level=args.log_level,
+        from src.trend_engine import inputs as trend_inputs
+        stock_items = trend_inputs.stock_items(universe_items)
+        etf_items = [it for it in universe_items if not trend_inputs.is_stock_item(it)]
+
+        # ── 输入：个股趋势（读取预计算产物 selection_inputs，不联网） ──
+        # Layer③ 只消费已落盘的 stock_metrics_{trade_date}.parquet；
+        # 缺少输入时不自动重试，按 missing 局部降级（不阻塞整体）。
+        allow_online = getattr(args, "allow_online_fetch", False)
+        online_fetches = 0
+        stock_metrics_df, metrics_td = _load_stock_metrics_input(sel_date, use_exact, requested_td)
+        if stock_metrics_df.empty:
+            if allow_online:
+                logger.warning("stock trend inputs missing for %s — building online (--allow-online-fetch)", sel_date)
+                trend_inputs.build_stock_metrics(
+                    stock_items, trade_date=sel_date, offline=False, log_level=args.log_level)
+                stock_metrics_df, metrics_td = trend_inputs.load_stock_metrics(sel_date), sel_date
+                online_fetches = 1
+            else:
+                logger.warning("stock trend inputs missing for %s — 全部个股标记 unavailable（run `make select-inputs` 或 `--allow-online-fetch`）",
+                               sel_date)
+        if metrics_td and metrics_td != sel_date:
+            lag = _business_days_between(metrics_td, sel_date)
+            logger.warning("stock trend input 滞后: input_trade_date=%s selection_date=%s lag_days=%s",
+                           metrics_td, sel_date, lag)
+        trend_df = _ensure_stock_trend_df(stock_items, stock_metrics_df, sel_date)
+
+        # ── 覆盖率报告：ETF 复用 Layer① / 个股趋势输入 / 缺失降级 ──
+        etf_codes = set(rotation_df["fund_code"].astype(str)) if not rotation_df.empty else set()
+        etf_covered = sum(1 for it in etf_items if it.asset.symbol in etf_codes)
+        loaded_syms = set(trend_df.loc[trend_df["data_status"] != "missing", "symbol"].astype(str))
+        stock_loaded = sum(1 for it in stock_items if it.asset.symbol in loaded_syms)
+        degraded_assets = sorted(
+            [it.asset.symbol for it in stock_items if it.asset.symbol not in loaded_syms]
+            + [it.asset.symbol for it in etf_items if it.asset.symbol not in etf_codes]
         )
-        logger.info("trend engine: %d assets analyzed", len(trend_df))
+        coverage = {
+            "etf_reused": f"{etf_covered}/{len(etf_items)}",
+            "stock_inputs_loaded": f"{stock_loaded}/{len(stock_items)}",
+            "selection_coverage": f"{etf_covered + stock_loaded}/{len(universe_items)}",
+            "selection_coverage_pct": round((etf_covered + stock_loaded) / len(universe_items) * 100, 1)
+            if universe_items else 0.0,
+            "degraded_assets": degraded_assets,
+            "stock_input_trade_date": metrics_td,
+            "online_fetches": online_fetches,
+        }
+        elapsed = time.monotonic() - _sel_t0
+        logger.info("Layer① ETF metrics reused: %s", coverage["etf_reused"])
+        logger.info("Stock trend inputs loaded: %s", coverage["stock_inputs_loaded"])
+        logger.info("Selection coverage: %s", coverage["selection_coverage"])
+        logger.info("Online fetches: %d", online_fetches)
+        if degraded_assets:
+            logger.warning("degraded assets (%d): %s", len(degraded_assets), ", ".join(degraded_assets))
+        logger.info("Selection completed in %.1fs", elapsed)
+    else:
+        stock_items = []
+        etf_items = []
+        coverage = {
+            "etf_reused": "0/0", "stock_inputs_loaded": "0/0",
+            "selection_coverage": "0/0", "selection_coverage_pct": 0.0,
+            "degraded_assets": [], "stock_input_trade_date": None, "online_fetches": 0,
+        }
 
     # ── 构建候选对象 ───────────────────────────────────────────────
     candidates = selection.build_candidates(
@@ -262,6 +386,10 @@ def cmd_run(args: argparse.Namespace) -> None:
     if config_issues:
         meta["config_issues"] = config_issues
         meta["degraded"] = "config_issues"
+    if coverage:
+        meta["coverage"] = coverage
+        if coverage.get("degraded_assets"):
+            meta["degraded"] = meta.get("degraded", "coverage") or "coverage"
     out_dir = outputs_dir() / "selection"
     json_path = selection.save_candidates_json(candidates, out_dir, sel_date, meta=meta)
     html_path = sel_report.render_selection_html(candidates, out_dir, sel_date, meta=meta)
@@ -284,6 +412,36 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     logger.info("candidates json: %s", json_path)
     logger.info("candidates html: %s", html_path)
+
+
+def cmd_inputs(args: argparse.Namespace) -> None:
+    """构建个股趋势输入产物 outputs/selection_inputs/stock_metrics_{date}.parquet。
+
+    默认离线（读缓存，确定性）；--allow-online-fetch 用于手工补数。
+    """
+    from src.trend_engine import inputs as trend_inputs
+
+    logger = build_logger(args.log_level)
+    logger.info("=" * 60)
+    logger.info("LAYER ③ INPUTS: 个股趋势输入产物构建")
+    logger.info("=" * 60)
+
+    requested_td = getattr(args, "date", "") or ""
+    trade_date = requested_td
+    if not trade_date:
+        # 默认对齐最新 Layer① rotation 的 trade_date
+        rotation_df, rot_td = _load_latest_signal(etf_signal_daily_dir(), "rotation_*.parquet", "trade_date")
+        trade_date = rot_td or trend_inputs.latest_stock_metrics_trade_date() or date.today().strftime("%Y%m%d")
+    logger.info("target trade_date: %s", trade_date)
+
+    universe_items = load_universe_items(stock_universe_path())
+    allow_online = getattr(args, "allow_online_fetch", False)
+    trend_inputs.build_stock_metrics(
+        universe_items,
+        trade_date=trade_date,
+        offline=not allow_online,
+        log_level=args.log_level,
+    )
 
 
 def cmd_universe(args: argparse.Namespace) -> None:
@@ -319,12 +477,20 @@ def _bucket_order(bucket_key: str) -> int:
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Layer ③ 交易标的筛选与表达方式选择")
     sub = p.add_subparsers(dest="command")
-    p_run = sub.add_parser("run", help="构建交易候选（读 Layer①/② + 调 Trend Engine → 输出候选对象）")
-    p_run.add_argument("--offline", action="store_true", help="仅用缓存行情，不联网")
+    p_run = sub.add_parser("run", help="构建交易候选（读 Layer①/② + 预计算个股趋势 → 输出候选对象）")
+    p_run.add_argument("--offline", action="store_true",
+                       help="离线模式（默认即为离线；保留兼容）")
+    p_run.add_argument("--allow-online-fetch", action="store_true",
+                       help="个股趋势输入缺失时允许在线补数（手工模式；默认禁止联网）")
     p_run.add_argument("--date", default="", help="目标 trade_date YYYYMMDD（默认各层最新 trade_date 并对齐）")
     p_run.add_argument("--strict", action="store_true",
                        help="严格模式：asset pool 存在未注册 theme 时中止发布（默认告警+标记 degraded 继续）")
     p_run.add_argument("--log-level", default="INFO")
+    p_inputs = sub.add_parser("inputs", help="构建个股趋势输入产物 selection_inputs/stock_metrics_{date}.parquet")
+    p_inputs.add_argument("--date", default="", help="目标 trade_date YYYYMMDD（默认最新 Layer① rotation 的 trade_date）")
+    p_inputs.add_argument("--allow-online-fetch", action="store_true",
+                          help="允许在线补数（默认仅用缓存）")
+    p_inputs.add_argument("--log-level", default="INFO")
     p_univ = sub.add_parser("universe", help="查看分层资产池（bucket → theme → tier）")
     p_univ.add_argument("--log-level", default="INFO")
     return p
@@ -335,6 +501,8 @@ def main() -> None:
     command = getattr(args, "command", None)
     if command == "run":
         cmd_run(args)
+    elif command == "inputs":
+        cmd_inputs(args)
     elif command == "universe":
         cmd_universe(args)
     else:

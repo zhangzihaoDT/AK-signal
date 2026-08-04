@@ -30,6 +30,7 @@ from src.common.paths import (
 )
 from src.common.run_context import RunContext
 from src.common.manifest import write_run_manifest, read_latest_run
+from src.common import warnings as run_warnings
 from . import data_source, storage, metrics, regimes, validator, report
 from . import constituents as sw_constituents
 from . import contribution as sw_contribution
@@ -1237,6 +1238,13 @@ def cmd_confirm(args: argparse.Namespace) -> None:
                         name, dd.industry_return_pct, dd.proxy_return_pct,
                         dd.reconstruction_gap_pct, ql,
                         confirmation._format_drive(dd.contribution_structure, dd.breadth_structure))
+
+    # 记录 drilldown 级警告（个股行情多源抓取失败），供 run-day 末端 Final Validation 汇总
+    fetch_failures = sum(getattr(dd, "fetch_failures", 0) for dd in drilldown_results.values())
+    if fetch_failures:
+        run_warnings.record("drilldown", f"{fetch_failures} stock drilldowns failed")
+        logger.warning("drilldown warnings: %d stock drilldowns failed", fetch_failures)
+    run_warnings.save_warnings(date_str)
 
     # 3. 合并 + 落结构化明细
     final_df = confirmation.merge_drilldown(focus_df, drilldown_results)

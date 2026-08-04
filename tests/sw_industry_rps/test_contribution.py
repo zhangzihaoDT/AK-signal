@@ -284,6 +284,13 @@ class TestDrilldownGate:
         assert hasattr(r1, "count_coverage")
         assert hasattr(r1, "reconstruction_quality")
 
+    def test_fetch_failures_field_present(self):
+        """DrilldownResult 携带 fetch_failures 字段（默认 0），供 confirm 汇总警告。"""
+        r1 = compute_drilldown("801095.SI", "测试", "20260716",
+                                pd.DataFrame(), pd.DataFrame(), window=5)
+        assert hasattr(r1, "fetch_failures")
+        assert r1.fetch_failures == 0
+
 
 class TestMarketDataCache:
     """验证缓存读写。"""

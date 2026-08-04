@@ -1,0 +1,236 @@
+"""
+Final Validation CLI — run-day 末端校验。
+
+职责：
+  1. 读取 Layer ① ETF rotation / Layer ② SW confirmation / Layer ③ selection 产物
+  2. 汇总各层 trade_date / data_status / action 与 run 警告（outputs/run_warnings_{date}.json）
+  3. 输出 run-day 最终结果：
+       成功 → "Run completed successfully"（含 trade_date / status / action / warnings）
+       失败 → "Run completed with errors"（含 errors 明细），退出码 1
+
+子命令：
+  run-day-check   对指定 trade_date（默认各层最新）执行最终校验
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import re
+import sys
+from datetime import datetime
+from typing import Any
+
+from src.common import warnings as run_warnings
+from src.common.paths import (
+    etf_signal_daily_dir, sw_industry_confirmation_dir, outputs_dir,
+)
+
+
+def build_logger(level: str = "INFO") -> logging.Logger:
+    logger = logging.getLogger("final_validation")
+    if logger.handlers:
+        return logger
+    logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    logger.addHandler(handler)
+    return logger
+
+
+# ---------------------------------------------------------------------------
+# 纯判定逻辑（不依赖磁盘路径，便于测试）
+# ---------------------------------------------------------------------------
+
+def evaluate(
+    *,
+    trade_date: str,
+    layers: dict[str, Any] | None,
+    alignment: dict[str, Any] | None,
+    action_level: str | None,
+    warnings: list[dict[str, Any]],
+    coverage: dict[str, Any] | None = None,
+    selection_exists: bool = True,
+    rotation_exists: bool = True,
+    confirmation_exists: bool = True,
+) -> dict[str, Any]:
+    """汇总各层证据，给出 run-day 校验结论。
+
+    Returns:
+        {ok, trade_date, status, action, warnings, errors}
+    """
+    errors: list[str] = []
+    warns: list[str] = []
+
+    if not selection_exists:
+        errors.append("selection candidates 缺失（select 未产出 JSON）")
+    if not rotation_exists:
+        errors.append(f"ETF rotation 缺失（rotation_{trade_date}.parquet）")
+    if not confirmation_exists:
+        errors.append(f"SW confirmation 缺失（confirmation_{trade_date}.parquet）")
+
+    # 层证据状态：etf 与 sw_industry 两者任一 provisional → PROVISIONAL；
+    # 全部 confirmed → CONFIRMED；缺失/不一致 → UNKNOWN
+    etf_status = ((layers or {}).get("etf") or {}).get("data_status", "")
+    sw_status = ((layers or {}).get("sw_industry") or {}).get("data_status", "")
+    statuses = [s for s in (etf_status, sw_status) if s]
+    if "provisional" in statuses:
+        status = "PROVISIONAL"
+    elif statuses and all(s == "confirmed" for s in statuses):
+        status = "CONFIRMED"
+    elif not statuses:
+        status = "UNKNOWN"
+        warns.append("layer data_status 缺失（selection meta.layers 不完整）")
+    else:
+        status = "UNKNOWN"
+        warns.append(f"layer data_status 不一致：etf={etf_status or '-'}, sw_industry={sw_status or '-'}")
+
+    # 对齐警告
+    align_status = (alignment or {}).get("alignment_status", "")
+    if align_status and align_status != "aligned":
+        lag = (alignment or {}).get("industry_lag_days")
+        lag_txt = f"（industry_lag_days={lag}）" if lag is not None else ""
+        warns.append(f"层对齐异常：{align_status}{lag_txt}")
+
+    # 配置降级警告
+    if isinstance(layers, dict) and layers.get("degraded"):
+        warns.append("配置降级：asset pool 存在未注册 theme，资产未进入候选")
+
+    # Selection 输入覆盖降级
+    if coverage:
+        degraded = coverage.get("degraded_assets") or []
+        if degraded:
+            warns.append(f"selection 输入降级：{len(degraded)} 个资产不可用（{'、'.join(degraded[:8])}）")
+        pct = coverage.get("selection_coverage_pct")
+        if isinstance(pct, (int, float)) and pct < 100:
+            warns.append(f"selection 覆盖率 {coverage.get('selection_coverage', '—')}（{pct}%）")
+
+    # run 警告文件
+    for w in warnings:
+        msg = str(w.get("message", "")).strip()
+        if msg:
+            warns.append(msg)
+
+    return {
+        "ok": not errors,
+        "trade_date": trade_date,
+        "status": status,
+        "action": action_level or "UNKNOWN",
+        "warnings": warns,
+        "errors": errors,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 产物加载
+# ---------------------------------------------------------------------------
+
+def _latest_selection_date() -> str | None:
+    """从 outputs/selection/ 找出最新 tradable_candidates_*.json 的日期。"""
+    out_dir = outputs_dir() / "selection"
+    if not out_dir.exists():
+        return None
+    dates: list[str] = []
+    for p in out_dir.glob("tradable_candidates_*.json"):
+        m = re.search(r"(\d{8})", p.name)
+        if m:
+            dates.append(m.group(1))
+    return max(dates) if dates else None
+
+
+def _load_selection(trade_date: str) -> dict[str, Any] | None:
+    path = outputs_dir() / "selection" / f"tradable_candidates_{trade_date}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _fmt_date(date_str: str) -> str:
+    """YYYYMMDD → YYYY-MM-DD（展示用）。"""
+    try:
+        return datetime.strptime(str(date_str), "%Y%m%d").strftime("%Y-%m-%d")
+    except ValueError:
+        return str(date_str)
+
+
+def cmd_run_day_check(args: argparse.Namespace) -> int:
+    logger = build_logger(args.log_level)
+    logger.info("=" * 60)
+    logger.info("FINAL VALIDATION: run-day 结果校验")
+    logger.info("=" * 60)
+
+    requested = getattr(args, "date", "") or ""
+    trade_date = requested or _latest_selection_date() or ""
+    if not trade_date:
+        logger.error("no selection candidates found — run `make select` first")
+        print("Run completed with errors")
+        print("errors     : no selection candidates found")
+        return 1
+
+    logger.info("validating trade_date=%s", trade_date)
+
+    selection = _load_selection(trade_date)
+    selection_exists = selection is not None
+    layer3 = (selection or {}).get("layer3") or {}
+    layers = (selection or {}).get("layers")
+    alignment = (selection or {}).get("alignment")
+    action_level = (layer3.get("action") or {}).get("level")
+    if selection_exists and "layer3" not in selection:
+        logger.error("selection JSON missing layer3 — publish failed")
+        print("Run completed with errors")
+        print(f"trade_date : {_fmt_date(trade_date)}")
+        print("errors     : selection candidates 缺少 layer3 结构")
+        return 1
+
+    rotation_exists = (etf_signal_daily_dir() / f"rotation_{trade_date}.parquet").exists()
+    confirmation_exists = (sw_industry_confirmation_dir() / f"confirmation_{trade_date}.parquet").exists()
+
+    warns = run_warnings.load_warnings(trade_date)
+    result = evaluate(
+        trade_date=trade_date,
+        layers=layers,
+        alignment=alignment,
+        action_level=action_level,
+        warnings=warns,
+        coverage=(selection or {}).get("coverage"),
+        selection_exists=selection_exists,
+        rotation_exists=rotation_exists,
+        confirmation_exists=confirmation_exists,
+    )
+
+    if result["ok"]:
+        print("Run completed successfully")
+    else:
+        print("Run completed with errors")
+    print(f"trade_date : {_fmt_date(result['trade_date'])}")
+    print(f"status     : {result['status']}")
+    print(f"action     : {result['action']}")
+    if result["errors"]:
+        print("errors     : " + "; ".join(result["errors"]))
+    if result["warnings"]:
+        print("warnings   : " + "; ".join(result["warnings"]))
+    else:
+        print("warnings   : -")
+
+    for w in result["warnings"]:
+        logger.warning("warning: %s", w)
+    for e in result["errors"]:
+        logger.error("error: %s", e)
+
+    return 0 if result["ok"] else 1
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="run-day 末端 Final Validation")
+    p.add_argument("--date", default="", help="目标 trade_date YYYYMMDD（默认各层最新）")
+    p.add_argument("--log-level", default="INFO")
+    return p
+
+
+def main() -> None:
+    args = build_arg_parser().parse_args()
+    sys.exit(cmd_run_day_check(args))
