@@ -264,3 +264,23 @@ class TestCrossThemeAssets:
         )
         from src.selection.universe import detect_unregistered_themes
         assert detect_unregistered_themes(p) == ["ghost"]
+
+
+class TestConfirmationBreadth:
+    def test_broad_vs_narrow(self):
+        from src.selection.selection import classify_confirmation_breadth
+        assert classify_confirmation_breadth(True, 3, 5, 90.0)[0] == "BROAD_CONFIRMED"
+        assert classify_confirmation_breadth(True, 1, 5, 82.0)[0] == "NARROW_CONFIRMED"
+        assert classify_confirmation_breadth(False, 0, 5, 75.0)[0] == "WATCH"
+        assert classify_confirmation_breadth(False, 0, 5, 50.0)[0] == "UNCONFIRMED"
+
+    def test_evidence_picks_observing_industry(self):
+        import pandas as pd
+        from src.selection.selection import _confirm_evidence
+        conf = pd.DataFrame([
+            {"industry_name": "航运港口", "RPS15": 82.3, "strength_level": "观察"},
+            {"industry_name": "电力", "RPS15": 61.3, "strength_level": "中性"},
+        ])
+        ev = _confirm_evidence(conf, confirmed=True)
+        assert ev["industry"] == "航运港口"
+        assert ev["rps15"] == 82.3

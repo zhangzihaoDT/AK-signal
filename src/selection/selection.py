@@ -77,6 +77,15 @@ STOCK_STATE_RECOMMENDED = "RECOMMENDED"
 # 主题确认门槛（与 Layer② OBSERVE_THRESHOLD 对齐，ETF RPS15 距此门槛的远近衡量接近转强程度）
 SUBTHEME_CONFIRM_RPS15 = 80
 
+
+def _confirmation_breadth_params() -> tuple[float, float]:
+    from src.common.spec.loaders import load_indicator_spec
+    s = load_indicator_spec()
+    return s.confirmation_broad_fraction, s.confirmation_watch_proximity
+
+
+CONF_BROAD_FRACTION, CONF_WATCH_PROXIMITY = _confirmation_breadth_params()
+
 # 个股 tier → role
 TIER_ROLE_MAP = {
     "leader": "LEADER",
@@ -145,6 +154,46 @@ def _round(v: Any) -> float | None:
 
 # ── 1. 主题确认 ────────────────────────────────────────────────────
 
+def classify_confirmation_breadth(
+    confirmed: bool,
+    n_observe: int,
+    n_total: int,
+    max_rps15: float | None,
+    *,
+    broad_fraction: float = 0.5,
+    watch_proximity: float = 70.0,
+) -> tuple[str, str]:
+    """确认广度分类：区分「多数子行业共同走强」与「少数子行业拉动」。
+
+    Returns:
+        (state, label)
+        BROAD_CONFIRMED  多数焦点行业进入观察区（≥ broad_fraction）
+        NARROW_CONFIRMED 已确认但仅少数行业拉动（窄幅确认）
+        WATCH            未确认但最强行业接近门槛
+        UNCONFIRMED      无支撑
+    """
+    if confirmed:
+        broad = n_total > 0 and n_observe >= max(1, int(round(n_total * broad_fraction)))
+        return ("BROAD_CONFIRMED", "广泛确认") if broad else ("NARROW_CONFIRMED", "窄幅确认")
+    if max_rps15 is not None and max_rps15 >= watch_proximity:
+        return ("WATCH", "接近确认")
+    return ("UNCONFIRMED", "无支撑")
+
+
+def _confirm_evidence(sub: pd.DataFrame, confirmed: bool) -> dict[str, Any]:
+    """确认依据：已确认 → 最强进入观察区行业；未确认 → 最强行业（距门槛）。"""
+    obs = sub[sub["strength_level"].astype(str).isin(["观察", "强势"])] if confirmed else sub
+    if obs.empty:
+        obs = sub
+    if obs.empty:
+        return {}
+    top = obs.sort_values("RPS15", ascending=False).iloc[0]
+    rps = float(top["RPS15"]) if pd.notna(top.get("RPS15")) else None
+    return {"industry": str(top.get("industry_name", "")),
+            "industry_code": str(top.get("industry_code", "")),
+            "rps15": _round(rps)}
+
+
 def evaluate_themes(
     confirmation_df: pd.DataFrame,
     rotation_df: pd.DataFrame,
@@ -180,16 +229,29 @@ def evaluate_themes(
             part = sub["participation_rate"].dropna()
             hhi = sub["hhi"].dropna()
             top3 = sub["top3_share"].dropna()
+            confirmed = n_observe > 0
+            max_rps = round(float(rps.max()), 1) if not rps.empty else None
+            breadth_state, breadth_label = classify_confirmation_breadth(
+                confirmed, n_observe, len(sub), max_rps,
+                broad_fraction=CONF_BROAD_FRACTION, watch_proximity=CONF_WATCH_PROXIMITY)
+            evidence = _confirm_evidence(sub, confirmed)
+            reason = (
+                f"{n_observe}/{len(sub)} 个行业进入观察区"
+                f"（{breadth_label}，依据 {evidence.get('industry', '')} RPS15={evidence.get('rps15')}）"
+                if n_observe else "无行业进入观察区")
             entry.update({
-                "confirmed": n_observe > 0,
+                "confirmed": confirmed,
                 "n_strong": n_strong,
                 "n_observe": n_observe,
                 "median_rps15": _round(rps.median()) if not rps.empty else None,
-                "strongest_industry_rps15": round(float(rps.max()), 1) if not rps.empty else None,
+                "strongest_industry_rps15": max_rps,
                 "median_participation": float(part.median()) if not part.empty else None,
                 "median_hhi": float(hhi.median()) if not hhi.empty else None,
                 "median_top3_share": float(top3.median()) if not top3.empty else None,
-                "reason": f"{n_observe}/{len(sub)} 个行业进入观察区" if n_observe else "无行业进入观察区",
+                "confirmation_state": breadth_state,
+                "confirmation_breadth": breadth_label,
+                "confirm_evidence": evidence,
+                "reason": reason,
             })
         # 主题 ETF 中位 RPS15（Layer① 按关键词匹配，供展示）
         if not rotation_df.empty and "fund_name" in rotation_df.columns:
@@ -675,8 +737,12 @@ def build_candidates(
                 "maturity": th.maturity,
                 "confirmed": meta["confirmed"],
                 "confirmation_reason": meta["reason"],
+                "confirmation_state": meta.get("confirmation_state", ""),
+                "confirmation_breadth": meta.get("confirmation_breadth", ""),
+                "confirm_evidence": meta.get("confirm_evidence", {}),
                 "metrics": {k: _fmt_metric(k, v) for k, v in meta.items()
-                            if k not in ("label", "bucket", "bucket_label", "industries", "confirmed", "reason")},
+                            if k not in ("label", "bucket", "bucket_label", "industries", "confirmed", "reason",
+                                         "confirmation_state", "confirmation_breadth", "confirm_evidence")},
                 "expression": expr["expression"],
                 "expression_label": expr["expression_label"],
                 "expression_reason": expr["expression_reason"],

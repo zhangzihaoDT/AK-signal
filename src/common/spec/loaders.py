@@ -55,6 +55,8 @@ def load_indicator_spec() -> IndicatorSpec:
         confirmation_strong_threshold=float(conf["strong_threshold"]),
         confirmation_observe_threshold=float(conf["observe_threshold"]),
         confirmation_neutral_threshold=float(conf["neutral_threshold"]),
+        confirmation_broad_fraction=float(conf["broad_fraction"]),
+        confirmation_watch_proximity=float(conf["watch_proximity"]),
     )
 
 

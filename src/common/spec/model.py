@@ -28,6 +28,8 @@ class IndicatorSpec:
     confirmation_strong_threshold: float
     confirmation_observe_threshold: float
     confirmation_neutral_threshold: float
+    confirmation_broad_fraction: float
+    confirmation_watch_proximity: float
 
     @property
     def rps_windows(self) -> tuple[int, int, int]:

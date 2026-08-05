@@ -236,6 +236,15 @@ def render_selection_html(
             parts.append(f"<details{open_attr}><summary>{theme_label} · {sub.get('stage', '')} · <span class='tag {conf_tag}'>{conf_txt}</span></summary>")
 
             if sub.get("confirmed"):
+                # 确认机制显式化：依据 + 行业广度（窄幅/广泛），避免「20% 行业转强为何主题确认」的误读
+                ev = sub.get("confirm_evidence", {}) or {}
+                m = sub.get("metrics", {})
+                breadth = sub.get("confirmation_breadth", "")
+                ev_txt = f"{ev.get('industry', '—')} RPS15 = {_num(ev.get('rps15'))}，达到确认门槛"
+                parts.append(
+                    f"<div class='insight'><b>确认依据：</b>{ev_txt}"
+                    f" ｜ 行业广度：{_num(m.get('n_observe'))} 个焦点行业进入观察区，"
+                    f"属于 <b>{breadth}</b></div>")
                 parts.append(f"<div class='verdict'><b>表达方式：</b>{sub.get('expression_label', '')}<br><small>{sub.get('expression_reason', '')}</small></div>")
                 m = sub.get("metrics", {})
                 parts.append('<div class="metrics">')

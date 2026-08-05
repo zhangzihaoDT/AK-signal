@@ -188,7 +188,8 @@ def render_confirmation_report(
                 f"<td class='num'>{tr['n_observe']}</td>"
                 f"<td class='num'>{_num(tr['median_rps15'])}</td>"
                 f"<td class='num'>{_sign(tr['median_delta_rps15'])}</td>"
-                f"<td><span class='tag {tag}'>{tr['status']}</span> · {tr['summary']}</td></tr>")
+                f"<td><span class='tag {tag}'>{tr['status']}</span> · {tr['summary']}"
+                f"{' · <b>' + tr.get('confirmation_breadth', '') + '</b>' if tr.get('confirmation_breadth') else ''}</td></tr>")
         parts.append("</table>")
         parts.append("<p style='font-size:12px'>同一主题内产业周期可能不同步，主题级共振用于识别「是主题内群共振，还是单一行业行情」。</p>")
 

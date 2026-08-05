@@ -69,6 +69,7 @@
 - **核心输出是结构化候选对象**（JSON），HTML 只是可视化
 - **多主题结构**：`layer3.buckets[].themes[]`（Core → AI基础设施 / Quality → 高现金流资产），逐主题独立确认与表达决策
 - **表达方式决策**基于 Layer② 上涨结构：广泛上涨→ETF、龙头主导→龙头个股、扩散→ETF核心+龙头卫星、未确认→仅观察
+- **确认机制显式化**：主题 confirmed = 任一焦点行业 RPS15≥80（观察/强势）。为避免「20% 行业转强为何整主题确认」的误读，每主题输出 `confirmation_state`（BROAD_CONFIRMED / NARROW_CONFIRMED / WATCH / UNCONFIRMED）+ `confirm_evidence`（依据行业及 RPS15）+ `confirmation_breadth`（广泛/窄幅确认）；广度阈值（broad_fraction=0.5 / watch_proximity=70）在 config/indicators.yaml
 - ETF 候选动态从 Layer① rotation 全市场按 `themes_two_directions.yaml` 主题关键词选（趋势门控 + 流动性 + 评分 + 去重）
 - **个股趋势读取预计算产物**：`outputs/selection_inputs/stock_metrics_{trade_date}.parquet`（统一 schema：asset_id/trade_date/close/return_5d/return_20d/trend_score/score_trend/watch_level/action/risk_flags/volatility_20d/drawdown_20d/source/data_status/source_trade_date/lag_days）
 - **Selection 默认禁止联网（v0.4.3）**：Layer③ 是纯消费/纯决策层，只读 Layer① ETF rotation + Layer② confirmation + 预计算个股趋势；缺个股输入不自动重试，按 `data_status=missing / selection_status=unavailable / reason=stock_trend_input_missing` 局部降级，不阻塞整体

@@ -28,3 +28,7 @@ confirmation:
   strong_threshold: 90
   observe_threshold: 80
   neutral_threshold: 60
+  # 确认广度：confirmed 且 ≥ 该比例的焦点行业进入观察区 → BROAD，否则 NARROW（窄幅确认）
+  broad_fraction: 0.5
+  # WATCH：未确认但最强行业 RPS15 ≥ 该值（接近确认）
+  watch_proximity: 70

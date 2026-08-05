@@ -231,6 +231,30 @@ def classify_group_resonance(focus_df: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+def _confirmation_breadth(
+    confirmed: bool,
+    n_observe: int,
+    n_total: int,
+    max_rps15: float | None,
+) -> tuple[str, str]:
+    """确认广度（与 Selection classify_confirmation_breadth 口径一致）。"""
+    if confirmed:
+        broad = n_total > 0 and n_observe >= max(1, int(round(n_total * CONF_BROAD_FRACTION)))
+        return ("BROAD_CONFIRMED", "广泛确认") if broad else ("NARROW_CONFIRMED", "窄幅确认")
+    if max_rps15 is not None and max_rps15 >= CONF_WATCH_PROXIMITY:
+        return ("WATCH", "接近确认")
+    return ("UNCONFIRMED", "无支撑")
+
+
+def _confirmation_params() -> tuple[float, float]:
+    from src.common.spec.loaders import load_indicator_spec
+    s = load_indicator_spec()
+    return s.confirmation_broad_fraction, s.confirmation_watch_proximity
+
+
+CONF_BROAD_FRACTION, CONF_WATCH_PROXIMITY = _confirmation_params()
+
+
 def compute_theme_resonance(focus_df: pd.DataFrame) -> list[dict[str, Any]]:
     """子分组（Theme）共振分析。
 
@@ -272,6 +296,11 @@ def compute_theme_resonance(focus_df: pd.DataFrame) -> list[dict[str, Any]]:
             status = "整体弱势"
             summary = "无行业进入观察区"
 
+        # 确认广度：区分「多数子行业共同走强」与「少数子行业拉动」（与 Selection 口径一致）
+        confirmed = n_observe >= 1
+        max_rps = round(float(rps.max()), 1) if not rps.empty else None
+        _state, breadth = _confirmation_breadth(confirmed, n_observe, n, max_rps)
+
         rows.append({
             "theme": theme_key,
             "theme_label": tdef["label"],
@@ -283,6 +312,8 @@ def compute_theme_resonance(focus_df: pd.DataFrame) -> list[dict[str, Any]]:
             "median_delta_rps15": median_delta,
             "status": status,
             "summary": summary,
+            "confirmation_state": _state,
+            "confirmation_breadth": breadth,
         })
 
     rank = {"群共振": 0, "局部走强": 1, "整体弱势": 2}

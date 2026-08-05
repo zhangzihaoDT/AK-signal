@@ -90,6 +90,8 @@ def validate_indicators(cfg: dict[str, Any]) -> None:
     conf = _require(cfg, "confirmation", "must define confirmation thresholds")
     _num_in_range(conf.get("strong_threshold"), 0, 100, "confirmation.strong_threshold")
     _num_in_range(conf.get("observe_threshold"), 0, 100, "confirmation.observe_threshold")
+    _num_in_range(conf.get("broad_fraction"), 0, 1, "confirmation.broad_fraction")
+    _num_in_range(conf.get("watch_proximity"), 0, 100, "confirmation.watch_proximity")
 
 
 def validate_execution(cfg: dict[str, Any]) -> None:
