@@ -39,24 +39,55 @@ def strategy_trades(
     cfg: dict[str, Any],
     cache: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
-    """按策略配置运行 v0.5.2 逐笔模拟，产出该策略的成交序列。"""
+    """按策略规格运行逐笔模拟，产出该策略的成交序列（含 Provenance）。
+
+    entry/exit/universe 参数来自统一 Strategy Specification（config/strategies.yaml）。
+    """
+    from src.common.spec.loaders import load_strategy_spec
     from ..trade.trades import run_backtest
-    policy = cfg["exit_policy"]
-    if policy == "fixed_horizon":
-        config = {"label": cfg.get("label", "fixed"), "policy": "fixed_horizon",
-                  "params": {"horizon": int(cfg.get("horizon", 20))}}
-    elif policy == "ma_exit":
-        config = {"label": cfg.get("label", "ma"), "policy": "ma_exit",
-                  "params": {"window": int(cfg.get("ma_window", 20))}}
-    else:
-        config = {"label": cfg.get("label", policy), "policy": policy, "params": {}}
+
+    sid = str(cfg.get("strategy_id", "") or "")
+    spec = load_strategy_spec(sid) if sid else None
+
+    if spec is not None:
+        exit_ = spec.exit
+        if exit_.policy == "fixed_horizon":
+            config = {"label": cfg.get("label", sid), "policy": "fixed_horizon",
+                      "params": {"horizon": int(exit_.horizon)}}
+        elif exit_.policy == "ma_exit":
+            config = {"label": cfg.get("label", sid), "policy": "ma_exit",
+                      "params": {"window": int(exit_.ma_window)}}
+        else:
+            config = {"label": cfg.get("label", sid), "policy": exit_.policy, "params": {}}
+        entry_params = {"rps15_min": float(spec.entry.rps15_min),
+                        "trend_score_min": float(spec.entry.trend_score_min),
+                        "allowed_trend_states": list(spec.entry.allowed_trend_states)}
+        universe_mode = spec.universe_mode
+        weight = spec.weight
+    else:  # 兼容旧配置（无 strategy_id）
+        config = _legacy_exit_config(cfg)
+        entry_params = None
+        universe_mode = cfg.get("universe_mode", "configured")
+        weight = float(cfg.get("weight", 1.0))
+
     trades = run_backtest(
         signals, theme=cfg["theme"], entity_type="etf",
-        exit_configs=[config], universe_mode=cfg.get("universe_mode", "configured"),
-        cache=cache)
-    trades["weight"] = float(cfg.get("weight", 1.0))
+        exit_configs=[config], universe_mode=universe_mode,
+        entry_params=entry_params, strategy_id=sid, cache=cache)
+    trades["weight"] = weight
     trades["strategy"] = cfg.get("label", "")
     return trades
+
+
+def _legacy_exit_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    policy = cfg["exit_policy"]
+    if policy == "fixed_horizon":
+        return {"label": cfg.get("label", "fixed"), "policy": "fixed_horizon",
+                "params": {"horizon": int(cfg.get("horizon", 20))}}
+    if policy == "ma_exit":
+        return {"label": cfg.get("label", "ma"), "policy": "ma_exit",
+                "params": {"window": int(cfg.get("ma_window", 20))}}
+    return {"label": cfg.get("label", policy), "policy": policy, "params": {}}
 
 
 def _account_from_trades(trades: pd.DataFrame, params: dict[str, Any], label: str) -> PortfolioAccount:
@@ -65,6 +96,7 @@ def _account_from_trades(trades: pd.DataFrame, params: dict[str, Any], label: st
         max_positions=params["max_positions"],
         max_weight_per_asset=params["max_weight_per_asset"],
         fee_pct=params["fee_pct"], slippage_pct=params["slippage_pct"],
+        deploy_ratio=params.get("deploy_ratio", 1.0),
         label=label)
 
 
@@ -72,11 +104,11 @@ def run_portfolios(
     signals: pd.DataFrame,
     *,
     strategies_path: Path | None = None,
-    initial_capital: float = 1_000_000.0,
-    max_positions: int = 5,
-    max_weight_per_asset: float = 0.20,
-    fee_pct: float = 0.05,
-    slippage_pct: float = 0.05,
+    initial_capital: float | None = None,
+    max_positions: int | None = None,
+    max_weight_per_asset: float | None = None,
+    fee_pct: float | None = None,
+    slippage_pct: float | None = None,
     modes: tuple[str, ...] = ("A", "B"),
     benchmark: str = "sh000300",
     benchmark_fallback: str = "510300",
@@ -88,8 +120,13 @@ def run_portfolios(
     """运行三套单账户 + Core+Quality 综合账户（Mode A/B）。
 
     统一日历：所有账户 + 基准共用 [start, end] 的完整交易日历；
-    基准：默认真 HS300 指数缓存，覆盖不足时才允许显式 fallback。
+    基准：默认真 HS300 指数缓存，覆盖不足时才允许显式 fallback；
+    资金参数默认来自统一 Strategy Specification（portfolio.yaml / execution.yaml）。
     """
+    from src.common.spec.loaders import load_execution_spec, load_portfolio_spec
+
+    pspec = load_portfolio_spec()
+    espec = load_execution_spec()
     strategies = load_strategies(strategies_path)
     cache = cache or replay_engine.build_replay_cache()
     closes = build_close_prices(cache)
@@ -107,16 +144,21 @@ def run_portfolios(
         fallback=benchmark_fallback, allow_fallback=allow_benchmark_fallback)
     bench_norm = benchmark_on_calendar(bench_close, calendar)
 
-    params = dict(initial_capital=initial_capital, max_positions=max_positions,
-                  max_weight_per_asset=max_weight_per_asset,
-                  fee_pct=fee_pct, slippage_pct=slippage_pct,
-                  calendar_start=cal_start, calendar_end=cal_end,
-                  trading_days=len(calendar), benchmark_symbol=benchmark,
-                  benchmark_source=bench_meta.get("source", ""),
-                  benchmark_fallback_used=bench_meta.get("fallback_used", False),
-                  benchmark_coverage_start=bench_meta.get("coverage_start"),
-                  benchmark_coverage_end=bench_meta.get("coverage_end"),
-                  nav_frequency="daily", annualization_method=ANNUALIZATION_METHOD)
+    params = dict(
+        initial_capital=initial_capital if initial_capital is not None else pspec.initial_capital,
+        max_positions=max_positions if max_positions is not None else pspec.max_positions,
+        max_weight_per_asset=max_weight_per_asset
+            if max_weight_per_asset is not None else pspec.max_weight_per_asset,
+        fee_pct=fee_pct if fee_pct is not None else espec.fee_pct,
+        slippage_pct=slippage_pct if slippage_pct is not None else espec.slippage_pct,
+        deploy_ratio=pspec.deploy_ratio,
+        calendar_start=cal_start, calendar_end=cal_end,
+        trading_days=len(calendar), benchmark_symbol=benchmark,
+        benchmark_source=bench_meta.get("source", ""),
+        benchmark_fallback_used=bench_meta.get("fallback_used", False),
+        benchmark_coverage_start=bench_meta.get("coverage_start"),
+        benchmark_coverage_end=bench_meta.get("coverage_end"),
+        nav_frequency="daily", annualization_method=ANNUALIZATION_METHOD)
 
     def _attach_benchmark(account: PortfolioAccount) -> dict[str, Any]:
         nav = account.nav_frame()

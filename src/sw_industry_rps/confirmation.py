@@ -67,10 +67,15 @@ BUCKETS: dict[str, dict[str, Any]] = {
     for b in themes_cfg.load_buckets()
 }
 
-# 强势区 / 观察区阈值（与 regimes 配置一致）
-STRONG_THRESHOLD = 90.0
-OBSERVE_THRESHOLD = 80.0
-NEUTRAL_THRESHOLD = 60.0
+# 强势区 / 观察区阈值（来自统一 Strategy Specification config/indicators.yaml confirmation）
+def _confirmation_thresholds() -> tuple[float, float, float]:
+    from src.common.spec.loaders import load_indicator_spec
+    s = load_indicator_spec()
+    return (s.confirmation_strong_threshold, s.confirmation_observe_threshold,
+            s.confirmation_neutral_threshold)
+
+
+STRONG_THRESHOLD, OBSERVE_THRESHOLD, NEUTRAL_THRESHOLD = _confirmation_thresholds()
 
 RELEVANCE_LABEL = {"core": "核心", "related": "相关"}
 

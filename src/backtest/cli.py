@@ -213,11 +213,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_port = sub.add_parser("portfolio", help="v0.6 共享账户组合模拟（单策略 + Core+Quality）")
     p_port.add_argument("--signals", default="", help="historical_signals parquet 路径")
     p_port.add_argument("--config", default="", help="策略配置 yaml（默认 config/strategies.yaml）")
-    p_port.add_argument("--initial-capital", type=float, default=1_000_000.0)
-    p_port.add_argument("--max-positions", type=int, default=5)
-    p_port.add_argument("--max-weight", type=float, default=0.20)
-    p_port.add_argument("--fee", type=float, default=0.05, help="手续费 %（单边）")
-    p_port.add_argument("--slippage", type=float, default=0.05, help="滑点 %（单边）")
+    p_port.add_argument("--initial-capital", type=float, default=_pspec().initial_capital)
+    p_port.add_argument("--max-positions", type=int, default=_pspec().max_positions)
+    p_port.add_argument("--max-weight", type=float, default=_pspec().max_weight_per_asset)
+    p_port.add_argument("--fee", type=float, default=_espec().fee_pct, help="手续费 %（单边）")
+    p_port.add_argument("--slippage", type=float, default=_espec().slippage_pct, help="滑点 %（单边）")
     p_port.add_argument("--modes", default="A,B", help="综合组合资金模式（A/B）")
     p_port.add_argument("--benchmark", default="sh000300", help="基准（默认 sh000300 真指数）")
     p_port.add_argument("--benchmark-fallback", default="510300", help="基准覆盖不足的显式 fallback")
@@ -229,13 +229,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     p_con = sub.add_parser("construction", help="v0.6 组合构建实验（Top-N/加权/持仓/比例/现金）")
     p_con.add_argument("--signals", default="", help="historical_signals parquet 路径")
-    p_con.add_argument("--initial-capital", type=float, default=1_000_000.0)
-    p_con.add_argument("--fee", type=float, default=0.05)
-    p_con.add_argument("--slippage", type=float, default=0.05)
+    p_con.add_argument("--initial-capital", type=float, default=_pspec().initial_capital)
+    p_con.add_argument("--fee", type=float, default=_espec().fee_pct)
+    p_con.add_argument("--slippage", type=float, default=_espec().slippage_pct)
     p_con.add_argument("--benchmark", default="sh000300")
     p_con.add_argument("--benchmark-fallback", default="510300")
     p_con.add_argument("--log-level", default="INFO")
     return p
+
+
+def _pspec():
+    from src.common.spec.loaders import load_portfolio_spec
+    return load_portfolio_spec()
+
+
+def _espec():
+    from src.common.spec.loaders import load_execution_spec
+    return load_execution_spec()
 
 
 def main() -> None:

@@ -80,16 +80,27 @@ def run_construction_experiments(
     signals: pd.DataFrame,
     *,
     strategies_path: Path | None = None,
-    initial_capital: float = 1_000_000.0,
-    fee_pct: float = 0.05,
-    slippage_pct: float = 0.05,
+    initial_capital: float | None = None,
+    fee_pct: float | None = None,
+    slippage_pct: float | None = None,
     benchmark: str = "sh000300",
     benchmark_fallback: str = "510300",
     start_date: str = "",
     end_date: str = "",
     cache: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """运行五组组合构建实验（AI-20 + HC-20 综合账户）。"""
+    """运行五组组合构建实验（AI-20 + HC-20 综合账户）。
+
+    资金/成本默认来自统一 Strategy Specification（portfolio.yaml / execution.yaml）。
+    """
+    from src.common.spec.loaders import load_execution_spec, load_portfolio_spec
+
+    pspec = load_portfolio_spec()
+    espec = load_execution_spec()
+    initial_capital = initial_capital if initial_capital is not None else pspec.initial_capital
+    fee_pct = fee_pct if fee_pct is not None else espec.fee_pct
+    slippage_pct = slippage_pct if slippage_pct is not None else espec.slippage_pct
+
     strategies = load_strategies(strategies_path)
     if "ai_20" not in strategies or "hc_20" not in strategies:
         raise ValueError("config/strategies.yaml 需包含 ai_20 与 hc_20")

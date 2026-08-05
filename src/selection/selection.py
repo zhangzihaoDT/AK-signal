@@ -51,10 +51,16 @@ ROLE_LABELS = {
     "UPSTREAM": "设备与上游",
 }
 
-# 趋势门控：允许进入候选的 ETF 状态
-ETF_TREND_GATES = {"BUY_CANDIDATE", "STRONG_WATCH"}
+# 趋势门控：允许进入候选的 ETF 状态（来自统一 Strategy Specification config/indicators.yaml）
+def _indicator_gates() -> tuple[set[str], set[str], float, float]:
+    from src.common.spec.loaders import load_indicator_spec
+    s = load_indicator_spec()
+    return (set(s.etf_gate_states), set(s.etf_watch_gate_states),
+            float(s.etf_min_amount), float(s.stock_qualified_score))
+
+
+ETF_TREND_GATES, ETF_WATCH_GATES, ETF_MIN_AMOUNT, STOCK_QUALIFIED_SCORE = _indicator_gates()
 # 观察池（弱势市场兜底）：额外纳入 WATCH，仅作观察候选，recommended=False
-ETF_WATCH_GATES = ETF_TREND_GATES | {"WATCH"}
 # 对外暴露的趋势状态标签：OUT_OF_SCOPE 语义易误读为「不属于主题」，实为「未达趋势门」
 ETF_TREND_STATUS_LABELS = {
     "BUY_CANDIDATE": "BUY_CANDIDATE",
@@ -67,8 +73,7 @@ ETF_TREND_STATUS_LABELS = {
 STOCK_STATE_WATCH = "WATCH"
 STOCK_STATE_QUALIFIED = "QUALIFIED"
 STOCK_STATE_RECOMMENDED = "RECOMMENDED"
-# 个股趋势合格门槛（与 trend_engine watch_level=S/A 的 score>=70 对齐）
-STOCK_QUALIFIED_SCORE = 70
+# 个股趋势合格门槛（来自 config/indicators.yaml signal_gates.stock.qualified_score）
 # 主题确认门槛（与 Layer② OBSERVE_THRESHOLD 对齐，ETF RPS15 距此门槛的远近衡量接近转强程度）
 SUBTHEME_CONFIRM_RPS15 = 80
 

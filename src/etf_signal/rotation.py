@@ -50,12 +50,17 @@ TECH_KEYWORDS = [
     "科创", "机器人", "信息技术", "软件服务", "数字经济",
 ]
 
-# RPS 排名窗口
-RPS_WINDOWS = (15, 20, 60)
+# RPS 排名窗口（来自统一 Strategy Specification config/indicators.yaml）
+RPS_WINDOWS: tuple[int, ...] = (15, 20, 60)
 # 排名变化回溯交易日数
 RANK_CHANGE_DAYS = 5
 # 横截面样本尾部保留行数
 CROSS_SECTIONAL_TAIL = 21
+
+
+def _rps_windows() -> tuple[int, ...]:
+    from src.common.spec.loaders import load_indicator_spec
+    return load_indicator_spec().rps_windows
 
 # 不参与横截面 RPS 排名的资产桶（防御性资产，收益结构不可比）
 RANK_EXCLUDED_BUCKETS = {"money_market", "bond_treasury", "bond_credit", "bond_convertible"}
@@ -78,7 +83,7 @@ def _pivot_closes(
 
 def compute_cross_sectional(
     combined: pd.DataFrame,
-    windows: tuple[int, ...] = RPS_WINDOWS,
+    windows: tuple[int, ...] | None = None,
     tail: int = CROSS_SECTIONAL_TAIL,
     rank_codes: set[str] | None = None,
 ) -> dict[int, dict[str, pd.DataFrame]]:
@@ -101,6 +106,8 @@ def compute_cross_sectional(
             }
         }
     """
+    if windows is None:
+        windows = _rps_windows()
     closes = _pivot_closes(combined)
     if closes.empty:
         return {}
@@ -148,7 +155,7 @@ def match_theme(fund_name: str) -> str | None:
 def compute_rotation_metrics(
     combined: pd.DataFrame,
     master: pd.DataFrame,
-    windows: tuple[int, ...] = RPS_WINDOWS,
+    windows: tuple[int, ...] | None = None,
 ) -> pd.DataFrame:
     """全市场轮动指标（每只 ETF 一行）。
 
@@ -164,6 +171,8 @@ def compute_rotation_metrics(
             rank15, rank15_prev5, rank_change_5d,
             return_5d, return_10d, return_15d, return_20d, return_60d
     """
+    if windows is None:
+        windows = _rps_windows()
     closes = _pivot_closes(combined)
     if closes.empty:
         logger.warning("no close data for rotation")

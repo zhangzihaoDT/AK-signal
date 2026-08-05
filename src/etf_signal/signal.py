@@ -38,9 +38,14 @@ def compute_trend_state(
     return_20d: float,
     above_ma20: bool,
     above_ma60: bool,
-    strong_threshold: float = 80.0,
-    watch_threshold: float = 60.0,
+    strong_threshold: float | None = None,
+    watch_threshold: float | None = None,
 ) -> str:
+    if strong_threshold is None or watch_threshold is None:
+        from src.common.spec.loaders import load_indicator_spec
+        gates = load_indicator_spec()
+        strong_threshold = gates.etf_strong_threshold
+        watch_threshold = gates.etf_watch_threshold
     if rps15 >= strong_threshold and above_ma20 and above_ma60:
         return "BUY_CANDIDATE"
     if rps15 >= strong_threshold:

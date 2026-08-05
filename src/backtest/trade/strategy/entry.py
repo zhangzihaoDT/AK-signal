@@ -75,6 +75,22 @@ def universe_config_hash(mode: str) -> str:
     return h.hexdigest()[:16]
 
 
+def actual_universe_codes(signals: pd.DataFrame, theme: str, mode: str) -> list[str]:
+    """实际参与运行的资产代码集合（universe_hash 的对象）。"""
+    if mode == "configured":
+        return configured_etf_codes(theme)
+    l1 = signals[signals["layer"] == "1"] if not signals.empty else pd.DataFrame()
+    if l1.empty:
+        return []
+    return sorted(l1[l1["theme"] == theme]["entity_code"].astype(str).unique())
+
+
+def universe_hash(signals: pd.DataFrame, theme: str, mode: str) -> str:
+    """资产集合指纹（顺序无关；增删改变）。"""
+    from src.common.spec.hash import universe_hash as _uh
+    return _uh(actual_universe_codes(signals, theme, mode), mode=mode, theme=theme)
+
+
 def entry_candidates(
     signals: pd.DataFrame,
     *,
@@ -82,10 +98,12 @@ def entry_candidates(
     theme: str = "",
     layers: str = "",
     universe_mode: str = "theme-matched",
+    rps15_min: float | None = None,
 ) -> pd.DataFrame:
     """入场候选：指定实体类型 + 主题的 entry 事件（趋势信号态 off→on）。
 
-    universe_mode="configured" 时仅保留主题资产池内的 ETF。
+    universe_mode="configured" 时仅保留主题资产池内的 ETF；
+    rps15_min 来自策略 Entry Spec（额外趋势强度门槛，默认不额外过滤）。
     """
     if universe_mode not in UNIVERSE_MODES:
         raise ValueError(f"unknown universe_mode: {universe_mode} (options: {UNIVERSE_MODES})")
@@ -99,6 +117,8 @@ def entry_candidates(
     if universe_mode == "configured" and theme:
         codes = set(configured_etf_codes(theme))
         ev = ev[ev["entity_code"].astype(str).isin(codes)]
+    if rps15_min is not None:
+        ev = ev[pd.to_numeric(ev.get("rps15"), errors="coerce").fillna(0) >= rps15_min]
     return ev.reset_index(drop=True)
 
 

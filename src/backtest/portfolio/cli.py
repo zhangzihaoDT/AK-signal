@@ -78,14 +78,17 @@ def _pct(v) -> str:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
+    from src.common.spec.loaders import load_execution_spec, load_portfolio_spec
+    pspec = load_portfolio_spec()
+    espec = load_execution_spec()
     p = argparse.ArgumentParser(description="v0.6 Shared-account Portfolio Simulation")
     p.add_argument("--signals", default="", help="historical_signals parquet 路径")
     p.add_argument("--config", default="", help="策略配置 yaml（默认 config/strategies.yaml）")
-    p.add_argument("--initial-capital", type=float, default=1_000_000.0)
-    p.add_argument("--max-positions", type=int, default=5)
-    p.add_argument("--max-weight", type=float, default=0.20, help="单资产权重上限")
-    p.add_argument("--fee", type=float, default=0.05, help="手续费 %（单边）")
-    p.add_argument("--slippage", type=float, default=0.05, help="滑点 %（单边）")
+    p.add_argument("--initial-capital", type=float, default=pspec.initial_capital)
+    p.add_argument("--max-positions", type=int, default=pspec.max_positions)
+    p.add_argument("--max-weight", type=float, default=pspec.max_weight_per_asset)
+    p.add_argument("--fee", type=float, default=espec.fee_pct, help="手续费 %（单边）")
+    p.add_argument("--slippage", type=float, default=espec.slippage_pct, help="滑点 %（单边）")
     p.add_argument("--modes", default="A,B", help="综合组合资金模式（A=统一等权 / B=AI60+HC40）")
     p.add_argument("--benchmark", default="sh000300", help="基准（默认 sh000300 真指数）")
     p.add_argument("--benchmark-fallback", default="510300",

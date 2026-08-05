@@ -34,8 +34,8 @@ TRADE_COLUMNS = [
     "exit_signal_date", "exit_fill_date", "exit_fill_price",
     "exit_status", "exit_reason",
     "return_pct", "holding_days", "fee_pct", "slippage_pct",
-    "universe_mode", "universe_size", "universe_config_hash",
-    "entry_score",
+    "universe_mode", "universe_size", "universe_config_hash", "universe_hash",
+    "entry_score", "strategy_id",
 ]
 
 
@@ -117,7 +117,8 @@ def _trade_return(buy_price: float, sell_price: float, fee: float, slippage: flo
 def _unfilled_entry(
     tid: int, code: str, name: str, theme: str, policy: str, esd: str, reason: str,
     fee: float, slippage: float,
-    uni_mode: str = "", uni_size: int = 0, uni_hash: str = "",
+    uni_mode: str = "", uni_size: int = 0, uni_cfg_hash: str = "",
+    uni_hash: str = "", strategy_id: str = "",
 ) -> dict[str, Any]:
     return {
         "trade_id": tid, "entity_code": code, "entity_name": name, "theme": theme,
@@ -127,7 +128,9 @@ def _unfilled_entry(
         "exit_signal_date": "", "exit_fill_date": "", "exit_fill_price": None,
         "exit_status": "", "exit_reason": "",
         "return_pct": None, "holding_days": None, "fee_pct": fee, "slippage_pct": slippage,
-        "universe_mode": uni_mode, "universe_size": uni_size, "universe_config_hash": uni_hash,
+        "universe_mode": uni_mode, "universe_size": uni_size,
+        "universe_config_hash": uni_cfg_hash, "universe_hash": uni_hash,
+        "entry_score": None, "strategy_id": strategy_id,
     }
 
 
@@ -171,6 +174,8 @@ def run_backtest(
     fee: float = 0.0,
     slippage: float = 0.0,
     universe_mode: str = "configured",
+    entry_params: dict[str, Any] | None = None,
+    strategy_id: str = "",
     cache: dict[str, Any] | None = None,
     start_date: str = "",
     end_date: str = "",
@@ -180,6 +185,7 @@ def run_backtest(
     exit_configs 优先（扫描用，可含不同 horizon/window/fee）；否则由
     exit_policies + horizon/ma_window/fee/slippage 展开默认配置。
     universe_mode: configured（资产池，默认）/ theme-matched（全市场关键词）。
+    entry_params: 来自策略 Entry Spec（如 {"rps15_min": 80}）。
 
     Returns:
         TRADE_COLUMNS DataFrame
@@ -188,7 +194,8 @@ def run_backtest(
         return pd.DataFrame(columns=TRADE_COLUMNS)
 
     entries = entry_mod.entry_candidates(
-        signals, entity_type=entity_type, theme=theme, universe_mode=universe_mode)
+        signals, entity_type=entity_type, theme=theme, universe_mode=universe_mode,
+        rps15_min=(entry_params or {}).get("rps15_min"))
     if entries.empty:
         return pd.DataFrame(columns=TRADE_COLUMNS)
     if start_date:
@@ -211,7 +218,8 @@ def run_backtest(
         exit_policies, horizon=horizon, ma_window=ma_window, fee=fee, slippage=slippage)
 
     uni_size = entry_mod.universe_size(signals, theme, universe_mode)
-    uni_hash = entry_mod.universe_config_hash(universe_mode)
+    uni_cfg_hash = entry_mod.universe_config_hash(universe_mode)
+    uni_hash = entry_mod.universe_hash(signals, theme, universe_mode)
 
     trades: list[dict[str, Any]] = []
     tid = 0
@@ -231,7 +239,7 @@ def run_backtest(
                     trades.append(_unfilled_entry(
                         tid, str(code), name, theme, label, str(entry.trade_date),
                         "no_price_data", cfee, cslippage,
-                        universe_mode, uni_size, uni_hash))
+                        universe_mode, uni_size, uni_cfg_hash, uni_hash, strategy_id))
                 continue
             open_s, close_s, dates = prices
             exit_dates = exit_map.get(str(code), []) if policy == "signal_exit" else []
@@ -249,7 +257,7 @@ def run_backtest(
                     trades.append(_unfilled_entry(
                         tid, str(code), name, theme, label, esd,
                         "no_next_open", cfee, cslippage,
-                        universe_mode, uni_size, uni_hash))
+                        universe_mode, uni_size, uni_cfg_hash, uni_hash, strategy_id))
                     continue
 
                 # 退出：策略独立决定退出信号日
@@ -282,8 +290,9 @@ def run_backtest(
                     "return_pct": ret, "holding_days": holding_days,
                     "fee_pct": cfee, "slippage_pct": cslippage,
                     "universe_mode": universe_mode, "universe_size": uni_size,
-                    "universe_config_hash": uni_hash,
+                    "universe_config_hash": uni_cfg_hash, "universe_hash": uni_hash,
                     "entry_score": _num(getattr(entry, "rps15", None)),
+                    "strategy_id": strategy_id,
                 })
 
     df = pd.DataFrame(trades, columns=TRADE_COLUMNS)
