@@ -1,5 +1,12 @@
 # AKsignal — Agent 操作手册
 
+## 分层原则（最值得坚持的一点）
+
+- **Observation Layer（制造事实，不做决策）**：Layer① ETF Rotation、Layer② Theme Confirmation——产出客观观察（RPS/确认状态），不做买入判断；ETF RPS 相对全市场 ETF 横截面、行业 RPS 相对 124 申万行业横截面，**标尺不同不可直接对比**
+- **Decision Layer（消费事实，做决策）**：Layer③ Selection——只读 Layer①/② 已确认、已对齐、已落盘的事实，**禁止联网/重算（v0.4.3 固化）**，不制造新事实
+- 核心：**Observation 不做决策；Decision 不制造事实**。改 Observation 层规则必须过 Parity；Decision 层改动不得引入新数据源
+
+
 ## 信号日期语义（v0.4.3）
 
 - **统一约定**：Layer1（ETF）、Layer2（SW-RPS 确认）、Layer ③（Selection）一律以 **trade_date（最近完整交易日）** 作为信号分区日期与文件名日期。

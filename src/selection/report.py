@@ -125,7 +125,8 @@ def render_selection_html(
         f"<style>{CSS}</style></head><body><div class='container'>",
         "<h1>③ 多主题交易标的筛选与表达方式选择</h1>",
         f"<div class='subtitle'>报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · "
-        f"按 Bucket（Core/Quality/Tactical）→ Theme 分层 · Layer ③ 只回答「买什么」，买多少/何时买卖由 Layer 4 决定</div>",
+        f"Decision Layer：只消费 Layer①/②（Observation）已落盘的事实，禁止联网/重算 · "
+        f"按 Bucket（Core/Quality/Tactical）→ Theme 分层 · 只回答「买什么」，买多少/何时买卖由 Layer 4 决定</div>",
     ]
 
     # 数据对齐（单行，运行质量信息，不占决策层）
