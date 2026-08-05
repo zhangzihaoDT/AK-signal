@@ -55,7 +55,7 @@
 ## 国金账户可交易池（黑名单机制）
 
 - **默认全部可交易**，仅在实际交易中发现无法交易后加入黑名单（`config/guojin_tradable_blacklist.csv`）
-- 原白名单（116 只人工验证）已归档至 `config/guojin_tradable_verified_backup.csv`，仅作历史参考，不参与判定
+- 原白名单（116 只人工验证）已归档至 `config/_legacy/guojin_tradable_verified_backup.csv`，仅作历史参考，不参与判定
 - 实战维护命令：
   ```bash
   python src/main.py etf account-blacklist add --code 588000 --reason "科创板权限未开通"

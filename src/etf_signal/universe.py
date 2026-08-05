@@ -13,8 +13,6 @@ P0-B 交付物
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
@@ -27,15 +25,6 @@ DEFAULT_GATES = {
     "history": {"min_listed_days": 120, "min_valid_history_days": 60},
     "premium_risk": {"max_premium": 0.05},
 }
-
-
-def load_gate_config(config_dir: Path) -> dict[str, Any]:
-    import yaml
-    path = config_dir / "etf_universe.yaml"
-    if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    return {}
 
 
 def filter_u0_u1(master: pd.DataFrame) -> pd.DataFrame:
