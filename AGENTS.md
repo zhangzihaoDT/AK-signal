@@ -5,6 +5,7 @@
 - **Observation Layer（制造事实，不做决策）**：Layer① ETF Rotation、Layer② Theme Confirmation——产出客观观察（RPS/确认状态），不做买入判断；ETF RPS 相对全市场 ETF 横截面、行业 RPS 相对 124 申万行业横截面，**标尺不同不可直接对比**
 - **Decision Layer（消费事实，做决策）**：Layer③ Selection——只读 Layer①/② 已确认、已对齐、已落盘的事实，**禁止联网/重算（v0.4.3 固化）**，不制造新事实
 - 核心：**Observation 不做决策；Decision 不制造事实**。改 Observation 层规则必须过 Parity；Decision 层改动不得引入新数据源
+- **Fact 不可变**：Layer①/② 的数字是事实，Layer③ 只做 Policy 决策（筛选/拒绝/打分），**不得改写事实本身**。产物保留事实原值（如 ETF rps15），Policy 的接受/拒绝单独标注（recommended/reason）；若某规则要改变「事实」，必须上移为 Observation 层规则并过 Parity，禁止在 Layer③ 就地修正（反模式：`if industry_rps < 60: reject etf` 会制造「Layer① 说 91、Layer③ 说其实没有 91」的混乱）
 
 
 ## 信号日期语义（v0.4.3）

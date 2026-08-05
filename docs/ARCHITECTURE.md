@@ -23,6 +23,26 @@ Decision Layer               ── 消费事实，做决策
 - **两个 RPS 是不同横截面的观察**：ETF RPS 相对全市场 ETF（Layer①），行业 RPS 相对 124 申万行业（Layer②）——都是 Observation 的事实，标尺不同，不可直接对比；Layer③ 消费它们时也不混用。
 - **规则上不可越界**：Observation 层的任何改动（RPS 算法、确认阈值）只改变「事实」，必须通过 Parity 验证；Decision 层不应当产生事实，因此**禁止联网/重算**（v0.4.3 已固化）。
 
+### Fact 与 Policy 边界（Fact 不可变）
+
+Layer①/② 产出的每个数字都是**事实**，Layer③ 不得改写它们：
+
+```text
+Layer①（Fact）   软件ETF RPS = 93、电力ETF RPS = 91   → 只是事实，没说买
+Layer②（Fact）   AI Theme = Confirmed、Quality = Confirmed → 只是事实，没说买
+Layer③（Policy） 消费 Fact A + Fact B + 配置 + 策略规则
+                  → 输出 BUY / 推荐 电力ETF             → 第一次出现「应该买什么」
+```
+
+**铁律：Layer③ 不修改 Fact，只做 Policy 决策。**
+
+- 筛选/拒绝/打分是 **Policy**，不是对事实的修正。`电力ETF RPS=91` 永远是 91；Layer③ 只是决定「这个事实是否通过我的策略门槛」。
+- **反模式**：若在 Layer③ 写 `if industry_rps < 60: reject etf`，实际是在用 Layer② 的事实去改 Layer① 的事实——造成「Layer① 说 91、Layer③ 说其实没有 91」的语义混乱。
+- **落地要求**：
+  1. 产物必须**保留事实原值**（ETF 的 rps15 等），Policy 的接受/拒绝单独标注（recommended / reason），不与事实混淆。
+  2. 若某个 Policy 确实要改变「事实」本身（例如某阈值影响 RPS 计算），必须把它上移为 Observation 层的规则，并过 Parity；不得在 Layer③ 就地改写。
+  3. Layer③ 的阈值（趋势门、流动性、rps_min）是**策略参数**（config/strategies.yaml），不是对 Observation 口径的修正。
+
 ## 架构
 
 ```
