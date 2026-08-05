@@ -125,6 +125,9 @@ def render_confirmation_report(
         "<h1>② 主题确认（Theme Confirmation）</h1>",
         f"<div class='subtitle'>报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · "
         f"主题确认因子：SW 行业焦点组（{len(focus_df)} 个，核心 {n_core} · 相关 {n_rel}），按 Bucket（Core/Quality）→ Theme 分层</div>",
+        "<div class='judgment'><b>口径说明：</b>本报告的行业 RPS15 是<b>相对 124 个申万二级行业横截面</b>的百分位（Layer②）；"
+        "Layer③ 的 ETF 候选使用<b>相对全市场 ETF 横截面</b>的 RPS（Layer①），两者标尺不同，不可直接对比。"
+        "主题确认 = 任一焦点行业 RPS15≥80（存在性判定），不要求全部行业走强——请结合上方「确认状态（广泛/窄幅）」阅读。</div>",
     ]
 
     # ══════════════════ SECTION 1: 群共振 ══════════════════

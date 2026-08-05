@@ -155,6 +155,15 @@ def render_selection_html(
             cov_txt += f"<br><small style='color:#C62828'>缺失/不可用 {len(degraded)}：{'、'.join(degraded)}</small>"
         parts.append(f"<div class='align-line'>{cov_txt}</div>")
 
+    # 口径说明：ETF RPS 与行业 RPS 是不同横截面，不可直接对比
+    parts.append(
+        "<div class='insight' style='border-left-color:#D79A36'><b>口径说明：</b>"
+        "ETF 的 RPS15/20/60 是<b>相对全市场 ETF 横截面</b>的百分位（Layer① rotation）；"
+        "行业的 RPS15 是<b>相对 124 个申万二级行业横截面</b>的百分位（Layer②）。"
+        "两者标尺不同，<b>不可直接对比</b>。主题确认 = 任一焦点行业 RPS15≥80（存在性判定）；"
+        "ETF 候选按 ETF 自身动量（趋势门）+ 主题确认选出，<b>不要求 ETF 对应行业也确认</b>。"
+        "因此可能出现「行业弱势但对应 ETF 相对强势」的组合——这是两层信号解耦的固有特性，不代表行业层面已转强。</div>")
+
     # 配置降级提示：未注册 theme / 跨主题资产（不参与确认门控，仅作状态标记）
     config_issues = (meta or {}).get("config_issues") or {}
     if config_issues:
