@@ -197,3 +197,15 @@ make test             # 全部测试
   - **修正后指标（此前稀疏 NAV 高估了年化/Sharpe/Calmar）**：AI-20 累计 +15.9% 年化 6.5% Sharpe 0.49 Calmar 0.44；AI-MA +26.3% 10.6% 0.74 0.71；HC-20 +6.8% 2.9% 0.78 0.70（回撤 -4.1% 最小）；Core+Quality-A +30.1% 12.0% 0.66 0.56；B +19.8% 8.1% 0.62 0.62
   - 主题贡献（Core+Quality-B）：AI 18.6%（70 笔）+ HC 4.9%（33 笔）≈ 总收益 23%
 - 命令：`python src/main.py backtest portfolio --signals <parquet> [--benchmark sh000300] [--modes A,B] [--fee 0.05 --slippage 0.05]`；`python src/main.py data benchmark refresh --symbol sh000300`
+
+## v0.6.1 Strategy Specification（src/common/spec/）
+
+- **定位**：统一策略规格事实源——「代码定义规则、配置定义策略、产物记录来源、回测验证变化」
+- **Strategy = Strategy Specification + Rule Implementation + Execution Semantics + Validation Evidence**；config 单独不等于完整 Strategy（见 `docs/STRATEGY_SPEC.md`）
+- **配置分层**：`themes_two_directions.yaml`（主题） / `stock_universe.yaml`（资产池） / `strategies.yaml`（主题级 entry/exit + strategy_id） / `indicators.yaml`（RPS 窗口/信号门限/确认阈值） / `execution.yaml`（fee/slippage/model） / `portfolio.yaml`（资金/持仓/权重）
+- **统一 Loader**（业务代码不直接读 YAML，frozen typed + Schema 校验，生产路径无隐藏默认值）：`load_strategy_spec / load_indicator_spec / load_execution_spec / load_portfolio_spec`
+- **Hash 边界**：`config_hash`=全部策略配置（order-independent）；`universe_hash`=实际资产集合（排序）；`rule_version`=v0.6.1（算法变化才改）
+- **Provenance**：trades 带 `strategy_id / universe_hash / universe_config_hash / entry_score`；portfolio 资金参数来自 config（fee 5bp/slippage 5bp）
+- **已迁移的硬编码**：ETF 趋势门（signal.py 80/60）、RPS 窗口（rotation.py 15/20/60）、Selection 门限（qualified 70 / gate states / min amount）、confirmation 90/80/60 → 均从 indicators.yaml 读取；backtest entry.rps15_min / portfolio 资金参数 → 从 strategies/portfolio/execution.yaml 读取
+- **Parity 已验证**：Daily（20260803/20260731）、Trade（AI fixed_20 n=121 win 50.4%）、Portfolio（5 条 NAV 线）与迁移前完全一致
+- 命令：`python src/main.py ...` 行为不变；改策略参数只改 config、跑 Parity 验证

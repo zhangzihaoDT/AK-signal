@@ -1,7 +1,10 @@
 # AKSignal 整体架构
 
-> 版本：v0.4.3（多主题化）
-> 日期：2026-08-03
+> 版本：v0.6.1（Strategy Specification 统一）
+> 日期：2026-08-05
+>
+> 策略层：所有可实验参数收敛到 config/（themes/universes/strategies/indicators/execution/portfolio），
+> 由 src/common/spec 统一 Loader + Schema 校验；算法/执行语义留代码。详见 docs/STRATEGY_SPEC.md。
 
 ## 架构
 

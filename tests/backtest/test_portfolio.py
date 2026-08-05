@@ -183,3 +183,39 @@ class TestConstruction:
         ])
         top2 = _top_n_trades(trades, 2)
         assert set(top2["entity_code"]) == {"A", "B"}
+
+
+class TestSpecDrivenBehavior:
+    """行为来自统一 Strategy Specification，不来自代码硬编码。"""
+
+    def test_entry_threshold_from_config(self):
+        from src.etf_signal.signal import compute_trend_state
+        # 阈值来自 config/indicators.yaml（strong=80 / watch=60）
+        assert compute_trend_state(80.0, 50, 1.0, 2.0, True, True) == "BUY_CANDIDATE"
+        assert compute_trend_state(80.0, 50, 1.0, 2.0, False, False) == "STRONG_WATCH"
+        assert compute_trend_state(79.0, 50, 1.0, 2.0, False, False) == "WATCH"
+        assert compute_trend_state(50.0, 50, 1.0, 2.0, False, False) == "OUT_OF_SCOPE"
+
+    def test_trades_carry_provenance(self):
+        from src.backtest.portfolio.simulate import load_strategies, strategy_trades
+        cfg = load_strategies()["ai_20"]
+        signals = pd.DataFrame([
+            {"trade_date": "20240102", "layer": "1", "entity_type": "etf",
+             "entity_code": "512480", "theme": "ai_infrastructure",
+             "trend_state": "BUY_CANDIDATE", "rps15": 90.0},
+            {"trade_date": "20240102", "layer": "2", "theme": "ai_infrastructure",
+             "confirmation_status": "观察"},
+        ])
+        trades = strategy_trades(signals, cfg)
+        assert "strategy_id" in trades.columns
+        assert "universe_hash" in trades.columns
+
+    def test_fee_from_execution_spec(self):
+        from src.common.spec.loaders import load_execution_spec
+        assert load_execution_spec().fee_pct == 0.05
+        assert load_execution_spec().slippage_pct == 0.05
+
+    def test_max_positions_from_portfolio_spec(self):
+        from src.common.spec.loaders import load_portfolio_spec
+        assert load_portfolio_spec().max_positions == 5
+        assert load_portfolio_spec().deploy_ratio == 1.0
