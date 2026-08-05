@@ -1,0 +1,8 @@
+# 交易执行假设（v0.6.1）— 执行模型选择与成本假设进 config；撮合实现留代码
+
+execution:
+  model: next_open
+  fee_bps: 5                 # 手续费（基点，单边）
+  slippage_bps: 5            # 滑点（基点，单边）
+  no_leverage: true
+  no_pyramiding: true

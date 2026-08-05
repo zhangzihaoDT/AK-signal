@@ -1,0 +1,13 @@
+# 组合构建参数（v0.6.1）— 组合层配置；Entry/Exit 策略参数在 strategies.yaml，不混入本文件
+
+portfolio:
+  initial_capital: 1000000
+  max_positions: 5
+  position_sizing: equal_weight
+  max_weight_per_asset: 0.20
+  deploy_ratio: 1.00
+
+allocations:
+  core_quality:
+    ai_infrastructure_weight: 0.60
+    high_cashflow_weight: 0.40

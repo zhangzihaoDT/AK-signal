@@ -1,32 +1,60 @@
-# v0.6 主题级策略配置
+# v0.6.1 主题级策略规格（Strategy Specification）
 #
 # 架构结论：策略规则按主题配置，不共用全局 EntryPolicy / ExitPolicy。
-# v0.5.2 四组矩阵证明：AI 用 fixed_20/MA20，HC 只用 fixed_20（MA 不适合）。
-#
-# weight 用于 Core+Quality 综合组合 Mode B（AI 60% / HC 40%）；
-# Mode A（全组合统一等权）忽略 weight，全部按 1/max_positions 分配。
+# 每个策略有稳定 strategy_id（进入历史信号与回测产物的 Provenance）。
+# 算法语义（状态转换如何识别、MA 如何计算等）留在代码；这里只放策略参数。
 
 strategies:
   ai_20:
+    strategy_id: ai_fixed_20
     label: AI-20
     theme: ai_infrastructure
     universe_mode: configured
-    exit_policy: fixed_horizon
-    horizon: 20
-    weight: 0.6        # Mode B 的 AI 权重
+
+    entry:
+      policy: trend_confirmation
+      rps15_min: 80
+      trend_score_min: 70
+      allowed_trend_states: ["S", "A"]
+
+    exit:
+      policy: fixed_horizon
+      horizon: 20
+
+    weight: 0.6        # Core+Quality Mode B 的 AI 权重
 
   ai_ma:
+    strategy_id: ai_ma20
     label: AI-MA
     theme: ai_infrastructure
     universe_mode: configured
-    exit_policy: ma_exit
-    ma_window: 20
+
+    entry:
+      policy: trend_confirmation
+      rps15_min: 80
+      trend_score_min: 70
+      allowed_trend_states: ["S", "A"]
+
+    exit:
+      policy: ma_exit
+      ma_window: 20
+
     weight: 0.6        # 对照实验（不进综合组合主策略）
 
   hc_20:
+    strategy_id: hc_fixed_20
     label: HC-20
     theme: high_cashflow
     universe_mode: configured
-    exit_policy: fixed_horizon
-    horizon: 20
+
+    entry:
+      policy: trend_confirmation
+      rps15_min: 80
+      trend_score_min: 70
+      allowed_trend_states: ["S", "A"]
+
+    exit:
+      policy: fixed_horizon
+      horizon: 20
+
     weight: 0.4        # Mode B 的 HC 权重

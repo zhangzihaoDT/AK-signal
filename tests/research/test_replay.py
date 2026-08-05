@@ -28,7 +28,7 @@ class TestSchema:
         assert len(a) == 16
 
     def test_rule_version(self):
-        assert schema.RULE_VERSION == "v0.4.3"
+        assert schema.RULE_VERSION == "v0.6.1"
 
 
 class TestParityFloat:
@@ -70,13 +70,13 @@ class TestCheckParity:
         return pd.DataFrame([
             {"layer": "1", "entity_type": "etf", "entity_code": "512480",
              "rps15": 90.0, "trend_state": "BUY_CANDIDATE", "selection_status": "", "recommended_action": "",
-             "rule_version": "v0.4.3", "config_hash": "abc"},
+             "rule_version": "v0.6.1", "config_hash": "abc"},
             {"layer": "2", "entity_type": "industry", "entity_code": "801161.SI",
              "rps15": 61.0, "confirmation_status": "中性", "selection_status": "", "recommended_action": "",
-             "rule_version": "v0.4.3", "config_hash": "abc"},
+             "rule_version": "v0.6.1", "config_hash": "abc"},
             {"layer": "3", "entity_type": "stock", "entity_code": "600900",
              "selection_status": "RECOMMENDED", "recommended_action": "BUY",
-             "rule_version": "v0.4.3", "config_hash": "abc"},
+             "rule_version": "v0.6.1", "config_hash": "abc"},
         ])
 
     def _formal(self):
@@ -135,7 +135,7 @@ class TestSingleDateReplayIntegration:
         df = engine.replay_single_date("20260803", out_dir=None)
         assert not df.empty
         assert df["signal_origin"].iloc[0] == "replayed"
-        assert df["rule_version"].iloc[0] == "v0.4.3"
+        assert df["rule_version"].iloc[0] == "v0.6.1"
         r = parity.check_parity("20260803", df)
         assert r["ok"] is True, r
         assert r["layers"]["layer1"]["matched"] > 1000
@@ -229,7 +229,7 @@ def _fake_signal_row(trade_date: str, code: str = "512480") -> dict:
         "trade_date": trade_date, "signal_origin": "replayed", "entity_type": "etf",
         "entity_code": code, "layer": "1", "rps15": 90.0, "trend_state": "BUY_CANDIDATE",
         "source_trade_date": trade_date, "data_status": "current",
-        "rule_version": "v0.4.3", "config_hash": "x",
+        "rule_version": "v0.6.1", "config_hash": "x",
     })
     return row
 

@@ -1,0 +1,30 @@
+# 指标参数（v0.6.1）— 参数进 config，算法留代码
+#
+# 职责：RPS/MA 窗口、信号门限（ETF 趋势门、个股合格线、Selection 候选态）
+# 代码仍负责：如何计算 RPS / 趋势分 / 横截面百分位 / 状态转换
+
+rps:
+  short_window: 15
+  medium_window: 20
+  long_window: 60
+
+moving_average:
+  default_window: 20
+
+signal_gates:
+  etf:
+    # ETF 趋势门（BUY_CANDIDATE / STRONG_WATCH / WATCH）
+    strong_threshold: 80
+    watch_threshold: 60
+    gate_states: ["BUY_CANDIDATE", "STRONG_WATCH"]   # Selection 候选趋势态
+    watch_gate_states: ["BUY_CANDIDATE", "STRONG_WATCH", "WATCH"]  # 观察池兜底
+    min_amount: 50000000                              # ETF 流动性门槛（元）
+  stock:
+    # 个股趋势合格线（Selection 三层状态）
+    qualified_score: 70
+    allowed_trend_states: ["S", "A"]
+
+confirmation:
+  strong_threshold: 90
+  observe_threshold: 80
+  neutral_threshold: 60
