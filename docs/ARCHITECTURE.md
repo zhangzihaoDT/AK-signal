@@ -36,12 +36,18 @@ Layer③（Policy） 消费 Fact A + Fact B + 配置 + 策略规则
 
 **铁律：Layer③ 不修改 Fact，只做 Policy 决策。**
 
+**禁止 Layer③ 覆盖、重算或冒充 Observation 原始字段。**
+
 - 筛选/拒绝/打分是 **Policy**，不是对事实的修正。`电力ETF RPS=91` 永远是 91；Layer③ 只是决定「这个事实是否通过我的策略门槛」。
-- **反模式**：若在 Layer③ 写 `if industry_rps < 60: reject etf`，实际是在用 Layer② 的事实去改 Layer① 的事实——造成「Layer① 说 91、Layer③ 说其实没有 91」的语义混乱。
+- **基于行业弱势拒绝 ETF 是合法 Policy**。例如 `if industry_rps < 60: reject etf` 合法——但它必须：
+  1. **保留原始 ETF RPS**（91 不被改写、不置空、不重算）；
+  2. **显式记录拒绝规则**（reason 写明「行业弱势 RPS<60 拒绝」，而非让报告看起来像 ETF 本身不强）。
+- **真正的反模式**：把「策略拒绝」表现为「事实修正」——例如覆盖 rps15 为 None、用 Layer② 事实重算 Layer① 字段、或让报告暗示「Layer① 说的 91 其实不存在」。这会制造「Layer① 说 91、Layer③ 说其实没有 91」的语义混乱。
 - **落地要求**：
   1. 产物必须**保留事实原值**（ETF 的 rps15 等），Policy 的接受/拒绝单独标注（recommended / reason），不与事实混淆。
   2. 若某个 Policy 确实要改变「事实」本身（例如某阈值影响 RPS 计算），必须把它上移为 Observation 层的规则，并过 Parity；不得在 Layer③ 就地改写。
-  3. Layer③ 的阈值（趋势门、流动性、rps_min）是**策略参数**（config/strategies.yaml），不是对 Observation 口径的修正。
+  3. Layer③ 的阈值（趋势门、流动性、rps_min、行业弱势拒绝）是**策略参数**（config/strategies.yaml），不是对 Observation 口径的修正。
+  4. 不同策略可对同一事实给出不同 Policy（多策略兼容）：A 策略拒绝、B 策略接受，均不改变共享事实——「Fact 不可变」与「支持多策略」由此兼容。
 
 ## 架构
 
