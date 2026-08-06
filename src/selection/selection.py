@@ -595,12 +595,22 @@ def select_stock_watchlist(
         risk_flags = [f.strip() for f in risk_flags_raw.split("，") if f.strip()] if risk_flags_raw else []
         risk_gate_passed = action_txt not in ("风险警戒", "剔除观察") and not risk_flags
         reason_codes: list[str] = []
-        if state == STOCK_STATE_RECOMMENDED:
-            reason_codes = ["trend_qualified", "theme_confirmed"]
-        elif state == STOCK_STATE_QUALIFIED:
-            reason_codes = ["trend_qualified"]
+        # stale 降级（Policy）：数据滞后时不给出推荐信号（分数基于过期数据，不代表当前趋势）
+        lag = _tv("lag_days")
+        if data_status == "stale" and state in (STOCK_STATE_RECOMMENDED, STOCK_STATE_QUALIFIED):
+            state = STOCK_STATE_WATCH
+            recommended = False
+            reason_codes = ["stale_data"]
+            reason_txt = f"数据滞后 {lag or '?'} 天，信号降级" if lag else "数据滞后，信号降级"
         else:
-            reason_codes = ["below_trend_gate"] if risk_gate_passed else ["risk_warning"]
+            recommended = state == STOCK_STATE_RECOMMENDED
+            if state == STOCK_STATE_RECOMMENDED:
+                reason_codes = ["trend_qualified", "theme_confirmed"]
+            elif state == STOCK_STATE_QUALIFIED:
+                reason_codes = ["trend_qualified"]
+            else:
+                reason_codes = ["below_trend_gate"] if risk_gate_passed else ["risk_warning"]
+            reason_txt = action_txt
         cand = AssetCandidate(
             code=item.asset.symbol,
             name=item.asset.name,
@@ -617,7 +627,7 @@ def select_stock_watchlist(
             strategy_score=score_trend,  # 个股策略内排序 = 自身趋势分（不跨 ETF 比较）
             reason_codes=reason_codes,
             tradable=True,  # 黑名单机制：未确认不可交易即默认可交易
-            recommended=state == STOCK_STATE_RECOMMENDED,
+            recommended=recommended,
             state=state,
             data_status=data_status,
             selection_status="available",
@@ -627,7 +637,7 @@ def select_stock_watchlist(
             last_trend_qualified_date=change["last_trend_qualified_date"],
             risk_gate_passed=risk_gate_passed,
             risk_flags=risk_flags,
-            reason=action_txt,
+            reason=reason_txt,
         )
         _append_by_role(cand, role, leaders, high_beta, equipment)
 

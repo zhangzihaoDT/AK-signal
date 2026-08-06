@@ -9,7 +9,7 @@ SRC_MAIN = src/main.py
 	etf-retry-uncovered \
 	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-report sw-rps-confirm \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown \
-	select select-inputs select-offline \
+	select select-inputs select-inputs-online select-offline \
 	replay-single replay-parity replay-range event-study \
 	backtest-trades backtest-sensitivity backtest-matrix backtest-portfolio backtest-construction \
 	test install clean
@@ -116,6 +116,9 @@ sw-rps-confirm: ## [Layer ②] 主题确认（Theme Confirmation：行业证据�
 
 select-inputs: ## 构建个股趋势输入产物（离线读缓存，确定性；--allow-online-fetch 可手工补数）
 	$(PYTHON) $(SRC_MAIN) select inputs
+
+select-inputs-online: ## 个股行情在线补数（手工刷新 raw 缓存；run-day 离线不抓个股）
+	$(PYTHON) $(SRC_MAIN) select inputs --allow-online-fetch
 
 select: ## Layer ③ 交易标的筛选（读 Layer①/② + 预计算个股趋势 → 候选对象 JSON + HTML；run-day 默认流程亦含，默认禁止联网）
 	$(PYTHON) $(SRC_MAIN) select run

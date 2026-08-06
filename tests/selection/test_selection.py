@@ -299,3 +299,24 @@ class TestAmountScore:
         a2 = _amount_score(130_000_000, amt)
         assert a1 == a2
         assert 0 < a1 < 100
+
+
+class TestStaleDegradation:
+    def test_stale_does_not_recommend(self):
+        from src.selection.selection import select_stock_watchlist
+        from src.selection.universe import UniverseItem
+        from src.trend_engine.asset import Asset
+        item = UniverseItem(asset=Asset(symbol="600900", name="长江电力", market="CN", category="leader"),
+                            bucket="core", bucket_label="核心", theme="high_cashflow",
+                            theme_label="高现金流资产", tier="leader", tier_label="龙头")
+        trend = pd.DataFrame([{
+            "symbol": "600900", "data_status": "stale", "score_trend": 100.0,
+            "watch_level": "A", "action": "重点观察", "risk_flags": "", "lag_days": 2,
+        }])
+        leaders, _, _ = select_stock_watchlist([item], "high_cashflow", trend, theme_confirmed=True)
+        c = leaders[0]
+        assert c.state == "WATCH"          # stale → 降级
+        assert c.recommended is False
+        assert "stale_data" in c.reason_codes
+        assert c.score_trend == 100.0      # 事实原值保留（不改分）
+        assert "滞后" in c.reason

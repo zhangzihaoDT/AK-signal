@@ -81,6 +81,8 @@
 - ETF 候选动态从 Layer① rotation 全市场按 `themes_two_directions.yaml` 主题关键词选（趋势门控 + 流动性 + 评分 + 去重）
 - **个股趋势读取预计算产物**：`outputs/selection_inputs/stock_metrics_{trade_date}.parquet`（统一 schema：asset_id/trade_date/close/return_5d/return_20d/trend_score/score_trend/watch_level/action/risk_flags/volatility_20d/drawdown_20d/source/data_status/source_trade_date/lag_days）
 - **Selection 默认禁止联网（v0.4.3）**：Layer③ 是纯消费/纯决策层，只读 Layer① ETF rotation + Layer② confirmation + 预计算个股趋势；缺个股输入不自动重试，按 `data_status=missing / selection_status=unavailable / reason=stock_trend_input_missing` 局部降级，不阻塞整体
+- **个股行情需显式补数**：run-day 的 `select-inputs` 离线（只读 `data/raw/CN_*.csv` 缓存），**不抓个股行情**——ETF 每日更新但个股缓存可能停留在上一次在线补数的日期。需手动 `make select-inputs-online`（`select inputs --allow-online-fetch`）刷新个股 raw，否则个股信号会 stale（如长江电力补数前 08-03→08-05 下跌被旧数据判成 100 分）
+- **stale 降级（Policy）**：`data_status=stale` 时个股不给出 RECOMMENDED/QUALIFIED，降为 WATCH 并标记 `reason_codes=["stale_data"]`、reason「数据滞后 N 天，信号降级」——分数（事实原值）保留但推荐被抑制
 - **覆盖率报告**：selection JSON/HTML 带 `coverage`（etf_reused / stock_inputs_loaded / selection_coverage / selection_coverage_pct / degraded_assets / online_fetches）
 - **在线补数仅显式**：`select run --allow-online-fetch` 或 `select inputs --allow-online-fetch`（轻量重试：初试+1 次、缓存优先、无缓存记 missing）；run-day 始终离线
 - 个股趋势按 `as_of_date = trade_date` 截断，避免使用目标日期之后的盘中/最新数据（look-ahead）
@@ -103,6 +105,7 @@ make run-day          # 每日全流程
 make etf-pipeline     # 仅 ETF 发现链路
 make sw-rps-run-day   # SW-RPS 全流程：update(含probe)→calculate→report→confirm
 make select-inputs    # 构建个股趋势输入（离线读缓存）
+make select-inputs-online  # 个股行情在线补数（run-day 离线不抓个股）
 make select           # Layer ③ 交易候选（读预计算趋势，默认禁止联网）
 make replay-single    # v0.5 单日期历史信号重放（DATE=YYYYMMDD）
 make replay-parity    # v0.5 重放 + 与正式产物一致性校验
