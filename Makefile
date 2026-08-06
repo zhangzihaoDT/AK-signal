@@ -3,7 +3,7 @@ SRC_MAIN = src/main.py
 
 .DEFAULT_GOAL = help
 
-.PHONY: help run-day run-day-check \
+.PHONY: help run-day run-day-offline run-day-check \
 	etf-bootstrap etf-bootstrap-core etf-update etf-calculate \
 	etf-classify etf-layer1 etf-watchlist etf-account etf-account-blacklist etf-card etf-pipeline \
 	etf-retry-uncovered \
@@ -25,7 +25,7 @@ etf-retry-uncovered: ## 专项重试未覆盖 ETF（分批+熔断器重置）
 
 # ── 每日市场扫描（唯一入口） ──────────────────────────────────────
 
-run-day: ## 每日全流程：ETF 信号 → SW-RPS 信号 → 个股趋势输入 → Layer③ 候选 → Final Validation
+run-day: ## 每日全流程：Observation 自动联网构建（ETF/行业/个股）→ Decision 离线消费 → Final Validation
 	$(MAKE) etf-update
 	$(MAKE) sw-rps-update
 	$(MAKE) etf-calculate
@@ -33,7 +33,19 @@ run-day: ## 每日全流程：ETF 信号 → SW-RPS 信号 → 个股趋势输�
 	$(MAKE) etf-pipeline
 	$(MAKE) sw-rps-report
 	$(MAKE) sw-rps-confirm
-	$(MAKE) select-inputs
+	$(MAKE) select-inputs-online   # Observation 构建：个股行情自动增量更新（不依赖手工补数）
+	$(MAKE) select                 # Decision 消费：离线、确定性
+	$(MAKE) run-day-check
+
+run-day-offline: ## 离线重放/CI：只读已落盘 Observation，不联网抓取（严格重放请用 research replay）
+	$(MAKE) etf-update
+	$(MAKE) sw-rps-update
+	$(MAKE) etf-calculate
+	$(MAKE) sw-rps-calculate
+	$(MAKE) etf-pipeline
+	$(MAKE) sw-rps-report
+	$(MAKE) sw-rps-confirm
+	$(MAKE) select-inputs          # 离线：仅用缓存，缺失/过期由 stale 降级兜底
 	$(MAKE) select
 	$(MAKE) run-day-check
 

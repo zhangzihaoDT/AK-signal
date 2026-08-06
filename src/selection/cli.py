@@ -436,12 +436,23 @@ def cmd_inputs(args: argparse.Namespace) -> None:
 
     universe_items = load_universe_items(stock_universe_path())
     allow_online = getattr(args, "allow_online_fetch", False)
-    trend_inputs.build_stock_metrics(
+    df = trend_inputs.build_stock_metrics(
         universe_items,
         trade_date=trade_date,
         offline=not allow_online,
         log_level=args.log_level,
     )
+    # Observation 新鲜度校验：stale/missing 记录到 run 警告，由 final-check 呈现
+    counts = df["data_status"].value_counts().to_dict() if not df.empty else {}
+    if counts.get("stale", 0) or counts.get("missing", 0):
+        from src.common import warnings as run_warnings
+        run_warnings.record(
+            "stock_inputs",
+            f"个股 Observation 新鲜度：{counts.get('stale', 0)} stale / {counts.get('missing', 0)} missing"
+            f"（{allow_online and 'online' or 'offline'} 构建）",
+        )
+        run_warnings.save_warnings(trade_date)
+        logger.warning("stock observation freshness: %d stale / %d missing", counts.get("stale", 0), counts.get("missing", 0))
 
 
 def cmd_universe(args: argparse.Namespace) -> None:

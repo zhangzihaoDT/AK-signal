@@ -36,8 +36,9 @@
 
 ## 每日运行（run-day）
 
-- **唯一入口**：`make run-day`（etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline → sw-rps-report → sw-rps-confirm → **select-inputs** → **select** → **run-day-check**）
+- **唯一入口**：`make run-day`（etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline → sw-rps-report → sw-rps-confirm → **select-inputs-online** → **select** → **run-day-check**）
 - **run-day 默认含 Layer ③**：selection 是 run-day 默认流程的固定环节；`make select` / `make select-offline` 保留为独立执行入口
+- **离线的是决策，不是每日数据生产**：run-day 的 Observation 构建（ETF/行业/**个股行情**）默认允许联网更新（`select-inputs-online` 自动增量抓取，不依赖手工补数）；Selection（Decision）阶段禁止联网。`make run-day-offline` 用于 CI/重放（个股仅读缓存，stale 降级兜底）；严格历史重放用 `research replay`
 - **末端 Final Validation**（`make run-day-check` → `python src/main.py final-check`）：汇总 Layer①/②/③ 产物与 run 警告，输出最终结果
   - 成功：`Run completed successfully` + `trade_date / status / action / warnings`
   - 失败（产物缺失等）：`Run completed with errors` + errors 明细，退出码 1
@@ -81,7 +82,7 @@
 - ETF 候选动态从 Layer① rotation 全市场按 `themes_two_directions.yaml` 主题关键词选（趋势门控 + 流动性 + 评分 + 去重）
 - **个股趋势读取预计算产物**：`outputs/selection_inputs/stock_metrics_{trade_date}.parquet`（统一 schema：asset_id/trade_date/close/return_5d/return_20d/trend_score/score_trend/watch_level/action/risk_flags/volatility_20d/drawdown_20d/source/data_status/source_trade_date/lag_days）
 - **Selection 默认禁止联网（v0.4.3）**：Layer③ 是纯消费/纯决策层，只读 Layer① ETF rotation + Layer② confirmation + 预计算个股趋势；缺个股输入不自动重试，按 `data_status=missing / selection_status=unavailable / reason=stock_trend_input_missing` 局部降级，不阻塞整体
-- **个股行情需显式补数**：run-day 的 `select-inputs` 离线（只读 `data/raw/CN_*.csv` 缓存），**不抓个股行情**——ETF 每日更新但个股缓存可能停留在上一次在线补数的日期。需手动 `make select-inputs-online`（`select inputs --allow-online-fetch`）刷新个股 raw，否则个股信号会 stale（如长江电力补数前 08-03→08-05 下跌被旧数据判成 100 分）
+- **个股行情由 run-day 自动更新**：`make run-day` 的 `select-inputs-online` 自动增量抓取个股行情（Observation 构建，不依赖手工补数）；`make run-day-offline` 或 `select inputs` 仅读缓存。曾出现个股缓存停更（如长江电力 08-03→08-05 下跌被旧数据判成 100 分），stale 降级兜底后需重跑 run-day 自动补数
 - **stale 降级（Policy）**：`data_status=stale` 时个股不给出 RECOMMENDED/QUALIFIED，降为 WATCH 并标记 `reason_codes=["stale_data"]`、reason「数据滞后 N 天，信号降级」——分数（事实原值）保留但推荐被抑制
 - **覆盖率报告**：selection JSON/HTML 带 `coverage`（etf_reused / stock_inputs_loaded / selection_coverage / selection_coverage_pct / degraded_assets / online_fetches）
 - **在线补数仅显式**：`select run --allow-online-fetch` 或 `select inputs --allow-online-fetch`（轻量重试：初试+1 次、缓存优先、无缓存记 missing）；run-day 始终离线
