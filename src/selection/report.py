@@ -91,11 +91,18 @@ def _trend_qualified_label(score: Any, trend_status: Any) -> str:
     return "已通过" if passed else "未通过"
 
 
+def _trend_strength(it: dict[str, Any]) -> Any:
+    """资产真正的趋势强度值：ETF 用 RPS15（相对全市场 ETF 百分位），个股用 score_trend（0-100 趋势分）。"""
+    if it.get("asset_type") == "stock":
+        return it.get("score_trend")
+    return it.get("rps15")
+
+
 def _asset_rows(parts: list[str], items: list[dict[str, Any]]) -> None:
     if not items:
         parts.append("<div class='empty'>—</div>")
         return
-    parts.append("<table><tr><th>代码</th><th>名称</th><th>状态</th><th class='num'>RPS15</th><th class='num'>RPS20</th><th class='num'>RPS60</th><th class='num'>趋势分</th><th>趋势</th><th>说明</th></tr>")
+    parts.append("<table><tr><th>代码</th><th>名称</th><th>状态</th><th class='num'>RPS15</th><th class='num'>RPS20</th><th class='num'>RPS60</th><th class='num'>趋势值*</th><th>趋势</th><th>说明</th></tr>")
     for it in items:
         parts.append(
             f"<tr><td>{it.get('code', '')}</td><td>{it.get('name', '')}</td>"
@@ -103,7 +110,7 @@ def _asset_rows(parts: list[str], items: list[dict[str, Any]]) -> None:
             f"<td class='num'>{_num(it.get('rps15'))}</td>"
             f"<td class='num'>{_num(it.get('rps20'))}</td>"
             f"<td class='num'>{_num(it.get('rps60'))}</td>"
-            f"<td class='num'>{_num(it.get('score_trend'))}</td>"
+            f"<td class='num'>{_num(_trend_strength(it))}</td>"
             f"<td>{it.get('trend_status', '')}</td>"
             f"<td>{it.get('reason', '')}</td></tr>")
     parts.append("</table>")
@@ -292,7 +299,7 @@ def render_selection_html(
                 for section_key, section_label in [("core_etf", "核心 ETF（动态候选）"), ("sub_industry_etf", "细分行业 ETF（动态候选）")]:
                     parts.append(f"<h4>{section_label}</h4>")
                     _asset_rows(parts, sub.get(section_key, []))
-            parts.append('</details>')
+            parts.append("</details>")
     parts.append('</div>')
 
     # ── 第三层：核心资产监控（固定池全量，独立章节） ───────────────
@@ -331,6 +338,10 @@ def render_selection_html(
         parts.append("<div class='empty'>— 无固定观察池标的</div>")
     parts.append('</div>')
 
+    parts.append(
+        "<div style='font-size:11px;color:var(--zh-muted);margin:0 0 8px'>"
+        "* 趋势值口径：ETF 显示 RPS15（相对全市场 ETF 横截面百分位）；个股显示 score_trend（trend_engine 0-100 趋势分）。"
+        "两者标尺不同，不可直接对比。</div>")
     parts.append(f'<hr><div style="text-align:center;font-size:12px;color:var(--zh-muted);padding:20px 0">AKsignal · Layer ③ 多主题交易标的筛选 · 报告自动生成于 {now_str}</div>')
     parts.append("</div></body></html>")
 
