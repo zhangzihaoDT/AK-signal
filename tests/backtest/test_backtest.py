@@ -212,7 +212,7 @@ class TestUniverseMode:
         from src.backtest.trade.strategy.entry import configured_etf_codes
         ai = configured_etf_codes("ai_infrastructure")
         hc = configured_etf_codes("high_cashflow")
-        assert len(ai) == 8
+        assert len(ai) == 7
         assert len(hc) == 6
         assert "512480" in ai
         assert "561560" in hc

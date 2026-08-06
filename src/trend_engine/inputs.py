@@ -28,7 +28,11 @@ from src.trend_engine.engine import compute_trends
 logger = logging.getLogger("trend_engine.inputs")
 
 # 股票 tier（ETF 的 theme_etf / sub_industry_etf 不进入个股趋势产物）
-STOCK_TIERS = {"leader", "high_beta", "equipment_upstream"}
+STOCK_TIERS = {
+    "leader", "high_beta", "equipment_upstream",
+    "computing_chip", "optical_interconnect", "server_network",
+    "semiconductor_equipment", "semiconductor_components",
+}
 
 # 统一产物 schema（Layer③ 消费契约；asset_id 与 symbol 同值，symbol 供 selection 匹配）
 STOCK_METRICS_COLUMNS = [

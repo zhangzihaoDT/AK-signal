@@ -75,12 +75,15 @@
 ## Layer ③ 交易标的筛选（selection）
 
 - **定位**：执行对象压缩层——把 Layer①/② 结论压缩成「这个已确认主题用哪只 ETF、哪类股票交易」；不回答买多少/何时买卖（Layer 4）
-- **核心输出是结构化候选对象**（JSON），HTML 只是可视化
+- **双层架构（v0.5.0）**：
+  - **Selection Engine**（`selection.py build_candidates`，纯算法）：制造事实 + Policy 决策（主题确认/ETF 候选/个股状态/表达方式/primary），输出候选对象结构（core_etf/sub_industry_etf/stock_watchlist/stock_candidates/etf_pool/observing_industries/...）
+  - **Recommendation Builder**（`recommendation.py build_recommendation`，纯排版）：**不制造任何新事实**，把引擎输出按「投资决策顺序」重组为推荐结构——顶层 action + 每主题 5 块：① `today` 今天怎么做（action/expression/确认状态）→ ② `why` 为什么（观察区行业 + 参与率/HHI/Top3，未确认给「还差多少」距离）→ ③ `recommendation` 买什么（推荐 ETF + 个股）→ ④ `rationale` 为什么选它（ETF=RPS15+流动性；个股=趋势分）→ ⑤ `watchlist` 观察（未入选 + 逐个原因：流动性不足/未达趋势门/同类去重落选/风险警戒/数据滞后）。只重排版，不重算 RPS、不联网、不新筛选
+- **核心输出是结构化推荐对象**（JSON，`role: recommendation` / `version: 0.5.0`，含 `engine.version` 溯源），HTML 只是可视化
 - **多主题结构**：`layer3.buckets[].themes[]`（Core → AI基础设施 / Quality → 高现金流资产），逐主题独立确认与表达决策
 - **表达方式决策**基于 Layer② 上涨结构：广泛上涨→ETF、龙头主导→龙头个股、扩散→ETF核心+龙头卫星、未确认→仅观察
-- **确认机制显式化**：主题 confirmed = 任一焦点行业进入确认状态（`strength_level ∈ stock_selection.theme_confirm_states`，默认观察/强势）。为避免「20% 行业转强为何整主题确认」的误读，每主题输出 `confirmation_state`（BROAD_CONFIRMED / NARROW_CONFIRMED / WATCH / UNCONFIRMED）+ `confirm_evidence`（依据行业及 RPS15）+ `confirmation_breadth`（广泛/窄幅确认）；广度阈值（broad_fraction=0.5 / watch_proximity=70）在 config/indicators.yaml。**NARROW_CONFIRMED 语义**：主题仍开放整个资产池（存在性判定，不做子主题拆解），但表达决策显式标注「仅 X/N 行业支撑，宜观察」并压低表达强度（见 docs/STRATEGY_SPEC.md §7.1）
+- **确认机制显式化**：主题 confirmed = 任一焦点行业进入确认状态（`strength_level ∈ stock_selection.theme_confirm_states`，默认观察/强势）。为避免「20% 行业转强为何整主题确认」的误读，每主题输出 `confirmation_state`（BROAD_CONFIRMED / NARROW_CONFIRMED / WATCH / UNCONFIRMED）+ `confirm_evidence`（依据行业及 RPS15）+ `confirmation_breadth`（广泛/窄幅确认）+ `observing_industries`（进入观察区行业明细）；广度阈值（broad_fraction=0.5 / watch_proximity=70）在 config/indicators.yaml。**NARROW_CONFIRMED 语义**：主题仍开放整个资产池（存在性判定，不做子主题拆解），但表达决策显式标注「仅 X/N 行业支撑，宜观察」并压低表达强度（见 docs/STRATEGY_SPEC.md §7.1）
 - **个股准入与主题门控（Policy）**：`stock_selection` 参数在 config/strategies.yaml（qualified_score=70 / allowed_trend_states=[S,A] / theme_confirm_states=[观察,强势]）；`indicators.yaml` 只保留生成 strength_level 的 observe_threshold（Observation）——策略可调整「哪些状态算确认」，但不能改阈值定义
-- ETF 候选动态从 Layer① rotation 全市场按 `themes_two_directions.yaml` 主题关键词选（趋势门控 + 流动性 + 评分 + 去重）
+- ETF 候选动态从 Layer① rotation 全市场按 `themes_two_directions.yaml` 主题关键词选（趋势门控 + 流动性 + 评分 + 去重）；`etf_pool` 为全部关键词命中池（含未达趋势门/流动性不足/同类去重落选，供「⑤ 观察」展示未入选原因）
 - **个股趋势读取预计算产物**：`outputs/selection_inputs/stock_metrics_{trade_date}.parquet`（统一 schema：asset_id/trade_date/close/return_5d/return_20d/trend_score/score_trend/watch_level/action/risk_flags/volatility_20d/drawdown_20d/source/data_status/source_trade_date/lag_days）
 - **Selection 默认禁止联网（v0.4.3）**：Layer③ 是纯消费/纯决策层，只读 Layer① ETF rotation + Layer② confirmation + 预计算个股趋势；缺个股输入不自动重试，按 `data_status=missing / selection_status=unavailable / reason=stock_trend_input_missing` 局部降级，不阻塞整体
 - **个股行情由 run-day 自动更新**：`make run-day` 的 `select-inputs-online` 自动增量抓取个股行情（Observation 构建，不依赖手工补数）；`make run-day-offline` 或 `select inputs` 仅读缓存。曾出现个股缓存停更（如长江电力 08-03→08-05 下跌被旧数据判成 100 分），stale 降级兜底后需重跑 run-day 自动补数
@@ -89,6 +92,7 @@
 - **在线补数仅显式**：`select run --allow-online-fetch` 或 `select inputs --allow-online-fetch`（轻量重试：初试+1 次、缓存优先、无缓存记 missing）；run-day 始终离线
 - 个股趋势按 `as_of_date = trade_date` 截断，避免使用目标日期之后的盘中/最新数据（look-ahead）
 - 分层资产池：`config/stock_universe.yaml`（theme → tier → assets，bucket 由 themes_two_directions.yaml 推导），已废弃扁平 `stock_pool.csv`
+- **Parity 兼容**：replay 读引擎内存输出（结构未变）；parity `_selection_entity_map` 兼容新（recommendation/watchlist/monitoring）与旧（core_etf/stock_watchlist）两种 JSON 结构
 - 命令：
   ```bash
   make select-inputs   # 构建个股趋势输入产物（离线读缓存，确定性）
@@ -128,7 +132,7 @@ make test             # 全部测试
 - SW-RPS：`outputs/sw_industry_rps/sw_industry_rps_{date}.html`（+ `_latest.html` 指向最新）
 - Layer ② 主题确认：`outputs/sw_industry_rps/sw_industry_confirmation_{date}.html` + `data/processed/sw_industry/confirmation_{trade_date}.parquet`（含 data_status/source/coverage/generated_at，多主题 bucket/theme 行业证据共振/龙头广度/背离）
 - Layer ③ 个股趋势输入：`outputs/selection_inputs/stock_metrics_{trade_date}.parquet`（预计算趋势指标，Selection 只读此产物）
-- Layer ③ 交易候选：`outputs/selection/tradable_candidates_{date}.json`（结构化候选对象，`layer3.buckets[].themes[]`）+ `.html`（可视化）
+- Layer ③ 交易候选：`outputs/selection/tradable_candidates_{date}.json`（结构化推荐对象，`role: recommendation`，`layer3.buckets[].themes[]` 每主题 5 块：today/why/recommendation/rationale/watchlist）+ `.html`（投资建议可视化）
 
 ## v0.5 Research（src/research/）
 
