@@ -13,16 +13,13 @@ RULE_VERSION = "v0.6.1"
 
 @dataclass(frozen=True)
 class IndicatorSpec:
-    """指标与信号门限（参数进 config，算法留代码）。"""
+    """指标与趋势态生成阈值（Observation；Policy 参数在 EtfSelectionSpec / StrategySpec）。"""
     rps_short_window: int
     rps_medium_window: int
     rps_long_window: int
     ma_default_window: int
     etf_strong_threshold: float
     etf_watch_threshold: float
-    etf_gate_states: tuple[str, ...]
-    etf_watch_gate_states: tuple[str, ...]
-    etf_min_amount: float
     stock_qualified_score: float
     stock_allowed_trend_states: tuple[str, ...]
     confirmation_strong_threshold: float
@@ -34,6 +31,24 @@ class IndicatorSpec:
     @property
     def rps_windows(self) -> tuple[int, int, int]:
         return (self.rps_short_window, self.rps_medium_window, self.rps_long_window)
+
+
+@dataclass(frozen=True)
+class AmountScoreSpec:
+    method: str
+    floor: float
+    reference: float
+    cap: float
+
+
+@dataclass(frozen=True)
+class EtfSelectionSpec:
+    """Layer③ ETF 候选「准入—排序—输出」策略（Policy）。"""
+    allowed_trend_states: tuple[str, ...]
+    watch_allowed_trend_states: tuple[str, ...]
+    min_amount: float
+    ranking_weights: dict[str, float]           # {"rps15": 0.55, "rps20": 0.25, "amount_score": 0.20}
+    amount_score: AmountScoreSpec
 
 
 @dataclass(frozen=True)

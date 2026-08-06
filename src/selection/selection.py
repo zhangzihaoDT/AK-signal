@@ -51,12 +51,13 @@ ROLE_LABELS = {
     "UPSTREAM": "设备与上游",
 }
 
-# 趋势门控：允许进入候选的 ETF 状态（来自统一 Strategy Specification config/indicators.yaml）
+# 趋势门控：允许进入候选的 ETF 状态（来自统一 Strategy Specification config/strategies.yaml etf_selection）
 def _indicator_gates() -> tuple[set[str], set[str], float, float]:
-    from src.common.spec.loaders import load_indicator_spec
-    s = load_indicator_spec()
-    return (set(s.etf_gate_states), set(s.etf_watch_gate_states),
-            float(s.etf_min_amount), float(s.stock_qualified_score))
+    from src.common.spec.loaders import load_etf_selection_spec, load_indicator_spec
+    es = load_etf_selection_spec()
+    ind = load_indicator_spec()
+    return (set(es.allowed_trend_states), set(es.watch_allowed_trend_states),
+            float(es.min_amount), float(ind.stock_qualified_score))
 
 
 ETF_TREND_GATES, ETF_WATCH_GATES, ETF_MIN_AMOUNT, STOCK_QUALIFIED_SCORE = _indicator_gates()
@@ -332,15 +333,39 @@ def select_etf_candidates(
     # 流动性门槛
     etf = etf[etf["amount"].fillna(0) >= min_amount].copy()
 
-    # 选择评分：RPS15 主导 + 流动性 + 多周期一致性
+    # 选择评分（Policy）：RPS15/20 + 流动性，权重与 amount_score 口径来自
+    # config/strategies.yaml etf_selection（固定区间 log 评分，跨期/跨候选池可比）
+    from src.common.spec.loaders import load_etf_selection_spec
+    es = load_etf_selection_spec()
+    w = es.ranking_weights
+    amt = es.amount_score
     rps15 = pd.to_numeric(etf.get("rps15"), errors="coerce").fillna(0)
     rps20 = pd.to_numeric(etf.get("rps20"), errors="coerce").fillna(0)
-    rps60 = pd.to_numeric(etf.get("rps60"), errors="coerce").fillna(0)
     amount = pd.to_numeric(etf.get("amount"), errors="coerce").fillna(0)
-    amount_log = amount.apply(lambda x: float(x) if x > 0 else 0.0).apply(lambda x: 0 if x == 0 else __import__("math").log10(x))
-    amount_score = ((amount_log - amount_log.min()) / (amount_log.max() - amount_log.min() + 1e-9) * 100).fillna(0)
-    etf["selection_score"] = (0.55 * rps15 + 0.25 * rps20 + 0.20 * amount_score).round(1)
+    amount_score = amount.apply(lambda a: _amount_score(a, amt))
+    etf["selection_score"] = (
+        w.get("rps15", 0.55) * rps15
+        + w.get("rps20", 0.25) * rps20
+        + w.get("amount_score", 0.20) * amount_score
+    ).round(1)
     return etf
+
+
+def _amount_score(amount: float, amt: Any) -> float:
+    """固定区间 log 流动性评分（Policy 口径，不依赖候选集合相对大小）。
+
+    amount <= floor → 0；amount >= reference → cap；中间按 log10 线性插值。
+    同一成交额在不同日期/候选池得到同一分数 → 跨期可比。
+    """
+    if amount <= 0 or amount <= amt.floor:
+        return 0.0
+    if amount >= amt.reference:
+        return float(amt.cap)
+    import math
+    lo, hi = math.log10(amt.floor), math.log10(amt.reference)
+    if hi <= lo:
+        return float(amt.cap) if amount > amt.floor else 0.0
+    return min((math.log10(amount) - lo) / (hi - lo) * amt.cap, float(amt.cap))
 
 
 # 常见基金公司名（用于剥离 ETF 名称尾缀，识别方向词）

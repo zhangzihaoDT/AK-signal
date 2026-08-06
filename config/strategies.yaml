@@ -3,6 +3,27 @@
 # 架构结论：策略规则按主题配置，不共用全局 EntryPolicy / ExitPolicy。
 # 每个策略有稳定 strategy_id（进入历史信号与回测产物的 Provenance）。
 # 算法语义（状态转换如何识别、MA 如何计算等）留在代码；这里只放策略参数。
+#
+# etf_selection：Layer③ ETF 候选的「准入—排序—输出」策略（Policy，非指标定义）。
+#   - 准入：allowed_trend_states（趋势门）+ min_amount（流动性门）
+#   - 排序：ranking.weights（rps15/rps20/amount_score 权重）
+#   - amount_score：固定区间 log 评分（floor→0，reference→cap，跨期/跨候选池可比，
+#     不依赖当天候选集合的相对大小）
+
+etf_selection:
+  allowed_trend_states: ["BUY_CANDIDATE", "STRONG_WATCH"]
+  watch_allowed_trend_states: ["BUY_CANDIDATE", "STRONG_WATCH", "WATCH"]
+  min_amount: 50000000
+  ranking:
+    weights:
+      rps15: 0.55
+      rps20: 0.25
+      amount_score: 0.20
+    amount_score:
+      method: log_threshold
+      floor: 50000000        # 成交额 ≤ floor → 0
+      reference: 500000000   # 成交额 ≥ reference → cap（100）
+      cap: 100
 
 strategies:
   ai_20:

@@ -284,3 +284,18 @@ class TestConfirmationBreadth:
         ev = _confirm_evidence(conf, confirmed=True)
         assert ev["industry"] == "航运港口"
         assert ev["rps15"] == 82.3
+
+
+class TestAmountScore:
+    def test_fixed_threshold_absolute(self):
+        from src.common.spec.loaders import load_etf_selection_spec
+        from src.selection.selection import _amount_score
+        amt = load_etf_selection_spec().amount_score
+        assert _amount_score(50_000_000, amt) == 0.0          # floor → 0
+        assert _amount_score(500_000_000, amt) == 100.0       # reference → cap
+        assert _amount_score(5_000_000_000, amt) == 100.0     # 超过 → cap
+        # 同一成交额 → 同一分数（不依赖候选集合）
+        a1 = _amount_score(130_000_000, amt)
+        a2 = _amount_score(130_000_000, amt)
+        assert a1 == a2
+        assert 0 < a1 < 100

@@ -86,12 +86,15 @@ Schema 校验（`src/common/spec/schema.py`）在**运行开始阶段**失败：
 |---|---|---|---|---|
 | `etf_signal/signal.py` compute_trend_state | strong 80 / watch 60 | A | ✅ | indicators.signal_gates.etf |
 | `etf_signal/rotation.py` RPS_WINDOWS | (15,20,60) | A | ✅ | indicators.rps |
-| `selection/selection.py` ETF_TREND_GATES | {BUY_CANDIDATE, STRONG_WATCH} | A | ✅ | indicators.signal_gates.etf.gate_states |
+| `selection/selection.py` ETF_TREND_GATES | {BUY_CANDIDATE, STRONG_WATCH} | A | ✅ | strategies.etf_selection.allowed_trend_states |
+| `selection/selection.py` ETF_MIN_AMOUNT | 5e7 | A | ✅ | strategies.etf_selection.min_amount |
+| `selection/selection.py` selection_score 权重 | 0.55/0.25/0.20 | A | ✅ | strategies.etf_selection.ranking.weights |
+| `selection/selection.py` amount_score 口径 | 候选集合 log 归一化 | A | ✅ | strategies.etf_selection.ranking.amount_score（log_threshold 固定区间） |
 | `selection/selection.py` STOCK_QUALIFIED_SCORE | 70 | A | ✅ | indicators.signal_gates.stock.qualified_score |
-| `selection/selection.py` ETF_MIN_AMOUNT | 5e7 | A | ✅ | indicators.signal_gates.etf.min_amount |
 | `sw_industry_rps/confirmation.py` 90/80/60 | 90/80/60 | A | ✅ | indicators.confirmation |
 | `backtest` entry rps15_min / fee / slippage | 80 / 5bp / 5bp | A | ✅ | strategies.entry / execution.yaml |
 | `portfolio` max_positions / max_weight / deploy | 5 / 0.2 / 1.0 | A | ✅ | portfolio.yaml |
+| ETF 候选 amount_score 固定区间口径 | floor 5000万 / ref 5亿 / cap 100 | A | ✅ | strategies.etf_selection.ranking.amount_score |
 | RPS 百分位/趋势分计算 | — | B | 留代码 | — |
 | next_open / unfilled / as-of / no_pyramiding | — | C | 留代码+测试 | — |
 | report.py 90/80/70 展示阈值 | 90/80/70 | D | 不纳入 | — |

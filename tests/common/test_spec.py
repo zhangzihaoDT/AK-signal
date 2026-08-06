@@ -16,9 +16,18 @@ class TestLoaders:
         s = load_indicator_spec()
         assert s.rps_windows == (15, 20, 60)
         assert s.etf_strong_threshold == 80.0
-        assert s.etf_gate_states == ("BUY_CANDIDATE", "STRONG_WATCH")
         assert s.stock_qualified_score == 70.0
         assert s.confirmation_strong_threshold == 90.0
+
+    def test_etf_selection_spec(self):
+        from src.common.spec.loaders import load_etf_selection_spec
+        es = load_etf_selection_spec()
+        assert es.allowed_trend_states == ("BUY_CANDIDATE", "STRONG_WATCH")
+        assert es.min_amount == 50_000_000
+        assert es.ranking_weights == {"rps15": 0.55, "rps20": 0.25, "amount_score": 0.20}
+        assert es.amount_score.floor == 50_000_000
+        assert es.amount_score.reference == 500_000_000
+        assert es.amount_score.cap == 100
 
     def test_strategy_spec(self):
         s = load_strategy_spec("ai_fixed_20")

@@ -94,6 +94,25 @@ def validate_indicators(cfg: dict[str, Any]) -> None:
     _num_in_range(conf.get("watch_proximity"), 0, 100, "confirmation.watch_proximity")
 
 
+def validate_etf_selection(cfg: dict[str, Any]) -> None:
+    """Layer③ ETF 候选策略校验（准入/排序权重/amount_score 口径）。"""
+    es = _require(cfg, "etf_selection", "must define etf_selection policy")
+    states = es.get("allowed_trend_states")
+    if not isinstance(states, list) or not states:
+        raise SpecValidationError("etf_selection.allowed_trend_states required")
+    _num_in_range(es.get("min_amount"), 0, 1e15, "etf_selection.min_amount")
+    weights = _require(es, "ranking.weights", "ranking weights required")
+    w = float(weights.get("rps15", 0)) + float(weights.get("rps20", 0)) + float(weights.get("amount_score", 0))
+    if abs(w - 1.0) > 1e-6:
+        raise SpecValidationError(f"etf_selection ranking weights must sum to 1, got {w}")
+    amt = _require(es, "ranking.amount_score", "amount_score spec required")
+    if amt.get("method", "") != "log_threshold":
+        raise SpecValidationError(f"etf_selection.amount_score.method unsupported: {amt.get('method')!r}")
+    _num_in_range(amt.get("floor"), 0, 1e15, "etf_selection.amount_score.floor")
+    _num_in_range(amt.get("reference"), 0, 1e15, "etf_selection.amount_score.reference")
+    _num_in_range(amt.get("cap"), 0, 1e6, "etf_selection.amount_score.cap")
+
+
 def validate_execution(cfg: dict[str, Any]) -> None:
     ex = _require(cfg, "execution", "must define execution")
     if ex.get("model", "") != "next_open":

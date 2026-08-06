@@ -15,8 +15,8 @@ import yaml
 from src.common.paths import config_dir
 from . import schema as sch
 from .model import (
-    AllocationSpec, EntrySpec, ExecutionSpec, ExitSpec,
-    IndicatorSpec, PortfolioSpec, StrategySpec,
+    AllocationSpec, AmountScoreSpec, EntrySpec, EtfSelectionSpec, ExecutionSpec,
+    ExitSpec, IndicatorSpec, PortfolioSpec, StrategySpec,
 )
 
 
@@ -47,9 +47,6 @@ def load_indicator_spec() -> IndicatorSpec:
         ma_default_window=int(ma["default_window"]),
         etf_strong_threshold=float(etf["strong_threshold"]),
         etf_watch_threshold=float(etf["watch_threshold"]),
-        etf_gate_states=tuple(etf["gate_states"]),
-        etf_watch_gate_states=tuple(etf["watch_gate_states"]),
-        etf_min_amount=float(etf["min_amount"]),
         stock_qualified_score=float(stock["qualified_score"]),
         stock_allowed_trend_states=tuple(stock["allowed_trend_states"]),
         confirmation_strong_threshold=float(conf["strong_threshold"]),
@@ -57,6 +54,25 @@ def load_indicator_spec() -> IndicatorSpec:
         confirmation_neutral_threshold=float(conf["neutral_threshold"]),
         confirmation_broad_fraction=float(conf["broad_fraction"]),
         confirmation_watch_proximity=float(conf["watch_proximity"]),
+    )
+
+
+@lru_cache(maxsize=None)
+def load_etf_selection_spec() -> EtfSelectionSpec:
+    """Layer③ ETF 候选策略（准入门限 + 排序权重 + amount_score 口径）。"""
+    cfg = _read_yaml("strategies.yaml")
+    sch.validate_etf_selection(cfg)
+    es = cfg["etf_selection"]
+    amt = es["ranking"]["amount_score"]
+    return EtfSelectionSpec(
+        allowed_trend_states=tuple(es["allowed_trend_states"]),
+        watch_allowed_trend_states=tuple(es["watch_allowed_trend_states"]),
+        min_amount=float(es["min_amount"]),
+        ranking_weights={k: float(v) for k, v in es["ranking"]["weights"].items()},
+        amount_score=AmountScoreSpec(
+            method=str(amt["method"]), floor=float(amt["floor"]),
+            reference=float(amt["reference"]), cap=float(amt["cap"]),
+        ),
     )
 
 
