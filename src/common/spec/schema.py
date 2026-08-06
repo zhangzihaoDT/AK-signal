@@ -80,9 +80,15 @@ def validate_strategies(raw: dict[str, Any], themes: set[str]) -> None:
 
 def validate_indicators(cfg: dict[str, Any]) -> None:
     rps = _require(cfg, "rps", "must define rps windows")
-    for w in ("short_window", "medium_window", "long_window"):
+    for w in ("short_window", "medium_window", "long_window", "today_window", "velocity_window"):
         if int(rps.get(w, 0)) <= 0:
             raise SpecValidationError(f"indicators.rps.{w}: must be > 0")
+    dq = cfg.get("data_quality")
+    if not isinstance(dq, dict):
+        raise SpecValidationError("indicators.data_quality: required (max_single_day_return / flag_window)")
+    _num_in_range(dq.get("max_single_day_return"), 0, 100, "indicators.data_quality.max_single_day_return")
+    if int(dq.get("flag_window", 0)) <= 0:
+        raise SpecValidationError("indicators.data_quality.flag_window: must be > 0")
     gates = _require(cfg, "signal_gates", "must define signal_gates")
     _num_in_range(gates["etf"].get("strong_threshold"), 0, 100, "signal_gates.etf.strong_threshold")
     _num_in_range(gates["etf"].get("watch_threshold"), 0, 100, "signal_gates.etf.watch_threshold")

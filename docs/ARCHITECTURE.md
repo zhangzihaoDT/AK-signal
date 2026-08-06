@@ -1,7 +1,7 @@
 # AKSignal 整体架构
 
-> 版本：v0.6.1（Strategy Specification 统一）
-> 日期：2026-08-05
+> 版本：v0.7.0（Layer① Market Pulse 市场脉搏）
+> 日期：2026-08-06
 >
 > 策略层：所有可实验参数收敛到 config/（themes/universes/strategies/indicators/execution/portfolio），
 > 由 src/common/spec 统一 Loader + Schema 校验；算法/执行语义留代码。详见 docs/STRATEGY_SPEC.md。
@@ -131,17 +131,29 @@ Layer③（Policy） 消费 Fact A + Fact B + 配置 + 策略规则
 
 **职责**：从全量 ETF 中发现当前主线，不预设某个主题一定是主线。全市场横截面 RPS 对全部主题通用，每主题按 `themes_two_directions.yaml` 关键词聚合焦点组。**这是 Observation：产出「市场观察到什么」的事实，不做买入决策。**
 
+**四维观察（v0.7.0 Market Pulse）**：Layer① 回答的不再只是「谁最强」，而是今天市场的强度（Level）/ 热度（Today）/ 速度（Velocity）/ 流动性分别在何处：
+
+| 维度 | 指标 | 口径 | 是否参与排序/选择 |
+|------|------|------|------|
+| 趋势（Level） | RPS15 | 15 日收益横截面百分位 | **主排序指标** |
+| 今日（Today） | RPS1 | 最新 1 日收益横截面百分位 | 仅展示，不参与排序/Selection |
+| 动量（Velocity） | ΔRPS15 | RPS15 今日 − RPS15 5 个交易日前 | 仅展示，不参与排序/Selection |
+| 流动性 | liquidity | 最近 5 日均成交额横截面百分位 | 仅展示；Selection 的 amount_score 口径独立 |
+
 **重点观察**：
 
 | 维度 | 指标 |
 |------|------|
-| 横截面强度 | RPS15 / RPS20 / RPS60 |
+| 横截面强度 | RPS15 / RPS20 / RPS60（分布） |
+| 今日热度 | RPS1（Today's Leaders 榜） |
+| 趋势加速 | ΔRPS15（Fast Movers 榜） |
 | 收益排名 | 5日 / 10日 / 20日收益在全部 ETF 中的排名 |
 | 趋势状态 | BUY_CANDIDATE / STRONG_WATCH / WATCH 分布 |
 | 排名变化 | 板块 RPS15 中位数过去 5 日排名变动 |
 | 强势数量 | 进入 RPS15 Top 10% / Top 20% 的 ETF 数量 |
 | 内部扩散 | 板块内部 RPS 离散度，强势标的占比变化 |
 | 主题焦点组 | 每主题 ETF 数 / 中位 RPS15 / Top10%/20% / 5 日排名变动 |
+| 市场脉搏 | Market Pulse 卡：今日热点 / 趋势龙头 / 加速方向 / 风险偏好 |
 
 **这一层决定**：哪些主题正在成为 A 股主线。
 

@@ -872,6 +872,8 @@ def cmd_card(args: argparse.Namespace) -> None:
         rps15 = row.get("rps15", 0.0)
         rps20 = row.get("rps20", 0.0)
         rps60 = row.get("rps60", 0.0)
+        rps1 = row.get("rps1", None)
+        delta_rps15 = row.get("delta_rps15", None)
         return_5d = row.get("return_5d", 0.0)
         return_20d = row.get("return_20d", 0.0)
         trend_change = row.get("trend_change", "平稳")
@@ -898,6 +900,7 @@ def cmd_card(args: argparse.Namespace) -> None:
             trend_info=card_mod.TrendInfo(
                 trend_state=trend_state,
                 rps15=rps15, rps20=rps20, rps60=rps60,
+                rps1=rps1, delta_rps15=delta_rps15,
                 return_5d=return_5d, return_20d=return_20d,
                 trend_change=trend_change, amount_change=amount_change,
             ),
@@ -1010,6 +1013,11 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
         focus = rotation.focus_group(rotation_df, market)
         regime = rotation.assess_market_regime(bucket_table)
         theme_groups = rotation.theme_focus_groups(rotation_df)
+        # v0.7.0 Market Pulse（市场脉搏）：仅 Observation 展示
+        pulse = rotation.market_pulse(rotation_df, regime)
+        leaders = rotation.leader_lists(rotation_df)
+        # v0.7.0 数据口径统一（P0-3）：master / price_current / rps_eligible / trend_active
+        cov = rotation.coverage(rotation_df, wl, master_count=len(master))
 
         cards_path = output_dir / f"candidate_cards_{date_str}.json"
         cards_list: list[dict] = []
@@ -1029,6 +1037,9 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
             n_indicators=len(wl),
             account_candidates=account_df,
             theme_groups=theme_groups,
+            pulse=pulse,
+            leaders=leaders,
+            coverage=cov,
         )
     else:
         logger.error("rotation metrics empty — skip rotation report")
@@ -1096,10 +1107,11 @@ def cmd_calculate(args: argparse.Namespace) -> None:
     logger.info("indicators computed: %d rows", len(indicators_df))
 
     # ── 全市场横截面 RPS（真实口径：rps15=15日收益百分位, rps20=20日, rps60=60日）──
+    # v0.7.0 Market Pulse：rps1（今日）/ delta_rps15（动量）/ liquidity（流动性）仅 Observation 展示
     rotation_df = rotation.compute_rotation_metrics(combined, master)
     if not rotation_df.empty:
-        rps_cols = [c for c in ["rps15", "rps20", "rps60", "rank15", "rank15_prev5",
-                                "rank_change_5d"] if c in rotation_df.columns]
+        rps_cols = [c for c in ["rps15", "rps20", "rps60", "rps1", "delta_rps15", "liquidity",
+                                "rank15", "rank15_prev5", "rank_change_5d"] if c in rotation_df.columns]
         indicators_df = indicators_df.merge(
             rotation_df[["fund_code"] + rps_cols].drop_duplicates(subset=["fund_code"]),
             on="fund_code", how="left",

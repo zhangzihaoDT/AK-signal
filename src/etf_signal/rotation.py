@@ -12,6 +12,19 @@ A股全市场 ETF 轮动 — Layer 1
 口径说明：
   - rps15 / rps20 / rps60 分别为 15 / 20 / 60 日收益的全市场百分位排名（0-100）
   - rank15 为全市场 ordinal 排名（1 = 最弱），rank_change_5d 正值表示过去 5 个交易日排名上升
+
+v0.7.0 Market Pulse（市场脉搏）：
+  Layer① 从单维「谁最强」扩展为四维观察：趋势（Level）+ 今日（Today）+ 动量（Velocity）+ 流动性。
+    - rps1        RPS1（Today）：最新 1 日收益横截面百分位，观察「今天是不是热点」
+    - delta_rps15 ΔRPS15（Velocity）：RPS15 今日 − RPS15 5 个交易日前，观察「趋势有没有加速」
+    - liquidity   最新 5 日均成交额横截面百分位，观察流动性强弱
+  三者均为 Observation 展示指标：不参与排序（主表仍按 RPS15 排），不进入 Selection（Decision
+  仍只看 RPS15 / TrendState / Amount）。
+
+v0.7.0 数据质量（Data Quality）：
+  - 回溯窗口（默认 60 日）内任一日 |收益| ≥ max_single_day_return（默认 20%）→ 判定异常
+    （份额折算/除权/异常行情）。异常资产不参与对应 RPS 窗口的横截面排名（按窗口分别排除：
+    折算发生在 w 日前的单日跳变只污染 w 日以内的累计收益），原值保留并标记 data_quality_flag。
 """
 
 from __future__ import annotations
@@ -56,14 +69,54 @@ RPS_WINDOWS: tuple[int, ...] = (15, 20, 60)
 RANK_CHANGE_DAYS = 5
 # 横截面样本尾部保留行数
 CROSS_SECTIONAL_TAIL = 21
+# 流动性观察口径：最近 N 个交易日成交额均值（Observation 展示）
+LIQUIDITY_AVG_DAYS = 5
+
+# 风险偏好 → Market Pulse Risk 等级（仅 Observation 展示）
+RISK_LABEL_BY_PREFERENCE = {"进攻": "High", "均衡": "Medium", "防御": "Low"}
 
 
 def _rps_windows() -> tuple[int, ...]:
     from src.common.spec.loaders import load_indicator_spec
     return load_indicator_spec().rps_windows
 
+
+def _rps_today_window() -> int:
+    from src.common.spec.loaders import load_indicator_spec
+    return load_indicator_spec().rps_today_window
+
+
+def _rps_velocity_window() -> int:
+    from src.common.spec.loaders import load_indicator_spec
+    return load_indicator_spec().rps_velocity_window
+
+
+def _data_quality_threshold() -> float:
+    from src.common.spec.loaders import load_indicator_spec
+    return load_indicator_spec().data_quality_max_single_day_return
+
+
+def _data_quality_window() -> int:
+    from src.common.spec.loaders import load_indicator_spec
+    return load_indicator_spec().data_quality_flag_window
+
 # 不参与横截面 RPS 排名的资产桶（防御性资产，收益结构不可比）
 RANK_EXCLUDED_BUCKETS = {"money_market", "bond_treasury", "bond_credit", "bond_convertible"}
+
+
+def _pivot_values(
+    combined: pd.DataFrame,
+    value_col: str,
+    date_col: str = "date",
+    code_col: str = "fund_code",
+) -> pd.DataFrame:
+    """宽表：行 = 交易日，列 = fund_code，值 = value_col。"""
+    if combined.empty or value_col not in combined.columns:
+        return pd.DataFrame()
+    pivot = combined.pivot_table(
+        index=date_col, columns=code_col, values=value_col, aggfunc="last",
+    ).sort_index()
+    return pivot
 
 
 def _pivot_closes(
@@ -73,12 +126,7 @@ def _pivot_closes(
     price_col: str = "close",
 ) -> pd.DataFrame:
     """宽表：行 = 交易日，列 = fund_code，值 = close。"""
-    if combined.empty:
-        return pd.DataFrame()
-    pivot = combined.pivot_table(
-        index=date_col, columns=code_col, values=price_col, aggfunc="last",
-    ).sort_index()
-    return pivot
+    return _pivot_values(combined, price_col, date_col=date_col, code_col=code_col)
 
 
 def compute_cross_sectional(
@@ -86,6 +134,7 @@ def compute_cross_sectional(
     windows: tuple[int, ...] | None = None,
     tail: int = CROSS_SECTIONAL_TAIL,
     rank_codes: set[str] | None = None,
+    rank_codes_by_window: dict[int, set[str]] | None = None,
 ) -> dict[int, dict[str, pd.DataFrame]]:
     """计算全市场逐日横截面 RPS 与 ordinal rank。
 
@@ -95,6 +144,8 @@ def compute_cross_sectional(
     Args:
         combined: 全市场日行情（date, fund_code, close）
         rank_codes: 参与排名的 fund_code 集合；为 None 时使用全部
+        rank_codes_by_window: 按窗口的参与排名集合（v0.7.0 数据质量，窗口内单日异常
+            资产不参与该窗口横截面排名）；命中该 dict 的窗口以其为准，否则用 rank_codes
         windows / tail: 排名窗口 / 尾部保留行数
 
     Returns:
@@ -118,8 +169,9 @@ def compute_cross_sectional(
         sub = closes.iloc[-(tail + w):]
         ret = sub / sub.shift(w) - 1
         recent = ret.iloc[-tail:]
-        if rank_codes is not None:
-            keep = [c for c in recent.columns if c in rank_codes]
+        codes = rank_codes_by_window.get(w, rank_codes) if rank_codes_by_window else rank_codes
+        if codes is not None:
+            keep = [c for c in recent.columns if c in codes]
             recent = recent[keep]
         rps = recent.rank(axis=1, pct=True, ascending=True) * 100
         rnk = recent.rank(axis=1, method="min", ascending=True)
@@ -136,6 +188,79 @@ def _latest_returns(closes: pd.DataFrame, periods: tuple[int, ...]) -> dict[str,
     for p in periods:
         if len(closes) > p:
             out[f"return_{p}d"] = (last / closes.iloc[-1 - p] - 1) * 100
+    return out
+
+
+def _compute_today_rps(
+    closes: pd.DataFrame,
+    rank_codes: set[str] | None,
+    today_window: int = 1,
+    tail: int = CROSS_SECTIONAL_TAIL,
+) -> pd.Series:
+    """RPS1（Today）：最新交易日 today_window 日收益的横截面百分位（0-100）。
+
+    仅 Observation：标注「今天是不是热点」。不参与排序，也不进入 Selection。
+    """
+    if closes.empty or len(closes) <= today_window:
+        return pd.Series(dtype=float)
+    sub = closes.iloc[-(tail + today_window):]
+    ret = sub / sub.shift(today_window) - 1
+    recent = ret.iloc[-tail:]
+    if rank_codes is not None:
+        recent = recent[[c for c in recent.columns if c in rank_codes]]
+    if recent.empty:
+        return pd.Series(dtype=float)
+    rps = recent.rank(axis=1, pct=True, ascending=True) * 100
+    return rps.iloc[-1]
+
+
+def _compute_liquidity(
+    combined: pd.DataFrame,
+    avg_days: int = LIQUIDITY_AVG_DAYS,
+) -> pd.Series:
+    """Liquidity（Observation）：最近 avg_days 个交易日成交额均值的横截面百分位（0-100）。
+
+    仅展示流动性强弱。不参与排序；Selection（Decision）的 amount_score 独立按
+    strategies.yaml 的 log_threshold 口径计算，本列不进 Decision 层。
+    """
+    amount = _pivot_values(combined, value_col="amount")
+    if amount.empty:
+        return pd.Series(dtype=float)
+    avg = amount.iloc[-min(avg_days, len(amount)):].mean(axis=0)
+    return avg.rank(pct=True, ascending=True) * 100
+
+
+def _detect_anomaly_offsets(
+    closes: pd.DataFrame,
+    flag_window: int,
+    threshold_pct: float,
+) -> dict[str, list[int]]:
+    """检测回溯窗口内的单日异常收益（份额折算/除权/异常行情）。
+
+    Args:
+        closes: 宽表（date × fund_code，close）
+        flag_window: 回溯交易日数
+        threshold_pct: 单日 |收益| ≥ 该百分比 → 异常
+
+    Returns:
+        {fund_code: [offset, ...]}，offset 为距最新交易日的偏移（1=今日，越小越近）。
+        例：折算发生在 3 个交易日前 → offset=[3]。
+    """
+    if len(closes) < 2:
+        return {}
+    n = min(flag_window + 1, len(closes))
+    sub = closes.iloc[-n:]
+    ret = sub.pct_change() * 100
+    out: dict[str, list[int]] = {}
+    for code in ret.columns:
+        s = ret[code]
+        bad = s.index[s.abs() >= threshold_pct]
+        if not len(bad):
+            continue
+        # 日收益在第 i 行（1..n-1）实现，距最新交易日 offset = n - i
+        offsets = sorted({int(n - ret.index.get_loc(i)) for i in bad})
+        if offsets:
+            out[code] = offsets
     return out
 
 
@@ -168,11 +293,17 @@ def compute_rotation_metrics(
             fund_code, fund_name, asset_bucket, bucket_label, asset_class,
             is_tech,
             rps15, rps20, rps60,
+            rps1, delta_rps15, liquidity,   # v0.7.0 Market Pulse（仅 Observation 展示）
             rank15, rank15_prev5, rank_change_5d,
-            return_5d, return_10d, return_15d, return_20d, return_60d
+            return_1d, return_5d, return_10d, return_15d, return_20d, return_60d,
+            data_quality_flag              # 空=正常；corporate_action=单日异常/折算（原值保留）
     """
     if windows is None:
         windows = _rps_windows()
+    today_window = _rps_today_window()
+    velocity_window = _rps_velocity_window()
+    dq_threshold = _data_quality_threshold()
+    dq_window = _data_quality_window()
     closes = _pivot_closes(combined)
     if closes.empty:
         logger.warning("no close data for rotation")
@@ -186,16 +317,46 @@ def compute_rotation_metrics(
         logger.info("rotation ranking universe: %d / %d ETFs (excluded %d defensive)",
                     len(rank_codes), len(closes.columns), len(excluded))
 
-    xs = compute_cross_sectional(combined, windows=windows, rank_codes=rank_codes)
+    # v0.7.0 数据质量：回溯窗口内单日异常（份额折算/除权/异常行情）不参与对应窗口横截面排名
+    anomaly_offsets = _detect_anomaly_offsets(closes, dq_window, dq_threshold)
+    if anomaly_offsets:
+        logger.warning("data-quality anomalies detected: %d ETFs (max_single_day_return>=%.0f%% in %dd)",
+                       len(anomaly_offsets), dq_threshold, dq_window)
+    rank_codes_by_window: dict[int, set[str]] = {}
+    for w in windows:
+        rank_codes_by_window[w] = {
+            c for c in (rank_codes or set(closes.columns))
+            if not any(o <= w for o in anomaly_offsets.get(c, []))
+        }
+    today_rank_codes = {
+        c for c in (rank_codes or set(closes.columns))
+        if not any(o <= today_window for o in anomaly_offsets.get(c, []))
+    }
+
+    xs = compute_cross_sectional(
+        combined, windows=windows, rank_codes=rank_codes,
+        rank_codes_by_window=rank_codes_by_window,
+    )
     if not xs:
         return pd.DataFrame()
 
-    returns = _latest_returns(closes, periods=(5, 10, 15, 20, 60))
+    returns = _latest_returns(closes, periods=(1, 5, 10, 15, 20, 60))
 
     # ordinal rank：今日 与 5 个交易日前
     rank_series = xs[windows[0]]["rank"]
     rank_today = rank_series.iloc[-1]
     rank_prev5 = rank_series.shift(RANK_CHANGE_DAYS).iloc[-1] if len(rank_series) > RANK_CHANGE_DAYS else pd.Series(index=rank_series.columns, dtype=float)
+
+    # v0.7.0 Market Pulse 观察指标（仅展示，不参与排序/选择）
+    today_rps = _compute_today_rps(closes, today_rank_codes, today_window=today_window)
+    rps15_series = xs[windows[0]]["rps"]
+    rps15_today = rps15_series.iloc[-1]
+    rps15_prev = (
+        rps15_series.shift(velocity_window).iloc[-1]
+        if len(rps15_series) > velocity_window
+        else pd.Series(index=rps15_series.columns, dtype=float)
+    )
+    liquidity_pct = _compute_liquidity(combined)
 
     codes = list(closes.columns)
     rows: list[dict[str, Any]] = []
@@ -204,6 +365,16 @@ def compute_rotation_metrics(
         for w in windows:
             rps = xs[w]["rps"].iloc[-1].get(code)
             row[f"rps{w}"] = None if pd.isna(rps) else float(rps)
+        r1 = today_rps.get(code)
+        row["rps1"] = None if pd.isna(r1) else float(r1)
+        r15v = rps15_today.get(code)
+        r15p = rps15_prev.get(code)
+        if pd.notna(r15v) and pd.notna(r15p):
+            row["delta_rps15"] = float(r15v - r15p)
+        else:
+            row["delta_rps15"] = None
+        liq = liquidity_pct.get(code)
+        row["liquidity"] = None if pd.isna(liq) else float(liq)
         r15 = rank_today.get(code)
         r15_prev = rank_prev5.get(code)
         row["rank15"] = None if pd.isna(r15) else float(r15)
@@ -215,6 +386,7 @@ def compute_rotation_metrics(
         for label, s in returns.items():
             v = s.get(code)
             row[label] = None if pd.isna(v) else float(v)
+        row["data_quality_flag"] = "corporate_action" if anomaly_offsets.get(code) else ""
         rows.append(row)
 
     etf = pd.DataFrame(rows)
@@ -237,8 +409,9 @@ def compute_rotation_metrics(
     # v0.4.3 多主题：按主题关键词打标（兼容旧 parquet 缺列场景）
     etf["theme"] = etf["fund_name"].apply(match_theme)
 
-    numeric_cols = ["rps15", "rps20", "rps60", "rank15", "rank15_prev5", "rank_change_5d",
-                    "return_5d", "return_10d", "return_15d", "return_20d", "return_60d"]
+    numeric_cols = ["rps15", "rps20", "rps60", "rps1", "delta_rps15", "liquidity",
+                    "rank15", "rank15_prev5", "rank_change_5d",
+                    "return_1d", "return_5d", "return_10d", "return_15d", "return_20d", "return_60d"]
     for c in numeric_cols:
         if c in etf.columns:
             etf[c] = pd.to_numeric(etf[c], errors="coerce")
@@ -251,6 +424,40 @@ def compute_rotation_metrics(
     return etf
 
 
+def coverage(
+    rotation: pd.DataFrame,
+    watchlist: pd.DataFrame | None = None,
+    master_count: int | None = None,
+) -> dict[str, int]:
+    """Layer① 数据口径统一命名（v0.7.0，P0-3 分母对齐）。
+
+      - master_count        主数据全量 ETF（master / rotation 行数）
+      - price_current_count 当前横截面有效：有现价且 RPS15 可算（非防御、非异常）
+      - rps_eligible_count  完整指标可算：≥60 交易日（进入 watchlist/卡片链路）
+      - trend_active_count  趋势信号活跃（trend_state != OUT_OF_SCOPE）
+
+    报告所有百分比必须以明确分母展示（见 rotation_report 数据口径块与漏斗）。
+    """
+    total = len(rotation) if not rotation.empty else 0
+    mc = master_count if master_count is not None else total
+    price_current = int(rotation["rps15"].notna().sum()) if "rps15" in rotation.columns else 0
+    if watchlist is not None and not watchlist.empty:
+        rps_eligible = len(watchlist)
+        if "trend_state" in watchlist.columns:
+            trend_active = int((watchlist["trend_state"] != "OUT_OF_SCOPE").sum())
+        else:
+            trend_active = 0
+    else:
+        rps_eligible = int(rotation["return_60d"].notna().sum()) if "return_60d" in rotation.columns else 0
+        trend_active = 0
+    return {
+        "master_count": int(mc),
+        "price_current_count": int(price_current),
+        "rps_eligible_count": int(rps_eligible),
+        "trend_active_count": int(trend_active),
+    }
+
+
 def market_summary(etf: pd.DataFrame) -> dict[str, Any]:
     """全市场概览。"""
     valid = etf["rps15"].dropna()
@@ -258,6 +465,8 @@ def market_summary(etf: pd.DataFrame) -> dict[str, Any]:
         return {"total": 0}
     total = len(valid)
     ret15 = etf["return_15d"].dropna()
+    rps1 = etf["rps1"].dropna() if "rps1" in etf.columns else pd.Series(dtype=float)
+    delta = etf["delta_rps15"].dropna() if "delta_rps15" in etf.columns else pd.Series(dtype=float)
     return {
         "total": total,
         "median_rps15": round(float(valid.median()), 1),
@@ -269,6 +478,9 @@ def market_summary(etf: pd.DataFrame) -> dict[str, Any]:
         "mean_return_15d": round(float(ret15.mean()), 2) if not ret15.empty else None,
         "up_ratio_15d": round(float((ret15 > 0).mean()), 4) if not ret15.empty else None,
         "tech_count": int(etf["is_tech"].sum()),
+        # v0.7.0 Market Pulse：今日热度 / 动量 的全市场中位（仅 Observation）
+        "median_rps1": round(float(rps1.median()), 1) if not rps1.empty else None,
+        "median_delta_rps15": round(float(delta.median()), 1) if not delta.empty else None,
     }
 
 
@@ -474,3 +686,92 @@ def assess_market_regime(bucket_table: pd.DataFrame) -> dict[str, Any]:
         "top_bucket": top["bucket_label"],
         "note": note,
     }
+
+
+# ── v0.7.0 Market Pulse（市场脉搏）──────────────────────────────────
+
+def _theme_label_map() -> dict[str, str]:
+    """theme key → 中文标签（config/themes_two_directions.yaml）。"""
+    return {th.key: th.label for b in themes_cfg.load_buckets() for th in b.themes}
+
+
+def market_pulse(
+    etf: pd.DataFrame,
+    regime: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Market Pulse（市场脉搏）：一句话概括今天市场。
+
+    主题级四要素（均按主题 ETF 横截面中位计算，仅 Observation 展示）：
+      - today_hot     ：中位 RPS1 最高的主题（今天的热点）
+      - trend_leader  ：中位 RPS15 最高的主题（趋势龙头）
+      - acceleration  ：中位 ΔRPS15 最高的主题（正在加速的方向）
+      - risk          ：由板块风险偏好映射（进攻 High / 均衡 Medium / 防御 Low）
+
+    Returns:
+        {"today_hot": {theme,label,median_rps1} | None,
+         "trend_leader": {...} | None,
+         "acceleration": {...} | None,
+         "risk": {"preference", "level"}}
+    """
+    empty = {"today_hot": None, "trend_leader": None, "acceleration": None, "risk": None}
+    if etf.empty or "theme" not in etf.columns:
+        return empty
+    labels = _theme_label_map()
+    rows: list[dict[str, Any]] = []
+    for theme_key, g in etf.groupby("theme"):
+        if not theme_key:
+            continue
+        r1 = g["rps1"].dropna()
+        r15 = g["rps15"].dropna()
+        dv = g["delta_rps15"].dropna()
+        rows.append({
+            "theme": theme_key,
+            "label": labels.get(theme_key, theme_key),
+            "median_rps1": float(r1.median()) if not r1.empty else None,
+            "median_rps15": float(r15.median()) if not r15.empty else None,
+            "median_delta_rps15": float(dv.median()) if not dv.empty else None,
+        })
+    if not rows:
+        return empty
+
+    def _pick(key: str) -> dict[str, Any] | None:
+        valid = [r for r in rows if r[key] is not None]
+        if not valid:
+            return None
+        return max(valid, key=lambda r: r[key])
+
+    preference = (regime or {}).get("preference", "均衡")
+    return {
+        "today_hot": _pick("median_rps1"),
+        "trend_leader": _pick("median_rps15"),
+        "acceleration": _pick("median_delta_rps15"),
+        "risk": {"preference": preference,
+                 "level": RISK_LABEL_BY_PREFERENCE.get(preference, "Medium")},
+    }
+
+
+def leader_lists(etf: pd.DataFrame, top_n: int = 8) -> dict[str, list[dict[str, Any]]]:
+    """三张排行榜（纯 Observation 展示，均不参与排序/选择）：
+      - today: Today's Leaders（今日领涨，按 RPS1）
+      - trend: Trend Leaders（趋势龙头，按 RPS15）
+      - fast:  Fast Movers（趋势加速，按 ΔRPS15）
+
+    Returns:
+        {"today": [{"fund_name", "value"}, ...], "trend": [...], "fast": [...]}
+    """
+    specs = [("today", "rps1"), ("trend", "rps15"), ("fast", "delta_rps15")]
+    out: dict[str, list[dict[str, Any]]] = {}
+    for key, col in specs:
+        if col not in etf.columns:
+            out[key] = []
+            continue
+        sub = etf[etf[col].notna() & etf["fund_name"].ne("")].copy()
+        if sub.empty:
+            out[key] = []
+            continue
+        sub = sub.sort_values(col, ascending=False).head(top_n)
+        out[key] = [
+            {"fund_name": str(r["fund_name"]), "value": round(float(r[col]), 1)}
+            for _, r in sub.iterrows()
+        ]
+    return out

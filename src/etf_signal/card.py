@@ -128,6 +128,8 @@ class TrendInfo:
     rps15: float
     rps60: float
     rps20: float = 50.0
+    rps1: float | None = None
+    delta_rps15: float | None = None
     return_5d: float = 0.0
     return_20d: float = 0.0
     trend_change: str = "平稳"
@@ -192,6 +194,7 @@ class ETFCandidateCard:
             "── 趋势信息 ──────────────────────────────",
             f"  趋势状态：{self.trend.trend_state}",
             f"  RPS15：{self.trend.rps15:.1f}  |  RPS20：{self.trend.rps20:.1f}  |  RPS60：{self.trend.rps60:.1f}",
+            f"  今日 RPS1：{self._fmt_opt(self.trend.rps1)}  |  ΔRPS15：{self._fmt_opt(self.trend.delta_rps15)}",
             f"  5 日收益：{self.trend.return_5d:+.1f}%  |  20 日收益：{self.trend.return_20d:+.1f}%",
             f"  趋势变化：{self.trend.trend_change}  |  成交额变化：{self.trend.amount_change}",
             "",
@@ -214,6 +217,12 @@ class ETFCandidateCard:
             "═" * 50,
         ]
         return "\n".join(lines)
+
+    @staticmethod
+    def _fmt_opt(v: float | None) -> str:
+        if v is None:
+            return "—"
+        return f"{v:.1f}"
 
 
 def build_card(

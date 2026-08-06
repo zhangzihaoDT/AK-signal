@@ -39,11 +39,16 @@ def load_indicator_spec() -> IndicatorSpec:
     sch.validate_indicators(cfg)
     rps, ma = cfg["rps"], cfg["moving_average"]
     gates, conf = cfg["signal_gates"], cfg["confirmation"]
+    dq = cfg.get("data_quality", {})
     etf = gates["etf"]
     return IndicatorSpec(
         rps_short_window=int(rps["short_window"]),
         rps_medium_window=int(rps["medium_window"]),
         rps_long_window=int(rps["long_window"]),
+        rps_today_window=int(rps["today_window"]),
+        rps_velocity_window=int(rps["velocity_window"]),
+        data_quality_max_single_day_return=float(dq["max_single_day_return"]),
+        data_quality_flag_window=int(dq["flag_window"]),
         ma_default_window=int(ma["default_window"]),
         etf_strong_threshold=float(etf["strong_threshold"]),
         etf_watch_threshold=float(etf["watch_threshold"]),

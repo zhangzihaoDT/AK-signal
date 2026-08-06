@@ -1,15 +1,19 @@
 """
-A股全市场 ETF 轮动 — Layer 1 日报
+A股全市场 ETF 轮动 — Layer 1 日报（v0.7.0 Market Pulse 市场脉搏）
 
 生成 etf_rotation_{date}.html，回答 ARCHITECTURE.md ① 的核心问题：
 「AI、科技、半导体在全部 A 股 ETF 资产中处于什么位置？」
 
-报告结构：
-  ① 全市场概览     横截面 RPS15/20/60 分布、趋势状态分布、市场风险偏好
-  ② 板块轮动表     中位 RPS / 5日排名变动 / 强势占比 / 内部离散度 / Top10%/20%
-  ③ 主线焦点       AI/科技/半导体 判断块（是否正在成为 A 股主线）
-  ④ 收益排名       5/10/20 日收益最强与最弱
-  ⑤ 发现漏斗摘要   发现链路漏斗 + BUY_CANDIDATE 卡片
+报告结构（v0.7.0）：
+  ① Market Pulse  今天市场一句话：热度（Today）/ 趋势（Trend）/ 加速（Velocity）/ 风险（Risk）
+  ② 四维观察表    全市场 ETF 横截面：趋势 RPS15 / 今日 RPS1 / 动量 ΔRPS15 / 流动性（仍按 RPS15 排序）
+  ③ 板块轮动表    中位 RPS / 5日排名变动 / 强势占比 / 内部离散度 / Top10%/20%
+  ④ 主线焦点      AI/科技/半导体 判断块（是否正在成为 A 股主线）
+  ⑤ 收益排名       5/10/20 日收益最强与最弱
+  ⑥ 发现漏斗摘要   发现链路漏斗 + BUY_CANDIDATE 卡片
+
+RPS1 / ΔRPS15 / 流动性 均为 Observation 展示指标：不参与排序（主表仍按 RPS15 排），
+不进入 Selection（Decision 仍只看 RPS15 / TrendState / Amount）。
 """
 
 from __future__ import annotations
@@ -71,6 +75,17 @@ hr{border:none;border-top:1px solid var(--zh-border);margin:24px 0}
 p{font-size:14px;color:var(--zh-muted);margin-bottom:12px}
 .up{color:#2E7D32;font-weight:600}
 .down{color:#C62828;font-weight:600}
+.stars{color:var(--zh-raccoon-gold);letter-spacing:.05em;white-space:nowrap}
+.pulse{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0}
+.pulse-item{background:var(--zh-cream);border:1px solid var(--zh-border);border-radius:8px;padding:14px 16px}
+.pulse-label{font-size:11px;color:var(--zh-muted);text-transform:uppercase;letter-spacing:.03em}
+.pulse-value{font-size:20px;font-weight:700;color:var(--zh-deep-blue);margin-top:4px}
+.pulse-sub{font-size:12px;color:var(--zh-muted);margin-top:2px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin:12px 0}
+@media(max-width:760px){.grid-3{grid-template-columns:1fr}}
+.rank-name{font-size:13px;color:var(--zh-text)}
+.rank-val{font-size:12px;font-weight:600;color:var(--zh-muted);text-align:right}
+.scroll-table{max-height:480px;overflow:auto;border:1px solid var(--zh-border);border-radius:8px;margin:12px 0}
 """
 
 STATE_LABELS = {
@@ -98,6 +113,53 @@ def _sign(v: Any) -> str:
     return f"{v:.0f}"
 
 
+def _stars(v: Any) -> str:
+    """按 RPS 值给 0-5 星（仅 Observation 展示，非评分）。"""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return "—"
+    v = float(v)
+    if v >= 80:
+        return "★★★★★"
+    if v >= 65:
+        return "★★★★☆"
+    if v >= 50:
+        return "★★★☆☆"
+    if v >= 35:
+        return "★★☆☆☆"
+    return "★☆☆☆☆"
+
+
+def _velocity_arrow(v: Any) -> str:
+    """ΔRPS15 方向箭头（仅 Observation 展示）。"""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return "—"
+    v = float(v)
+    if v >= 10:
+        return "↑↑"
+    if v > 0:
+        return "↑"
+    if v <= -10:
+        return "↓↓"
+    if v < 0:
+        return "↓"
+    return "→"
+
+
+def _rank_rows(items: list[dict[str, Any]], signed: bool = False) -> str:
+    """渲染一张排行榜表格（Today's Leaders / Trend Leaders / Fast Movers）。"""
+    if not items:
+        return "<p style='font-size:12px;color:var(--zh-muted)'>暂无数据</p>"
+    rows = []
+    for i, it in enumerate(items, 1):
+        val = it["value"]
+        val_html = (f'<span class="up">+{val:.0f}</span>' if signed and val > 0 else
+                    f'<span class="down">{val:.0f}</span>' if signed and val < 0 else
+                    f"{val:.0f}")
+        rows.append(f"<tr><td class='num'>{i}</td><td class='rank-name'>{it['fund_name']}</td>"
+                    f"<td class='rank-val'>{val_html}</td></tr>")
+    return "<table><tr><th class='num'>#</th><th>名称</th><th class='num'>数值</th></tr>" + "".join(rows) + "</table>"
+
+
 def render_rotation_report(
     rotation: pd.DataFrame,
     bucket_table: pd.DataFrame,
@@ -111,43 +173,122 @@ def render_rotation_report(
     n_indicators: int = 0,
     account_candidates: pd.DataFrame | None = None,
     theme_groups: list[dict[str, Any]] | None = None,
+    pulse: dict[str, Any] | None = None,
+    leaders: dict[str, list[dict[str, Any]]] | None = None,
+    coverage: dict[str, int] | None = None,
 ) -> Path:
-    """生成 etf_rotation_{date}.html。"""
+    """生成 etf_rotation_{date}.html（v0.7.0 Market Pulse）。
+
+    pulse / leaders 由 rotation.market_pulse / rotation.leader_lists 产出
+    （纯 Observation 展示）；coverage 由 rotation.coverage 产出（数据口径统一命名）；
+    缺省时从 rotation 现场计算兜底。
+    """
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     html_path = output_dir / f"etf_rotation_{date_str}.html"
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    if pulse is None:
+        from src.etf_signal import rotation as rot_mod
+        pulse = rot_mod.market_pulse(rotation, regime)
+    if leaders is None:
+        from src.etf_signal import rotation as rot_mod
+        leaders = rot_mod.leader_lists(rotation)
+    if coverage is None:
+        from src.etf_signal import rotation as rot_mod
+        coverage = rot_mod.coverage(rotation, watchlist)
 
     parts = [
         "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>",
         f"<title>① A股全市场 ETF 轮动 · {date_str}</title>",
         f"<style>{CSS}</style></head><body><div class='container'>",
-        "<h1>① A股全市场 ETF 轮动</h1>",
-        f"<div class='subtitle'>报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · 全市场横截面 RPS（真实口径 rps15=15日 / rps20=20日 / rps60=60日）</div>",
+        "<h1>① A股全市场 ETF 轮动 · Market Pulse</h1>",
+        f"<div class='subtitle'>报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · 全市场横截面 RPS · 四维观察：趋势 RPS15（主排序）/ 今日 RPS1 / 动量 ΔRPS15 / 流动性</div>",
     ]
 
-    # ══════════════════ SECTION 1: 全市场概览 ══════════════════
-    parts.append('<div class="section"><h2>① 全市场概览</h2>')
-    parts.append("<p>核心问题：AI、科技、半导体在全部 A 股 ETF 资产中处于什么位置？由数据决定，不预设 AI 一定是主线。</p>")
+    # ══════════════════ SECTION 1: Market Pulse（市场脉搏）══════════════════
+    parts.append('<div class="section"><h2>① Market Pulse · 市场脉搏</h2>')
+    parts.append("<p>今天市场：强度（Level）在哪里、热度（Today）在哪里、速度（Velocity）在哪里。RPS1 与 ΔRPS15 仅作观察，不参与排序与 Selection。</p>")
 
+    # 市场脉搏卡：Today's Hot / Trend Leader / Acceleration / Risk
+    th = pulse.get("today_hot") or {}
+    tl = pulse.get("trend_leader") or {}
+    ac = pulse.get("acceleration") or {}
+    rk = pulse.get("risk") or {}
+    parts.append('<div class="pulse">')
+    parts.append(
+        f"<div class='pulse-item'><div class='pulse-label'>Today's Hot · 今日热点</div>"
+        f"<div class='pulse-value'>{th.get('label', '—')} <span class='stars'>{_stars(th.get('median_rps1'))}</span></div>"
+        f"<div class='pulse-sub'>主题中位 RPS1 {_num(th.get('median_rps1'))}</div></div>")
+    parts.append(
+        f"<div class='pulse-item'><div class='pulse-label'>Trend Leader · 趋势龙头</div>"
+        f"<div class='pulse-value'>{tl.get('label', '—')} <span class='stars'>{_stars(tl.get('median_rps15'))}</span></div>"
+        f"<div class='pulse-sub'>主题中位 RPS15 {_num(tl.get('median_rps15'))}</div></div>")
+    accel_arrow = _velocity_arrow(ac.get("median_delta_rps15"))
+    accel_val = _num(ac.get("median_delta_rps15"))
+    if accel_val == "—":
+        accel_html = "—"
+    elif accel_arrow in ("↑", "↑↑"):
+        accel_html = f'<span class="up">{accel_arrow} {accel_val}</span>'
+    elif accel_arrow in ("↓", "↓↓"):
+        accel_html = f'<span class="down">{accel_arrow} {accel_val}</span>'
+    else:
+        accel_html = f"{accel_arrow} {accel_val}"
+    parts.append(
+        f"<div class='pulse-item'><div class='pulse-label'>Acceleration · 趋势加速</div>"
+        f"<div class='pulse-value'>{ac.get('label', '—')} {accel_html}</div>"
+        f"<div class='pulse-sub'>主题中位 ΔRPS15</div></div>")
+    parts.append(
+        f"<div class='pulse-item'><div class='pulse-label'>Risk · 风险</div>"
+        f"<div class='pulse-value'>{rk.get('level', '—')}</div>"
+        f"<div class='pulse-sub'>{rk.get('preference', '—')} · {regime.get('note', '')}</div></div>")
+    parts.append('</div>')
+
+    # 数据口径（P0-3：分母统一命名，百分比一律注明分母）
+    parts.append('<div class="metrics">')
+    cov_items = [
+        (str(coverage.get("master_count", "—")), "master_count · 全量 ETF"),
+        (str(coverage.get("price_current_count", "—")), "price_current · 横截面有效"),
+        (str(coverage.get("rps_eligible_count", "—")), "rps_eligible · 指标完整"),
+        (str(coverage.get("trend_active_count", "—")), "trend_active · 趋势活跃"),
+    ]
+    for val, lbl in cov_items:
+        parts.append(f'<div class="metric-card"><div class="metric-value">{val}</div><div class="metric-label">{lbl}</div></div>')
+    parts.append('</div>')
+    n_flag = int((rotation["data_quality_flag"].astype(str) != "").sum()) if "data_quality_flag" in rotation.columns else 0
+    if n_flag:
+        parts.append(f"<p style='font-size:12px'>数据异常标记：{n_flag} 只 ETF 检出单日异常（份额折算/除权/异常行情），原值保留、不参与 RPS 横截面排名（见附录）。</p>")
+
+    # 全市场观察指标卡
     preference = regime.get("preference", "—")
     parts.append('<div class="metrics">')
     metric_items = [
-        (str(market.get("total", 0)), "全市场 ETF 数"),
-        (_num(market.get("median_rps15")), "RPS15 中位数"),
-        (f"{_num(market.get('mean_return_15d'))}%", "15日平均收益"),
-        (f"{market.get('up_ratio_15d', 0) * 100:.0f}%", "15日上涨占比"),
-        (str(market.get("tech_count", 0)), "AI/科技/半导体"),
+        (_num(market.get("median_rps15")), "RPS15 中位"),
+        (_num(market.get("median_rps1")), "RPS1 中位（今日热度）"),
+        (f"{_num(market.get('median_delta_rps15'))}", "ΔRPS15 中位（动量）"),
+        (f"{market.get('up_ratio_15d', 0) * 100:.0f}%", f"15日上涨占比（分母 {coverage.get('price_current_count', '—')}）"),
         (preference, "市场风险偏好"),
     ]
     for val, lbl in metric_items:
         parts.append(f'<div class="metric-card"><div class="metric-value">{val}</div><div class="metric-label">{lbl}</div></div>')
     parts.append('</div>')
 
-    # 横截面强度分位分布
+    # 三张排行榜：Today's Leaders / Trend Leaders / Fast Movers
+    parts.append("<h3>今日 · 趋势 · 加速 排行榜</h3>")
+    parts.append('<div class="grid-3">')
+    parts.append("<div><h3 style='font-size:14px'>Today's Leaders · 今日领涨（RPS1）</h3>" + _rank_rows(leaders.get("today", [])) + "</div>")
+    parts.append("<div><h3 style='font-size:14px'>Trend Leaders · 趋势龙头（RPS15）</h3>" + _rank_rows(leaders.get("trend", [])) + "</div>")
+    parts.append("<div><h3 style='font-size:14px'>Fast Movers · 趋势加速（ΔRPS15）</h3>" + _rank_rows(leaders.get("fast", []), signed=True) + "</div>")
+    parts.append('</div>')
+
+    # 横截面强度分位分布（含 v0.7.0 新增观察指标）
     if "rps15" in rotation.columns:
-        parts.append("<h3>横截面强度分布（RPS15 / RPS20 / RPS60）</h3>")
+        parts.append("<h3>横截面强度分布</h3>")
         parts.append("<table><tr><th>指标</th><th class='num'>P25</th><th class='num'>中位数</th><th class='num'>P75</th><th class='num'>P90</th><th class='num'>≥90 数量</th></tr>")
-        for col, label in [("rps15", "RPS15"), ("rps20", "RPS20"), ("rps60", "RPS60")]:
+        for col, label in [("rps15", "RPS15 · 趋势"), ("rps20", "RPS20"),
+                           ("rps60", "RPS60"), ("rps1", "RPS1 · 今日"),
+                           ("delta_rps15", "ΔRPS15 · 动量")]:
+            if col not in rotation.columns:
+                continue
             s = rotation[col].dropna()
             if s.empty:
                 continue
@@ -174,8 +315,45 @@ def render_rotation_report(
     parts.append(f"<div class='insight'><strong>市场状态：</strong>{regime.get('note', '—')}</div>")
     parts.append('</div>')
 
-    # ══════════════════ SECTION 2: 板块轮动表 ══════════════════
-    parts.append('<div class="section"><h2>② 板块轮动表</h2>')
+    # ══════════════════ SECTION 2: 四维观察表（v0.7.0）══════════════════
+    parts.append('<div class="section"><h2>② 四维观察表 · 全市场 ETF</h2>')
+    parts.append("<p>趋势（RPS15，主排序）/ 今日（RPS1）/ 动量（ΔRPS15）/ 流动性（成交额百分位）。仅观察展示，不参与 Selection。</p>")
+    cols_needed = [c for c in ("rps15", "rps1", "delta_rps15", "liquidity") if c in rotation.columns]
+    view = rotation[rotation["fund_name"].ne("")]
+    if "rps15" in rotation.columns:
+        view = view.sort_values("rps15", ascending=False, na_position="last")
+    if not view.empty and cols_needed:
+        parts.append('<div class="scroll-table"><table><tr>')
+        parts.append("<th>ETF</th><th class='num'>趋势 · RPS15</th><th class='num'>今日 · RPS1</th>")
+        parts.append("<th class='num'>动量 · ΔRPS15</th><th class='num'>流动性</th>")
+        parts.append("</tr>")
+        for _, r in view.iterrows():
+            rps15 = r.get("rps15")
+            rps1 = r.get("rps1")
+            delta = r.get("delta_rps15")
+            liq = r.get("liquidity")
+            tech = " · 科技" if r.get("is_tech") else ""
+            flagged = bool(r.get("data_quality_flag")) if "data_quality_flag" in view.columns else False
+            flag_mark = ' <span style="color:#C62828" title="数据异常：单日折算/除权，不参与 RPS 排名">⚠</span>' if flagged else ""
+            delta_html = _sign(delta) if pd.notna(delta) else "—"
+            arrow_html = _velocity_arrow(delta)
+            delta_cell = "—" if delta_html == "—" else f"{arrow_html} {delta_html}"
+            parts.append(
+                f"<tr><td>{r['fund_name']}{tech}{flag_mark}</td>"
+                f"<td class='num'><span class='stars'>{_stars(rps15)}</span> {_num(rps15)}</td>"
+                f"<td class='num'>{_num(rps1)}</td>"
+                f"<td class='num'>{delta_cell}</td>"
+                f"<td class='num'><span class='stars'>{_stars(liq)}</span></td></tr>")
+        parts.append("</table></div>")
+        n_flagged = int((view["data_quality_flag"].astype(str) != "").sum()) if "data_quality_flag" in view.columns else 0
+        flag_note = f" · {n_flagged} 只数据异常（⚠）不参与 RPS 排名" if n_flagged else ""
+        parts.append(f"<p style='font-size:12px'>共 {len(view)} 只 · 按 RPS15 降序（排序规则不变）{flag_note}</p>")
+    else:
+        parts.append("<p>无四维观察数据。</p>")
+    parts.append('</div>')
+
+    # ══════════════════ SECTION 3: 板块轮动表 ══════════════════
+    parts.append('<div class="section"><h2>③ 板块轮动表</h2>')
     parts.append("<p>按资产桶聚合的横截面强度。5 日排名变动为正表示该板块过去 5 个交易日排名整体上升。</p>")
     if not bucket_table.empty:
         parts.append("<table><tr>")
@@ -201,8 +379,8 @@ def render_rotation_report(
         parts.append("<p>无板块聚合数据。</p>")
     parts.append('</div>')
 
-    # ══════════════════ SECTION 3: 主线焦点 ══════════════════
-    parts.append('<div class="section"><h2>③ 多主题主线焦点</h2>')
+    # ══════════════════ SECTION 4: 主线焦点 ══════════════════
+    parts.append('<div class="section"><h2>④ 多主题主线焦点</h2>')
     parts.append("<p>每个配置主题（AI 基础设施 / 高端装备 / 电力 / 运营商 / 公用事业 / 行业轮动）在全市场 ETF 中的位置，由下列数字判断。</p>")
     if theme_groups:
         parts.append("<table><tr>")
@@ -227,7 +405,7 @@ def render_rotation_report(
         n_tech = focus.get("tech_count", 0)
         if n_tech > 0:
             parts.append('<div class="judgment">')
-            parts.append(f'全市场 ETF 数量：<span class="k">{market.get("total", 0)}</span><br>')
+            parts.append(f'全市场 ETF 数量（master_count）：<span class="k">{coverage.get("master_count", 0)}</span><br>')
             parts.append(f'AI/科技/半导体 ETF：<span class="v">{n_tech}</span><br>')
             parts.append(f'板块 RPS15 中位数：<span class="v">{_num(focus.get("median_rps15"))}</span><br>')
             parts.append(f'过去 5 日排名提升：<span class="v">{_sign(focus.get("rank_change_5d"))}</span><br>')
@@ -237,14 +415,19 @@ def render_rotation_report(
         parts.append("<p>无主题焦点数据。</p>")
     parts.append('</div>')
 
-    # ══════════════════ SECTION 4: 收益排名 ══════════════════
-    parts.append('<div class="section"><h2>④ 收益排名</h2>')
+    # ══════════════════ SECTION 5: 收益排名 ══════════════════
+    parts.append('<div class="section"><h2>⑤ 收益排名</h2>')
     if not rotation.empty:
-        for period, label in [(5, "5 日"), (10, "10 日"), (20, "20 日")]:
+        has_flag = "data_quality_flag" in rotation.columns
+        for period, label in [(1, "1 日"), (5, "5 日"), (10, "10 日"), (20, "20 日")]:
             col = f"return_{period}d"
             if col not in rotation.columns:
                 continue
             s = rotation.dropna(subset=[col]).copy()
+            if s.empty:
+                continue
+            if has_flag:
+                s = s[s["data_quality_flag"].fillna("") == ""]
             if s.empty:
                 continue
             top = s.nlargest(8, col)
@@ -262,29 +445,33 @@ def render_rotation_report(
                 parts.append(f"<tr><td>{r['fund_name']}{tech}</td><td class='num' style='color:#C62828'>{r[col]:.1f}%</td></tr>")
             parts.append("</table>")
             parts.append("</div>")
+        if has_flag:
+            parts.append("<p style='font-size:12px'>榜单已剔除 data_quality_flag 异常的 ETF（原值保留，仅不参与排名展示）。</p>")
     else:
         parts.append("<p>无收益排名数据。</p>")
     parts.append('</div>')
 
-    # ══════════════════ SECTION 5: 发现漏斗摘要 ══════════════════
-    parts.append('<div class="section"><h2>⑤ 发现漏斗摘要</h2>')
-    total_master = len(rotation) if not rotation.empty else 0
-    n_indicators = n_indicators or total_master
-    n_active = int((watchlist["trend_state"] != "OUT_OF_SCOPE").sum()) if not watchlist.empty and "trend_state" in watchlist.columns else 0
+    # ══════════════════ SECTION 6: 发现漏斗摘要 ══════════════════
+    parts.append('<div class="section"><h2>⑥ 发现漏斗摘要</h2>')
+    # P0-3：漏斗各阶段统一命名（coverage），并明确每级分母（相对 master_count）
+    mc = coverage.get("master_count", len(rotation) if not rotation.empty else 0)
     n_tradable = 0
     if account_candidates is not None and not account_candidates.empty and "account_tradable" in account_candidates.columns:
         n_tradable = int((account_candidates["account_tradable"] == True).sum())
     n_cards = len(cards)
-    funnel_labels = ["① 全市场", "② 有效指标", "③ 趋势信号", "④ 国金可交易", "⑤ 候选卡片"]
-    funnel_counts = [total_master, n_indicators, n_active, n_tradable, n_cards]
+    funnel_labels = ["master_count · 全量 ETF", "price_current · 横截面有效",
+                     "rps_eligible · 指标完整", "trend_active · 趋势活跃", "candidate_cards · 候选卡片"]
+    funnel_counts = [mc, coverage.get("price_current_count", 0),
+                     coverage.get("rps_eligible_count", 0), coverage.get("trend_active_count", 0), n_cards]
     funnel_colors = ["#174A7C", "#1E6BA8", "#4A90C4", "#7ECDEB", "#B0DCF5"]
     max_w = funnel_counts[0] or 1
     for i in range(5):
         w = funnel_counts[i] / max_w * 100 if funnel_counts[i] else 0
+        denom_txt = f" · {funnel_counts[i]}/{mc} ({w:.0f}%)" if i and mc else ""
         parts.append(
             f'<div class="funnel-row">'
             f'<div class="funnel-label">{funnel_labels[i]}</div>'
-            f'<div class="funnel-bar" style="width:{max(w, 1)}%;background:{funnel_colors[i]}">{funnel_counts[i]}</div>'
+            f'<div class="funnel-bar" style="width:{max(w, 1)}%;background:{funnel_colors[i]}">{funnel_counts[i]}{denom_txt}</div>'
             f'</div>')
 
     # BUY_CANDIDATE 卡片表

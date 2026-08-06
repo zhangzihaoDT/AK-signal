@@ -67,7 +67,7 @@ Schema 校验（`src/common/spec/schema.py`）在**运行开始阶段**失败：
 |---|---|---|
 | `config_hash` | 全部策略配置（主题/资产池/策略/指标/执行/组合/行业）+ rule_version，**order-independent** | 任一配置数值变化 |
 | `universe_hash` | 实际参与运行的资产集合（排序后哈希） | 资产增删；顺序变化不改变 |
-| `rule_version` | 规则实现代码语义版本（= v0.6.1） | 算法定义变化才改 |
+| `rule_version` | 规则实现代码语义版本（= v0.7.0） | 算法定义变化才改 |
 
 配置数值变化（如 `rps15_min: 80 → 75`）只改 `config_hash` 不改 `rule_version`；RPS 算法改变才改 `rule_version`。
 

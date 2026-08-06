@@ -21,7 +21,7 @@
 
 - `config_hash` = `themes` + `stock_universe` + `strategies` + `indicators` + `execution` + `portfolio` + `sw_industry_rps` + 黑名单，order-independent。
 - `universe_hash` = 实际参与运行的资产集合（排序后哈希）。
-- `rule_version` = v0.6.1（算法变化才改；配置数值变化只改 config_hash）。
+- `rule_version` = v0.7.0（算法变化才改；配置数值变化只改 config_hash）。
 
 ## _legacy/（归档，不参与运行）
 

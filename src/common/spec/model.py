@@ -8,15 +8,25 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-RULE_VERSION = "v0.6.1"
+RULE_VERSION = "v0.7.0"
 
 
 @dataclass(frozen=True)
 class IndicatorSpec:
-    """指标与趋势态生成阈值（Observation；Policy 参数在 EtfSelectionSpec / StockSelectionSpec / StrategySpec）。"""
+    """指标与趋势态生成阈值（Observation；Policy 参数在 EtfSelectionSpec / StockSelectionSpec / StrategySpec）。
+
+    v0.7.0 Market Pulse：
+      - rps_today_window    RPS1（Today）：最新 N 日收益横截面百分位，仅展示
+      - rps_velocity_window ΔRPS15（Velocity）：RPS15 今日 − RPS15 N 个交易日前，仅展示
+    两个窗口均为 Observation 展示指标，不参与排序，也不进入 Selection（Decision）。
+    """
     rps_short_window: int
     rps_medium_window: int
     rps_long_window: int
+    rps_today_window: int
+    rps_velocity_window: int
+    data_quality_max_single_day_return: float
+    data_quality_flag_window: int
     ma_default_window: int
     etf_strong_threshold: float
     etf_watch_threshold: float

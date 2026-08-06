@@ -1,13 +1,27 @@
-# 指标参数（v0.6.1）— 参数进 config，算法留代码
+# 指标参数（v0.7.0）— 参数进 config，算法留代码
 #
 # 职责：RPS/MA 窗口、趋势态生成阈值（Observation）。
 # Policy 参数（ETF 候选准入/排序权重、个股准入与主题门控）在 strategies.yaml 的
 # etf_selection / stock_selection 与各策略 entry 中，不放在本文件（本文件只定义指标口径）。
+#
+# v0.7.0 Market Pulse：Layer① 四维观察 = 趋势（RPS15）+ 今日（RPS1）+ 动量（ΔRPS15）+ 流动性。
+#   today_window     RPS1（Today）观察窗口：最新 1 日收益的横截面百分位，仅展示不参与排序/选择
+#   velocity_window  ΔRPS15（Velocity）回溯窗口：RPS15 今日 − RPS15 N个交易日前，仅展示不参与排序/选择
+#   data_quality     数据质量（Observation 兜底）：
+#     - max_single_day_return：回溯窗口内任一日 |收益| ≥ 该百分比 → 判定为异常
+#       （份额折算/除权/异常行情）。异常资产不参与 RPS 横截面排名，原值保留并标记 data_quality_flag
+#     - flag_window：异常检测回溯交易日数（对齐最长 RPS 窗口 60）
 
 rps:
   short_window: 15
   medium_window: 20
   long_window: 60
+  today_window: 1
+  velocity_window: 5
+
+data_quality:
+  max_single_day_return: 20.0
+  flag_window: 60
 
 moving_average:
   default_window: 20

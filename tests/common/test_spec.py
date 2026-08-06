@@ -15,6 +15,8 @@ class TestLoaders:
     def test_indicator_spec(self):
         s = load_indicator_spec()
         assert s.rps_windows == (15, 20, 60)
+        assert s.rps_today_window == 1
+        assert s.rps_velocity_window == 5
         assert s.etf_strong_threshold == 80.0
         assert s.confirmation_strong_threshold == 90.0
 

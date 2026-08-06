@@ -87,6 +87,19 @@ def _classify_amount_change(amount_ratio: float | None) -> str:
     return "持平"
 
 
+def _round_optional(v: Any) -> float | None:
+    """可选数值保留 1 位小数；NaN/缺失 → None。"""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f:  # NaN
+        return None
+    return round(f, 1)
+
+
 def build_trend_watchlist(
     indicators: pd.DataFrame,
     master: pd.DataFrame,
@@ -99,7 +112,8 @@ def build_trend_watchlist(
 
     Returns:
         trend_watchlist：
-        fund_code, fund_name, trend_state, rps15, rps60,
+        fund_code, fund_name, trend_state, rps15, rps20, rps60,
+        rps1, delta_rps15, liquidity,   # v0.7.0 Market Pulse（仅 Observation 展示）
         return_5d, return_20d, trend_change, amount_change, reason
     """
     if indicators.empty:
@@ -149,7 +163,11 @@ def build_trend_watchlist(
             "fund_name": name_map.get(code, ""),
             "trend_state": state,
             "rps15": round(rps15, 1),
+            "rps20": _round_optional(row.get("rps20")),
             "rps60": round(rps60, 1),
+            "rps1": _round_optional(row.get("rps1")),
+            "delta_rps15": _round_optional(row.get("delta_rps15")),
+            "liquidity": _round_optional(row.get("liquidity")),
             "return_5d": round(return_5d, 2),
             "return_20d": round(return_20d, 2),
             "trend_change": trend_change,
