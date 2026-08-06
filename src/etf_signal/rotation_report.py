@@ -119,7 +119,7 @@ def render_rotation_report(
 
     parts = [
         "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>",
-        f"<title>A股全市场 ETF 轮动 · {date_str}</title>",
+        f"<title>① A股全市场 ETF 轮动 · {date_str}</title>",
         f"<style>{CSS}</style></head><body><div class='container'>",
         "<h1>① A股全市场 ETF 轮动</h1>",
         f"<div class='subtitle'>报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · 全市场横截面 RPS（真实口径 rps15=15日 / rps20=20日 / rps60=60日）</div>",
