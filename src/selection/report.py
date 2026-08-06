@@ -264,6 +264,18 @@ def render_selection_html(
                     f"<div class='insight'><b>确认依据：</b>{ev_txt}"
                     f" ｜ 行业广度：{_num(m.get('n_observe'))} 个焦点行业进入观察区，"
                     f"属于 <b>{breadth}</b></div>")
+                # 分赛道输出：ETF 首选 / 个股首选 / 表达方式（不跨资产混榜）
+                pe = (sub.get("primary_etf") or [{}])[0]
+                ps = (sub.get("primary_stock") or [{}])[0]
+                etf_txt = ("—" if not pe else
+                           f"{pe.get('name', '—')}（{pe.get('trend_metric_name', '')}={_num(pe.get('trend_metric_value'))}，"
+                           f"{pe.get('metric_scope', '')}）")
+                stock_txt = ("无（个股未合格）" if not ps else
+                             f"{ps.get('name', '—')}（score_trend={_num(ps.get('score_trend'))}）")
+                parts.append(
+                    f"<div class='insight'><b>分赛道首选：</b>ETF 首选 {etf_txt}"
+                    f" ｜ 个股首选 {stock_txt}"
+                    f" ｜ <b>表达方式：</b>{sub.get('expression_label', '')}</div>")
                 parts.append(f"<div class='verdict'><b>表达方式：</b>{sub.get('expression_label', '')}<br><small>{sub.get('expression_reason', '')}</small></div>")
                 m = sub.get("metrics", {})
                 parts.append('<div class="metrics">')

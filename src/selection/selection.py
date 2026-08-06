@@ -79,6 +79,15 @@ STOCK_STATE_RECOMMENDED = "RECOMMENDED"
 SUBTHEME_CONFIRM_RPS15 = 80
 
 
+def _primary_stock(stock_candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """个股首选：RECOMMENDED 中 strategy_score 最高的一只（分赛道，不跨 ETF 比较）。"""
+    recs = [c for c in stock_candidates if c.get("state") == STOCK_STATE_RECOMMENDED]
+    if not recs:
+        return []
+    best = max(recs, key=lambda c: (c.get("strategy_score") if c.get("strategy_score") is not None else -1e9))
+    return [best]
+
+
 def _confirmation_breadth_params() -> tuple[float, float]:
     from src.common.spec.loaders import load_indicator_spec
     s = load_indicator_spec()
@@ -124,6 +133,12 @@ class AssetCandidate:
     return_20d: float | None = None
     trend_status: str = ""
     score_trend: float | None = None   # 0-100 趋势分（个股来自 trend_engine）
+    # 统一决策接口（facts + policy，ETF 与个股标尺不同不混榜）
+    trend_metric_name: str = ""        # rps15（ETF）/ score_trend（个股）
+    trend_metric_value: float | None = None
+    metric_scope: str = ""             # etf_cross_section / absolute_technical
+    strategy_score: float | None = None  # 本策略内部排序分（不跨 ETF/个股比较）
+    reason_codes: list[str] = field(default_factory=list)  # 机器可读策略码
     rank_change_5d: float | None = None
     liquidity: float | None = None   # 成交额（元）
     tradable: bool = True
@@ -144,7 +159,14 @@ class AssetCandidate:
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
-        return {k: v for k, v in d.items() if v is not None}
+        out: dict[str, Any] = {}
+        for k, v in d.items():
+            if v is None:
+                continue
+            if k == "reason_codes" and not v:
+                continue
+            out[k] = v
+        return out
 
 
 def _round(v: Any) -> float | None:
@@ -548,6 +570,11 @@ def select_stock_watchlist(
                 theme=theme,
                 score_trend=None,
                 trend_status="UNKNOWN",
+                trend_metric_name="score_trend",
+                trend_metric_value=None,
+                metric_scope="absolute_technical",
+                strategy_score=None,
+                reason_codes=["data_missing"],
                 tradable=True,
                 recommended=False,
                 state=STOCK_STATE_WATCH,
@@ -567,6 +594,13 @@ def select_stock_watchlist(
         risk_flags_raw = str(_tv("risk_flags", "") or "")
         risk_flags = [f.strip() for f in risk_flags_raw.split("，") if f.strip()] if risk_flags_raw else []
         risk_gate_passed = action_txt not in ("风险警戒", "剔除观察") and not risk_flags
+        reason_codes: list[str] = []
+        if state == STOCK_STATE_RECOMMENDED:
+            reason_codes = ["trend_qualified", "theme_confirmed"]
+        elif state == STOCK_STATE_QUALIFIED:
+            reason_codes = ["trend_qualified"]
+        else:
+            reason_codes = ["below_trend_gate"] if risk_gate_passed else ["risk_warning"]
         cand = AssetCandidate(
             code=item.asset.symbol,
             name=item.asset.name,
@@ -577,6 +611,11 @@ def select_stock_watchlist(
             rps15=None,  # 个股无全市场 RPS 横截面；relative_strength_20d 是相对收益，不映射进 rps15
             score_trend=score_trend,
             trend_status=_clean_trend_status(watch_level),
+            trend_metric_name="score_trend",
+            trend_metric_value=score_trend,
+            metric_scope="absolute_technical",
+            strategy_score=score_trend,  # 个股策略内排序 = 自身趋势分（不跨 ETF 比较）
+            reason_codes=reason_codes,
             tradable=True,  # 黑名单机制：未确认不可交易即默认可交易
             recommended=state == STOCK_STATE_RECOMMENDED,
             state=state,
@@ -775,6 +814,9 @@ def build_candidates(
                 "sub_industry_etf": [c.to_dict() for c in sub_industry_etf],
                 "stock_watchlist": stock_watchlist,
                 "stock_candidates": stock_candidates,
+                # 分赛道输出：ETF 首选 / 个股首选 / 表达方式（不跨资产混榜）
+                "primary_etf": [c.to_dict() for c in core_etf][:1] if core_etf else [],
+                "primary_stock": _primary_stock(stock_candidates),
             }
             theme_obj.update(_theme_stage_meta(theme_obj))
             theme_objs.append(theme_obj)
@@ -920,6 +962,7 @@ def _collect_recommended_actions(theme_objs: list[dict[str, Any]]) -> list[dict[
 
 
 def _to_etf_candidate(row: pd.Series, role: str, bucket: str, theme: str, reason: str) -> AssetCandidate:
+    in_gate = str(row.get("trend_state", "")) in ETF_TREND_GATES
     return AssetCandidate(
         code=str(row["fund_code"]),
         name=str(row.get("fund_name", "")),
@@ -933,11 +976,17 @@ def _to_etf_candidate(row: pd.Series, role: str, bucket: str, theme: str, reason
         return_5d=_round(row.get("return_5d")),
         return_20d=_round(row.get("return_20d")),
         trend_status=_clean_trend_status(row.get("trend_state", "")),
+        trend_metric_name="rps15",
+        trend_metric_value=_round(row.get("rps15")),
+        metric_scope="etf_cross_section",
+        strategy_score=_round(row.get("selection_score")),
+        reason_codes=["theme_confirmed", "trend_gate_passed", "liquidity_ok"] if in_gate
+        else ["below_trend_gate", "low_liquidity"],
         rank_change_5d=_round(row.get("rank_change_5d")),
         liquidity=_round(row.get("amount")),
         tradable=bool(row.get("account_tradable", False)),
-        recommended=bool(row.get("trend_state", "")) in ETF_TREND_GATES,
-        state=STOCK_STATE_RECOMMENDED if str(row.get("trend_state", "")) in ETF_TREND_GATES else STOCK_STATE_WATCH,
+        recommended=in_gate,
+        state=STOCK_STATE_RECOMMENDED if in_gate else STOCK_STATE_WATCH,
         selection_score=_round(row.get("selection_score")),
         reason=reason,
     )
