@@ -66,7 +66,7 @@ from src.common.run_context import RunContext
 from src.common.manifest import write_run_manifest, read_latest_run
 from . import data_source, master as etf_master, classifier, universe, account
 from . import heat, indicators, rotation, rotation_report, signal as sig_mod
-from . import sw_enrichment, card as card_mod
+from . import card as card_mod
 
 
 def build_logger(level: str = "INFO") -> logging.Logger:
