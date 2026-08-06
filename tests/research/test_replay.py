@@ -64,6 +64,36 @@ class TestSelectionEntityMap:
         assert m["stock:600900"]["recommended_action"] == "BUY"
         assert m["etf:512480"]["selection_status"] == "RECOMMENDED"
 
+    def test_extracts_recommendation_structure(self):
+        """v0.5.0 推荐结构：recommendation.etf/stocks + watchlist.etf/stocks + monitoring。"""
+        selection = {
+            "layer3": {
+                "action": {"level": "BUY"},
+                "buckets": [{
+                    "themes": [{
+                        "recommendation": {
+                            "etf": [{"code": "561560", "state": "RECOMMENDED"}],
+                            "stocks": [{"code": "600941", "selection_status": "RECOMMENDED"}],
+                        },
+                        "watchlist": {
+                            "etf": [{"code": "159625", "state": "WATCH"}],
+                            "stocks": [{"code": "600900", "selection_status": "WATCH"}],
+                        },
+                        "monitoring": {
+                            "leaders": [{"code": "600018", "selection_status": "RECOMMENDED"}],
+                            "high_beta": [], "equipment": [],
+                        },
+                    }],
+                }],
+            },
+        }
+        m = parity._selection_entity_map(selection)
+        assert m["etf:561560"]["selection_status"] == "RECOMMENDED"
+        assert m["etf:159625"]["selection_status"] == "WATCH"
+        assert m["stock:600941"]["selection_status"] == "RECOMMENDED"
+        assert m["stock:600900"]["selection_status"] == "WATCH"
+        assert m["stock:600018"]["selection_status"] == "RECOMMENDED"
+
 
 class TestCheckParity:
     def _replayed(self):
@@ -187,7 +217,7 @@ class TestRangeReplayIntegration:
 
         r = rng[rng["trade_date"] == "20260803"].reset_index(drop=True)
         s = single.reset_index(drop=True)
-        assert len(r) == len(s) == 1296
+        assert len(r) == len(s) == 1302
 
         def _key(df):
             return df.set_index(["layer", "entity_type", "entity_code"])

@@ -107,11 +107,16 @@ def _confirmation_breadth_params() -> tuple[float, float]:
 
 CONF_BROAD_FRACTION, CONF_WATCH_PROXIMITY = _confirmation_breadth_params()
 
-# 个股 tier → role
+# 个股 tier → role（AI 基础设施细分赛道 + 高现金流/通用）
 TIER_ROLE_MAP = {
     "leader": "LEADER",
     "high_beta": "HIGH_BETA",
     "equipment_upstream": "UPSTREAM",
+    "computing_chip": "LEADER",
+    "optical_interconnect": "LEADER",
+    "server_network": "LEADER",
+    "semiconductor_equipment": "UPSTREAM",
+    "semiconductor_components": "LEADER",
 }
 
 
@@ -167,6 +172,9 @@ class AssetCandidate:
     risk_flags: list[str] = field(default_factory=list)
     selection_score: float | None = None
     reason: str = ""
+    # 资产池 tier 归属（universe 原始赛道标签，如 computing_chip/光模块；role 是其聚合归类）
+    tier: str = ""
+    tier_label: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -273,6 +281,18 @@ def evaluate_themes(
                 f"{n_observe}/{len(sub)} 个行业进入观察区"
                 f"（{breadth_label}，依据 {evidence.get('industry', '')} RPS15={evidence.get('rps15')}）"
                 if n_observe else "无行业进入观察区")
+            # 观察区行业明细（供「为什么」块展示，如 2/5 航运港口87 铁路73）
+            observing_industries: list[dict[str, Any]] = []
+            if confirmed:
+                observing = sub[sub["strength_level"].astype(str).isin(THEME_CONFIRM_STATES)]
+                for _, r in observing.sort_values("RPS15", ascending=False).iterrows():
+                    rps_v = float(r["RPS15"]) if pd.notna(r.get("RPS15")) else None
+                    observing_industries.append({
+                        "industry": str(r.get("industry_name", "")),
+                        "industry_code": str(r.get("industry_code", "")),
+                        "rps15": _round(rps_v),
+                        "strength_level": str(r.get("strength_level", "")),
+                    })
             entry.update({
                 "confirmed": confirmed,
                 "n_strong": n_strong,
@@ -286,6 +306,7 @@ def evaluate_themes(
                 "confirmation_state": breadth_state,
                 "confirmation_breadth": breadth_label,
                 "confirm_evidence": evidence,
+                "observing_industries": observing_industries,
                 "reason": reason,
             })
         # 主题 ETF 中位 RPS15（Layer① 按关键词匹配，供展示）
@@ -435,6 +456,98 @@ def _dedup_etf(etf_df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values(["selection_score"], ascending=False)
     df = df.drop_duplicates(subset=["_direction"], keep="first")
     return df.reset_index(drop=True)
+
+
+def theme_etf_pool(
+    rotation_df: pd.DataFrame,
+    account_df: pd.DataFrame,
+    master_df: pd.DataFrame,
+    theme: str,
+) -> list[AssetCandidate]:
+    """该主题全部关键词命中的 ETF 池（趋势门控与流动性只标注不硬过滤），供观察池展示。
+
+    与 select_etf_candidates 的区别：不做 trend gate / liquidity 过滤，
+    逐只打 reason_codes（trend_gate_passed/below_trend_gate/liquidity_ok/low_liquidity），
+    去重保留同方向代表后按 selection_score 降序。recommended = 过趋势门 且 流动性达标。
+    """
+    if rotation_df.empty or "fund_name" not in rotation_df.columns:
+        return []
+    etf = rotation_df.copy()
+    etf["_theme"] = etf["fund_name"].apply(match_theme)
+    etf = etf[etf["_theme"] == theme]
+
+    if not account_df.empty and "trend_state" in account_df.columns:
+        etf = etf.merge(account_df[["fund_code", "trend_state", "account_tradable"]].drop_duplicates(subset=["fund_code"]),
+                        on="fund_code", how="left")
+    else:
+        etf["trend_state"] = ""
+        etf["account_tradable"] = True
+    if not master_df.empty and "amount" in master_df.columns:
+        etf = etf.merge(master_df[["fund_code", "amount"]].drop_duplicates(subset=["fund_code"]),
+                        on="fund_code", how="left")
+        etf["amount"] = pd.to_numeric(etf.get("amount"), errors="coerce")
+    else:
+        etf["amount"] = pd.NA
+    if "rps15" in etf.columns:
+        etf = etf[etf["rps15"].notna()].copy()
+
+    # 与 select_etf_candidates 相同的选择评分（Policy）
+    from src.common.spec.loaders import load_etf_selection_spec
+    es = load_etf_selection_spec()
+    w = es.ranking_weights
+    amt = es.amount_score
+    rps15 = pd.to_numeric(etf.get("rps15"), errors="coerce").fillna(0)
+    rps20 = pd.to_numeric(etf.get("rps20"), errors="coerce").fillna(0)
+    amount = pd.to_numeric(etf.get("amount"), errors="coerce").fillna(0)
+    amount_score = amount.apply(lambda a: _amount_score(a, amt))
+    etf["selection_score"] = (
+        w.get("rps15", 0.55) * rps15
+        + w.get("rps20", 0.25) * rps20
+        + w.get("amount_score", 0.20) * amount_score
+    ).round(1)
+
+    # 全部关键词命中保留，标注 reasons；同方向代表之外的标 dedup_lost（观察池取 top N，不丢事实）
+    best_per_dir: dict[str, str] = {}
+    for _, r in etf.sort_values("selection_score", ascending=False).iterrows():
+        d = _direction_word(str(r.get("fund_name", "")))
+        best_per_dir.setdefault(d, str(r["fund_code"]))
+    out: list[AssetCandidate] = []
+    for _, row in etf.sort_values("selection_score", ascending=False).iterrows():
+        code = str(row["fund_code"])
+        in_gate = str(row.get("trend_state", "")) in ETF_TREND_GATES
+        amt_v = pd.to_numeric(row.get("amount"), errors="coerce")
+        liq_ok = amt_v is not None and not pd.isna(amt_v) and float(amt_v) >= ETF_MIN_AMOUNT
+        codes = (["trend_gate_passed"] if in_gate else ["below_trend_gate"]) + \
+                (["liquidity_ok"] if liq_ok else ["low_liquidity"])
+        if code != best_per_dir.get(_direction_word(str(row.get("fund_name", "")))):
+            codes.append("dedup_lost")
+        out.append(AssetCandidate(
+            code=code,
+            name=str(row.get("fund_name", "")),
+            role="SUB_INDUSTRY_ETF" if in_gate else "CORE_ETF",
+            asset_type="etf",
+            bucket="",
+            theme=theme,
+            rps15=_round(row.get("rps15")),
+            rps20=_round(row.get("rps20")),
+            rps60=_round(row.get("rps60")),
+            return_5d=_round(row.get("return_5d")),
+            return_20d=_round(row.get("return_20d")),
+            trend_status=_clean_trend_status(row.get("trend_state", "")),
+            trend_metric_name="rps15",
+            trend_metric_value=_round(row.get("rps15")),
+            metric_scope="etf_cross_section",
+            strategy_score=_round(row.get("selection_score")),
+            reason_codes=codes,
+            rank_change_5d=_round(row.get("rank_change_5d")),
+            liquidity=_round(row.get("amount")),
+            tradable=bool(row.get("account_tradable", False)),
+            recommended=bool(in_gate and liq_ok),
+            state=STOCK_STATE_RECOMMENDED if (in_gate and liq_ok) else STOCK_STATE_WATCH,
+            selection_score=_round(row.get("selection_score")),
+            reason="观察池 ETF（趋势/流动性未全达标）",
+        ))
+    return out
 
 
 # ── 3. 个股固定观察池 ─────────────────────────────────────────────
@@ -594,6 +707,8 @@ def select_stock_watchlist(
                 selection_status="unavailable",
                 risk_gate_passed=False,
                 reason="stock_trend_input_missing",
+                tier=item.tier,
+                tier_label=item.tier_label,
             )
             _append_by_role(cand, role, leaders, high_beta, equipment)
             continue
@@ -650,6 +765,8 @@ def select_stock_watchlist(
             risk_gate_passed=risk_gate_passed,
             risk_flags=risk_flags,
             reason=reason_txt,
+            tier=item.tier,
+            tier_label=item.tier_label,
         )
         _append_by_role(cand, role, leaders, high_beta, equipment)
 
@@ -827,6 +944,9 @@ def build_candidates(
                     return _round(v)
                 return v
 
+            # ETF 观察池（全部关键词命中 + 原因标注；core/sub 逻辑不变，仅补全事实）
+            etf_pool = theme_etf_pool(rotation_df, account_df, master_df, key)
+
             theme_obj = {
                 "theme": key,
                 "theme_label": th.label,
@@ -840,14 +960,17 @@ def build_candidates(
                 "confirmation_state": meta.get("confirmation_state", ""),
                 "confirmation_breadth": meta.get("confirmation_breadth", ""),
                 "confirm_evidence": meta.get("confirm_evidence", {}),
+                "observing_industries": meta.get("observing_industries", []),
                 "metrics": {k: _fmt_metric(k, v) for k, v in meta.items()
                             if k not in ("label", "bucket", "bucket_label", "industries", "confirmed", "reason",
-                                         "confirmation_state", "confirmation_breadth", "confirm_evidence")},
+                                         "confirmation_state", "confirmation_breadth", "confirm_evidence",
+                                         "observing_industries")},
                 "expression": expr["expression"],
                 "expression_label": expr["expression_label"],
                 "expression_reason": expr["expression_reason"],
                 "core_etf": [c.to_dict() for c in core_etf],
                 "sub_industry_etf": [c.to_dict() for c in sub_industry_etf],
+                "etf_pool": [c.to_dict() for c in etf_pool],
                 "stock_watchlist": stock_watchlist,
                 "stock_candidates": stock_candidates,
                 # 分赛道输出：ETF 首选 / 个股首选 / 表达方式（不跨资产混榜）

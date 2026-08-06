@@ -138,23 +138,63 @@ def _compare_layer2(replayed: pd.DataFrame, formal: dict[str, Any]) -> dict[str,
 
 
 def _selection_entity_map(selection: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """从正式 selection JSON 提取 entity_code → (selection_status, recommended_action)。"""
+    """从正式 selection JSON 提取 entity_code → (selection_status, recommended_action)。
+
+    兼容两种结构：
+      - 新（v0.5.0 recommendation）：buckets[].themes[] 含 recommendation.etf/stocks +
+        watchlist.etf/stocks + monitoring（stock_watchlist 透传）
+      - 旧（v0.4.3 selection）：buckets[].themes[] 含 stock_watchlist + core_etf/sub_industry_etf
+    """
     out: dict[str, dict[str, Any]] = {}
     layer3 = (selection or {}).get("layer3") or {}
     action = (layer3.get("action") or {}).get("level", "WAIT")
     for b in layer3.get("buckets", []):
         for t in b.get("themes", []):
-            for tier in ("leaders", "high_beta", "equipment"):
-                for a in t.get("stock_watchlist", {}).get(tier, []):
-                    out[f"stock:{a.get('code')}"] = {
-                        "selection_status": a.get("selection_status", ""),
+            if "recommendation" in t or "watchlist" in t:
+                # 新结构：个股 = monitoring（全量 watchlist 透传）+ recommendation.stocks + watchlist.stocks
+                wl = t.get("monitoring") or t.get("stock_watchlist") or {}
+                for tier in ("leaders", "high_beta", "equipment"):
+                    for a in wl.get(tier, []):
+                        out[f"stock:{a.get('code')}"] = {
+                            "selection_status": a.get("selection_status", ""),
+                            "recommended_action": action,
+                        }
+                for a in t.get("watchlist", {}).get("stocks", []):
+                    key = f"stock:{a.get('code')}"
+                    if key not in out:
+                        out[key] = {
+                            "selection_status": a.get("selection_status", "") or a.get("state", ""),
+                            "recommended_action": action,
+                        }
+                # ETF = recommendation.etf（推荐）+ watchlist.etf（观察，附原因）
+                etfs = list(t.get("recommendation", {}).get("etf", []))
+                etfs += t.get("watchlist", {}).get("etf", [])
+                for a in etfs:
+                    out[f"etf:{a.get('code')}"] = {
+                        "selection_status": a.get("state", "") or a.get("selection_status", ""),
                         "recommended_action": action,
                     }
-            for a in t.get("core_etf", []) + t.get("sub_industry_etf", []):
-                out[f"etf:{a.get('code')}"] = {
-                    "selection_status": a.get("state", ""),
-                    "recommended_action": action,
-                }
+                # recommendation.stocks 中的推荐个股若不在 monitoring，补录
+                for a in t.get("recommendation", {}).get("stocks", []):
+                    key = f"stock:{a.get('code')}"
+                    if key not in out:
+                        out[key] = {
+                            "selection_status": a.get("selection_status", ""),
+                            "recommended_action": action,
+                        }
+            else:
+                # 旧结构
+                for tier in ("leaders", "high_beta", "equipment"):
+                    for a in t.get("stock_watchlist", {}).get(tier, []):
+                        out[f"stock:{a.get('code')}"] = {
+                            "selection_status": a.get("selection_status", ""),
+                            "recommended_action": action,
+                        }
+                for a in t.get("core_etf", []) + t.get("sub_industry_etf", []):
+                    out[f"etf:{a.get('code')}"] = {
+                        "selection_status": a.get("state", ""),
+                        "recommended_action": action,
+                    }
     return out
 
 

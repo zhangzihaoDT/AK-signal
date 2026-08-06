@@ -364,7 +364,7 @@ def cmd_run(args: argparse.Namespace) -> None:
             "degraded_assets": [], "stock_input_trade_date": None, "online_fetches": 0,
         }
 
-    # ── 构建候选对象 ───────────────────────────────────────────────
+    # ── 构建候选对象（Selection Engine） ─────────────────────────────
     candidates = selection.build_candidates(
         rotation_df=rotation_df,
         account_df=account_df,
@@ -374,7 +374,11 @@ def cmd_run(args: argparse.Namespace) -> None:
         trend_df=trend_df,
     )
 
-    # ── 输出：结构化候选 JSON + HTML 可视化（按 selection_date 命名） ─
+    # ── 推荐结构（Recommendation Builder：纯排版，不制造新事实） ────
+    from . import recommendation as rec_builder
+    recommendation = rec_builder.build_recommendation(candidates)
+
+    # ── 输出：结构化推荐 JSON + HTML 可视化（按 selection_date 命名） ─
     meta: dict[str, Any] = {
         "alignment": alignment,
         "layers": {
@@ -391,24 +395,24 @@ def cmd_run(args: argparse.Namespace) -> None:
         if coverage.get("degraded_assets"):
             meta["degraded"] = meta.get("degraded", "coverage") or "coverage"
     out_dir = outputs_dir() / "selection"
-    json_path = selection.save_candidates_json(candidates, out_dir, sel_date, meta=meta)
-    html_path = sel_report.render_selection_html(candidates, out_dir, sel_date, meta=meta)
+    json_path = selection.save_candidates_json(recommendation, out_dir, sel_date, meta=meta)
+    html_path = sel_report.render_selection_html(recommendation, out_dir, sel_date, meta=meta)
 
     # 控制台摘要
-    for bucket in candidates.get("buckets", []):
+    for bucket in recommendation.get("buckets", []):
         logger.info("[bucket] %s（%s）| 确认主题=%d/%d",
                     bucket.get("bucket_label", ""), bucket.get("objective", ""),
                     bucket.get("n_confirmed", 0), bucket.get("n_themes", 0))
         for sub in bucket.get("themes", []):
-            n_core = len(sub.get("core_etf", []))
-            n_sub = len(sub.get("sub_industry_etf", []))
-            n_cand = len(sub.get("stock_candidates", []))
-            wl = sub.get("stock_watchlist", {})
-            n_wl = sum(len(wl.get(t, [])) for t in ("leaders", "high_beta", "equipment"))
-            logger.info("  [%s] %s | %s | 核心ETF=%d 细分ETF=%d 个股候选=%d 观察池=%d",
+            rec = sub.get("recommendation", {})
+            n_core = len(rec.get("etf", []))
+            n_cand = len(rec.get("stocks", []))
+            wl = sub.get("watchlist", {})
+            n_wl = len(wl.get("etf", [])) + len(wl.get("stocks", []))
+            logger.info("  [%s] %s | %s | 推荐ETF=%d 推荐个股=%d 观察池=%d",
                         sub.get("theme", ""), sub.get("theme_label", ""),
-                        sub.get("expression_label", ""), n_core, n_sub, n_cand, n_wl)
-    logger.info("recommended_actions: %d", len(candidates.get("recommended_actions", [])))
+                        sub.get("today", {}).get("expression_label", ""), n_core, n_cand, n_wl)
+    logger.info("recommended_actions: %d", len(recommendation.get("recommended_actions", [])))
 
     logger.info("candidates json: %s", json_path)
     logger.info("candidates html: %s", html_path)
