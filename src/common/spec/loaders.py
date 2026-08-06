@@ -16,7 +16,7 @@ from src.common.paths import config_dir
 from . import schema as sch
 from .model import (
     AllocationSpec, AmountScoreSpec, EntrySpec, EtfSelectionSpec, ExecutionSpec,
-    ExitSpec, IndicatorSpec, PortfolioSpec, StrategySpec,
+    ExitSpec, IndicatorSpec, PortfolioSpec, StockSelectionSpec, StrategySpec,
 )
 
 
@@ -39,7 +39,7 @@ def load_indicator_spec() -> IndicatorSpec:
     sch.validate_indicators(cfg)
     rps, ma = cfg["rps"], cfg["moving_average"]
     gates, conf = cfg["signal_gates"], cfg["confirmation"]
-    etf, stock = gates["etf"], gates["stock"]
+    etf = gates["etf"]
     return IndicatorSpec(
         rps_short_window=int(rps["short_window"]),
         rps_medium_window=int(rps["medium_window"]),
@@ -47,8 +47,6 @@ def load_indicator_spec() -> IndicatorSpec:
         ma_default_window=int(ma["default_window"]),
         etf_strong_threshold=float(etf["strong_threshold"]),
         etf_watch_threshold=float(etf["watch_threshold"]),
-        stock_qualified_score=float(stock["qualified_score"]),
-        stock_allowed_trend_states=tuple(stock["allowed_trend_states"]),
         confirmation_strong_threshold=float(conf["strong_threshold"]),
         confirmation_observe_threshold=float(conf["observe_threshold"]),
         confirmation_neutral_threshold=float(conf["neutral_threshold"]),
@@ -73,6 +71,19 @@ def load_etf_selection_spec() -> EtfSelectionSpec:
             method=str(amt["method"]), floor=float(amt["floor"]),
             reference=float(amt["reference"]), cap=float(amt["cap"]),
         ),
+    )
+
+
+@lru_cache(maxsize=None)
+def load_stock_selection_spec() -> StockSelectionSpec:
+    """Layer③ 个股准入 + 主题门控（Policy）。"""
+    cfg = _read_yaml("strategies.yaml")
+    sch.validate_stock_selection(cfg)
+    ss = cfg["stock_selection"]
+    return StockSelectionSpec(
+        qualified_score=float(ss["qualified_score"]),
+        allowed_trend_states=tuple(ss["allowed_trend_states"]),
+        theme_confirm_states=tuple(ss["theme_confirm_states"]),
     )
 
 

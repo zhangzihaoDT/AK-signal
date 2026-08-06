@@ -16,8 +16,14 @@ class TestLoaders:
         s = load_indicator_spec()
         assert s.rps_windows == (15, 20, 60)
         assert s.etf_strong_threshold == 80.0
-        assert s.stock_qualified_score == 70.0
         assert s.confirmation_strong_threshold == 90.0
+
+    def test_stock_selection_spec(self):
+        from src.common.spec.loaders import load_stock_selection_spec
+        ss = load_stock_selection_spec()
+        assert ss.qualified_score == 70.0
+        assert ss.allowed_trend_states == ("S", "A")
+        assert ss.theme_confirm_states == ("观察", "强势")
 
     def test_etf_selection_spec(self):
         from src.common.spec.loaders import load_etf_selection_spec

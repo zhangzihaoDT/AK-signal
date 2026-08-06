@@ -22,8 +22,8 @@ Strategy Specification      （config/ 中的策略知识与可实验参数）
 |---|---|---|
 | `themes_two_directions.yaml` | 主题 / bucket / 行业焦点组 / ETF 关键词 / 启用状态 | 费用、组合权重 |
 | `stock_universe.yaml` | 资产池 / 主题映射 / 黑名单 / Universe | Entry/Exit 阈值、Portfolio 分配 |
-| `strategies.yaml` | 主题级策略（entry/exit 参数 + strategy_id + 权重） | Portfolio 参数 |
-| `indicators.yaml` | RPS/MA 窗口、信号门限（ETF 趋势门/个股合格线/确认阈值） | 指标算法 |
+| `strategies.yaml` | 主题级策略（entry/exit 参数 + strategy_id + 权重）+ `etf_selection`（ETF 准入/排序）+ `stock_selection`（个股准入/主题门控） | Portfolio 参数 |
+| `indicators.yaml` | RPS/MA 窗口、信号门限（ETF 趋势门/确认阈值） | 策略/准入门限（在 strategies.yaml） |
 | `execution.yaml` | 执行模型 / fee / slippage / leverage / pyramiding | 撮合实现 |
 | `portfolio.yaml` | 初始资金 / 持仓 / 单资产上限 / deploy / 权重 | Entry/Exit 策略参数 |
 | `sw_industry_rps.yaml` | 申万模块自身配置（provisional/storage 等） | — |
@@ -90,7 +90,9 @@ Schema 校验（`src/common/spec/schema.py`）在**运行开始阶段**失败：
 | `selection/selection.py` ETF_MIN_AMOUNT | 5e7 | A | ✅ | strategies.etf_selection.min_amount |
 | `selection/selection.py` selection_score 权重 | 0.55/0.25/0.20 | A | ✅ | strategies.etf_selection.ranking.weights |
 | `selection/selection.py` amount_score 口径 | 候选集合 log 归一化 | A | ✅ | strategies.etf_selection.ranking.amount_score（log_threshold 固定区间） |
-| `selection/selection.py` STOCK_QUALIFIED_SCORE | 70 | A | ✅ | indicators.signal_gates.stock.qualified_score |
+| `selection/selection.py` STOCK_QUALIFIED_SCORE | 70 | A | ✅ | strategies.stock_selection.qualified_score |
+| `selection/selection.py` 个股 S/A 准入 | {"S","A"} | A | ✅ | strategies.stock_selection.allowed_trend_states |
+| `selection/selection.py` 主题门控（观察/强势） | {观察,强势} | A | ✅ | strategies.stock_selection.theme_confirm_states |
 | `sw_industry_rps/confirmation.py` 90/80/60 | 90/80/60 | A | ✅ | indicators.confirmation |
 | `backtest` entry rps15_min / fee / slippage | 80 / 5bp / 5bp | A | ✅ | strategies.entry / execution.yaml |
 | `portfolio` max_positions / max_weight / deploy | 5 / 0.2 / 1.0 | A | ✅ | portfolio.yaml |
@@ -100,6 +102,16 @@ Schema 校验（`src/common/spec/schema.py`）在**运行开始阶段**失败：
 | report.py 90/80/70 展示阈值 | 90/80/70 | D | 不纳入 | — |
 
 分类：A=Strategy Parameter（→config）；B=Algorithm Constant（留代码+说明）；C=Execution Invariant（留代码+测试）；D=Display/Formatting（不纳入）。
+
+## 7.1 主题确认语义（确认广度）
+
+主题确认是**存在性判定**：任一焦点行业进入观察区（`strength_level ∈ stock_selection.theme_confirm_states`）即开放**整个主题**的资产资格（不做子主题拆解——sub-theme→资产映射不在当前配置范围）。
+
+- **BROAD_CONFIRMED**（广泛确认）：≥ `confirmation.broad_fraction` 的焦点行业进入观察区 → 全主题强表达（ETF 完整承接 / 龙头卫星）。
+- **NARROW_CONFIRMED**（窄幅确认）：仅少数行业支撑 → **主题仍开放**（资格不变），但 `decide_expression` 追加显式标注「仅 X/N 行业支撑，宜观察」，压低表达强度。窄幅不是否定主题，是提醒承接面窄。
+- **WATCH / UNCONFIRMED**：主题不开放，仅输出观察候选。
+
+「确认」的状态集合是 Policy（`stock_selection.theme_confirm_states`，可调如只认「强势」）；生成 `strength_level` 的阈值是 Observation（`indicators.confirmation.observe_threshold`），两者分离。
 
 ## 8. 验收（已满足）
 

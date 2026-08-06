@@ -52,15 +52,17 @@ ROLE_LABELS = {
 }
 
 # 趋势门控：允许进入候选的 ETF 状态（来自统一 Strategy Specification config/strategies.yaml etf_selection）
-def _indicator_gates() -> tuple[set[str], set[str], float, float]:
-    from src.common.spec.loaders import load_etf_selection_spec, load_indicator_spec
+def _indicator_gates() -> tuple[set[str], set[str], float, float, set[str], set[str]]:
+    from src.common.spec.loaders import load_etf_selection_spec, load_stock_selection_spec
     es = load_etf_selection_spec()
-    ind = load_indicator_spec()
+    ss = load_stock_selection_spec()
     return (set(es.allowed_trend_states), set(es.watch_allowed_trend_states),
-            float(es.min_amount), float(ind.stock_qualified_score))
+            float(es.min_amount), float(ss.qualified_score),
+            set(ss.allowed_trend_states), set(ss.theme_confirm_states))
 
 
-ETF_TREND_GATES, ETF_WATCH_GATES, ETF_MIN_AMOUNT, STOCK_QUALIFIED_SCORE = _indicator_gates()
+(ETF_TREND_GATES, ETF_WATCH_GATES, ETF_MIN_AMOUNT,
+ STOCK_QUALIFIED_SCORE, STOCK_ALLOWED_TREND_STATES, THEME_CONFIRM_STATES) = _indicator_gates()
 # 观察池（弱势市场兜底）：额外纳入 WATCH，仅作观察候选，recommended=False
 # 对外暴露的趋势状态标签：OUT_OF_SCOPE 语义易误读为「不属于主题」，实为「未达趋势门」
 ETF_TREND_STATUS_LABELS = {
@@ -74,9 +76,18 @@ ETF_TREND_STATUS_LABELS = {
 STOCK_STATE_WATCH = "WATCH"
 STOCK_STATE_QUALIFIED = "QUALIFIED"
 STOCK_STATE_RECOMMENDED = "RECOMMENDED"
-# 个股趋势合格门槛（来自 config/indicators.yaml signal_gates.stock.qualified_score）
-# 主题确认门槛（与 Layer② OBSERVE_THRESHOLD 对齐，ETF RPS15 距此门槛的远近衡量接近转强程度）
-SUBTHEME_CONFIRM_RPS15 = 80
+# 个股趋势合格门槛（来自 config/strategies.yaml stock_selection.qualified_score）
+# 主题确认门槛（Layer③ 门控 = stock_selection.theme_confirm_states；与 Layer② 生成
+# strength_level 的 observe_threshold 无关——那是 Observation，本层只消费状态）
+
+
+def _industry_confirm_threshold() -> float:
+    """行业确认门（展示用距离指标）= Layer② observe_threshold（Observation 事实）。"""
+    from src.common.spec.loaders import load_indicator_spec
+    return float(load_indicator_spec().confirmation_observe_threshold)
+
+
+INDUSTRY_CONFIRM_RPS15 = _industry_confirm_threshold()
 
 
 def _primary_stock(stock_candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -205,7 +216,7 @@ def classify_confirmation_breadth(
 
 def _confirm_evidence(sub: pd.DataFrame, confirmed: bool) -> dict[str, Any]:
     """确认依据：已确认 → 最强进入观察区行业；未确认 → 最强行业（距门槛）。"""
-    obs = sub[sub["strength_level"].astype(str).isin(["观察", "强势"])] if confirmed else sub
+    obs = sub[sub["strength_level"].astype(str).isin(THEME_CONFIRM_STATES)] if confirmed else sub
     if obs.empty:
         obs = sub
     if obs.empty:
@@ -241,12 +252,12 @@ def evaluate_themes(
             "industries": th.industry_codes(),
         }
         if sub.empty:
-            entry.update({"confirmed": False, "n_strong": 0, "n_observe": 0,
+            entry.update({"confirmed": False, "n_strong": 0, "n_observe": 0, "n_total": 0,
                           "median_rps15": None, "reason": "无确认数据"})
         else:
             levels = sub["strength_level"].astype(str)
             n_strong = int(levels.isin(["强势"]).sum())
-            n_observe = int(levels.isin(["强势", "观察"]).sum())
+            n_observe = int(levels.isin(THEME_CONFIRM_STATES).sum())
             rps = sub["RPS15"].dropna()
             # 上涨结构（对已穿透行业取中位）：保留原始值供表达决策，展示时另行保留两位小数
             part = sub["participation_rate"].dropna()
@@ -266,6 +277,7 @@ def evaluate_themes(
                 "confirmed": confirmed,
                 "n_strong": n_strong,
                 "n_observe": n_observe,
+                "n_total": len(sub),
                 "median_rps15": _round(rps.median()) if not rps.empty else None,
                 "strongest_industry_rps15": max_rps,
                 "median_participation": float(part.median()) if not part.empty else None,
@@ -295,10 +307,10 @@ def evaluate_direction(theme_metas: dict[str, dict[str, Any]]) -> dict[str, Any]
     if confirmed:
         return {"gate": "PROCEED", "n_confirmed_themes": len(confirmed),
                 "confirmed_themes": confirmed,
-                "reason": f"{len(confirmed)} 个主题行业进入观察区（RPS15≥80）"}
+                "reason": f"{len(confirmed)} 个主题行业进入确认状态（{', '.join(THEME_CONFIRM_STATES)}）"}
     return {"gate": "WATCHLIST_ONLY", "n_confirmed_themes": 0,
             "confirmed_themes": [],
-            "reason": "无主题进入观察区（RPS15≥80 确认证据），仅输出观察候选"}
+            "reason": "无主题进入确认状态，仅输出观察候选"}
 
 
 # ── 2. ETF 候选（动态从 Layer① rotation 选） ───────────────────────
@@ -441,7 +453,7 @@ def _stock_state(
     qualified = (
         score_trend is not None
         and score_trend >= STOCK_QUALIFIED_SCORE
-        and watch_level in ("S", "A")
+        and watch_level in STOCK_ALLOWED_TREND_STATES
         and action_txt not in ("剔除观察", "风险警戒")
     )
     if not qualified:
@@ -662,7 +674,13 @@ def _append_by_role(
 # ── 4. 表达方式决策 ────────────────────────────────────────────────
 
 def decide_expression(theme_meta: dict[str, Any]) -> dict[str, Any]:
-    """基于上涨结构（参与率 / HHI / Top3）判断 ETF vs 个股。"""
+    """基于上涨结构（参与率 / HHI / Top3）+ 确认广度判断 ETF vs 个股。
+
+    NARROW_CONFIRMED 语义：主题确认是存在性判定（任一焦点行业进入观察区即开放
+    整个主题的资产资格，不做子主题拆解——sub-theme→资产映射不在当前配置范围）。
+    但窄幅确认必须显式标注并压低表达强度：只有少数子行业支撑时，不给出
+    「广泛承接」类的强表达，落在 reason 与 confirmation_state 中供阅读。
+    """
     confirmed = theme_meta.get("confirmed", False)
     if not confirmed:
         return {"expression": "WATCHLIST_ONLY",
@@ -672,6 +690,9 @@ def decide_expression(theme_meta: dict[str, Any]) -> dict[str, Any]:
     part = theme_meta.get("median_participation")
     hhi = theme_meta.get("median_hhi")
     top3 = theme_meta.get("median_top3_share")
+    conf_state = theme_meta.get("confirmation_state", "")
+    n_observe = int(theme_meta.get("n_observe", 0) or 0)
+    n_total = int(theme_meta.get("n_total", 0) or 0)
 
     # 龙头主导：HHI 高 或 Top3 贡献集中（单核/集中领涨）
     leader_dominated = (hhi is not None and hhi >= 0.15) or (top3 is not None and top3 >= 0.60)
@@ -683,6 +704,11 @@ def decide_expression(theme_meta: dict[str, Any]) -> dict[str, Any]:
         expression, reason = "LEADER_PRIORITY", "龙头贡献集中（HHI/Top3 高），优先龙头个股，ETF 作低风险替代"
     else:
         expression, reason = "ETF_CORE_PLUS_LEADER", "扩散形成中，ETF 作核心、龙头作卫星"
+
+    # 窄幅确认：主题开放但支撑面窄 → 追加显式标注，压低表达强度
+    if conf_state == "NARROW_CONFIRMED":
+        note = f"窄幅确认（仅 {n_observe}/{n_total} 个焦点行业支撑），主题开放但承接面窄，宜观察"
+        reason = f"{reason}；{note}" if reason else note
 
     return {"expression": expression,
             "expression_label": EXPRESSION_LABELS.get(expression, expression),
@@ -699,7 +725,7 @@ def build_top_action(theme_objs: list[dict[str, Any]]) -> dict[str, Any]:
     if not confirmed:
         return {"level": "WAIT", "direction": "", "direction_label": "",
                 "theme": "", "theme_label": "", "expression": "", "expression_label": "",
-                "summary": "今日方向：等待 —— 无主题进入观察区（RPS15≥80 确认证据），不建仓"}
+                "summary": "今日方向：等待 —— 无主题进入确认状态，不建仓"}
     rank = {"ETF_PRIORITY": 3, "LEADER_PRIORITY": 3, "ETF_CORE_PLUS_LEADER": 2, "WATCHLIST_ONLY": 1}
     best = max(confirmed, key=lambda s: rank.get(s.get("expression", ""), 1))
     expr = best.get("expression", "")
@@ -862,9 +888,9 @@ def build_candidates(
 
 
 def _theme_stage_meta(theme_obj: dict[str, Any]) -> dict[str, Any]:
-    """主题阶段判断：确认门槛在行业 RPS15≥80，距离以行业口径为准。
+    """主题阶段判断：确认门在行业 strength_level（Layer② 观察/强势），距离以行业口径为准。
 
-    distance_to_industry_confirm = 80 - 主题最强行业 RPS15（真实确认门）
+    distance_to_industry_confirm = confirm 门 - 主题最强行业 RPS15（真实确认门）
     distance_to_etf_strength     = 80 - 最强 ETF RPS15（ETF 自身强势门槛，仅供参考）
     两者口径不同，分开暴露，不混用。
     """
@@ -877,10 +903,10 @@ def _theme_stage_meta(theme_obj: dict[str, Any]) -> dict[str, Any]:
     if confirmed:
         stage = "已确认"
         d_ind = 0
-        d_etf = round(SUBTHEME_CONFIRM_RPS15 - float(strongest_rps), 1) if strongest_rps is not None else None
+        d_etf = round(INDUSTRY_CONFIRM_RPS15 - float(strongest_rps), 1) if strongest_rps is not None else None
     else:
-        d_ind = round(SUBTHEME_CONFIRM_RPS15 - float(ind_rps), 1) if ind_rps is not None else None
-        d_etf = round(SUBTHEME_CONFIRM_RPS15 - float(strongest_rps), 1) if strongest_rps is not None else None
+        d_ind = round(INDUSTRY_CONFIRM_RPS15 - float(ind_rps), 1) if ind_rps is not None else None
+        d_etf = round(INDUSTRY_CONFIRM_RPS15 - float(strongest_rps), 1) if strongest_rps is not None else None
         stage = "修复观察" if (d_ind is not None and d_ind <= 20) else "弱势"
     return {
         "stage": stage,

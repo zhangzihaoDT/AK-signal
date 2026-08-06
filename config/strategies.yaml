@@ -25,6 +25,15 @@ etf_selection:
       reference: 500000000   # 成交额 ≥ reference → cap（100）
       cap: 100
 
+# stock_selection：Layer③ 个股准入 + 主题门控（Policy，非指标定义）
+#   个股准入：qualified_score + allowed_trend_states（趋势合格线）
+#   theme_confirm_states：哪些 strength_level 视为主题确认（Layer③ 门控；
+#     与 Layer② 生成 strength_level 的 observe_threshold 无关——那是 Observation）
+stock_selection:
+  qualified_score: 70
+  allowed_trend_states: ["S", "A"]
+  theme_confirm_states: ["观察", "强势"]
+
 strategies:
   ai_20:
     strategy_id: ai_fixed_20

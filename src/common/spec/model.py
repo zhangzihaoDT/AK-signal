@@ -13,15 +13,13 @@ RULE_VERSION = "v0.6.1"
 
 @dataclass(frozen=True)
 class IndicatorSpec:
-    """指标与趋势态生成阈值（Observation；Policy 参数在 EtfSelectionSpec / StrategySpec）。"""
+    """指标与趋势态生成阈值（Observation；Policy 参数在 EtfSelectionSpec / StockSelectionSpec / StrategySpec）。"""
     rps_short_window: int
     rps_medium_window: int
     rps_long_window: int
     ma_default_window: int
     etf_strong_threshold: float
     etf_watch_threshold: float
-    stock_qualified_score: float
-    stock_allowed_trend_states: tuple[str, ...]
     confirmation_strong_threshold: float
     confirmation_observe_threshold: float
     confirmation_neutral_threshold: float
@@ -49,6 +47,20 @@ class EtfSelectionSpec:
     min_amount: float
     ranking_weights: dict[str, float]           # {"rps15": 0.55, "rps20": 0.25, "amount_score": 0.20}
     amount_score: AmountScoreSpec
+
+
+@dataclass(frozen=True)
+class StockSelectionSpec:
+    """Layer③ 个股准入 + 主题门控（Policy）。
+
+    qualified_score / allowed_trend_states：个股趋势合格线（≥score 且 watch_level∈{S,A}）；
+    theme_confirm_states：哪些 strength_level 视为主题确认（Layer③ 门控）。
+    注意：strength_level 由 Layer② 用 indicators.confirmation.observe_threshold 生成
+    （Observation），此处只决定「哪些状态开放主题」，不决定阈值本身。
+    """
+    qualified_score: float
+    allowed_trend_states: tuple[str, ...]
+    theme_confirm_states: tuple[str, ...]
 
 
 @dataclass(frozen=True)

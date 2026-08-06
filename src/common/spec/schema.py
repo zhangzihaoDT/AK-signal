@@ -86,7 +86,6 @@ def validate_indicators(cfg: dict[str, Any]) -> None:
     gates = _require(cfg, "signal_gates", "must define signal_gates")
     _num_in_range(gates["etf"].get("strong_threshold"), 0, 100, "signal_gates.etf.strong_threshold")
     _num_in_range(gates["etf"].get("watch_threshold"), 0, 100, "signal_gates.etf.watch_threshold")
-    _num_in_range(gates["stock"].get("qualified_score"), 0, 100, "signal_gates.stock.qualified_score")
     conf = _require(cfg, "confirmation", "must define confirmation thresholds")
     _num_in_range(conf.get("strong_threshold"), 0, 100, "confirmation.strong_threshold")
     _num_in_range(conf.get("observe_threshold"), 0, 100, "confirmation.observe_threshold")
@@ -111,6 +110,18 @@ def validate_etf_selection(cfg: dict[str, Any]) -> None:
     _num_in_range(amt.get("floor"), 0, 1e15, "etf_selection.amount_score.floor")
     _num_in_range(amt.get("reference"), 0, 1e15, "etf_selection.amount_score.reference")
     _num_in_range(amt.get("cap"), 0, 1e6, "etf_selection.amount_score.cap")
+
+
+def validate_stock_selection(cfg: dict[str, Any]) -> None:
+    """Layer③ 个股准入 + 主题门控校验。"""
+    ss = _require(cfg, "stock_selection", "must define stock_selection policy")
+    _num_in_range(ss.get("qualified_score"), 0, 100, "stock_selection.qualified_score")
+    states = ss.get("allowed_trend_states")
+    if not isinstance(states, list) or not states:
+        raise SpecValidationError("stock_selection.allowed_trend_states required")
+    confirm = ss.get("theme_confirm_states")
+    if not isinstance(confirm, list) or not confirm:
+        raise SpecValidationError("stock_selection.theme_confirm_states required")
 
 
 def validate_execution(cfg: dict[str, Any]) -> None:
