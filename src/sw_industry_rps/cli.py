@@ -604,6 +604,8 @@ def cmd_calculate(args: argparse.Namespace) -> None:
     processed_dir = sw_industry_processed_dir()
     cfg = load_config()
     windows = cfg.get("rps", {}).get("windows", [5, 10, 15])
+    today_window = cfg.get("rps", {}).get("today_window", 1)
+    velocity_window = cfg.get("rps", {}).get("velocity_window", 5)
 
     full_rebuild = getattr(args, "full", False)
     explicit_date = getattr(args, "date", None)
@@ -658,7 +660,9 @@ def cmd_calculate(args: argparse.Namespace) -> None:
     combined = pd.concat(all_hist, ignore_index=True)
     logger.info("computing metrics for %d rows across %d industries", len(combined), combined["industry_code"].nunique())
 
-    result = metrics.compute_all_metrics(combined, windows=windows)
+    result = metrics.compute_all_metrics(combined, windows=windows,
+                                         today_window=today_window,
+                                         velocity_window=velocity_window)
 
     # Merge with prior metrics
     prior_metrics = storage.load_metrics(processed_dir)
@@ -1248,6 +1252,8 @@ def cmd_confirm(args: argparse.Namespace) -> None:
 
     # 3. 合并 + 落结构化明细
     final_df = confirmation.merge_drilldown(focus_df, drilldown_results)
+    final_df = confirmation.add_rotation_state_column(final_df)
+    theme_resonance = confirmation.add_theme_heat(theme_resonance, final_df)
     # 证据元数据：从上游 metrics 在 latest_date 的行提取，供 Selection 判断证据等级
     ms = metrics_df[metrics_df["trade_date"] == latest_date] if not metrics_df.empty else pd.DataFrame()
     total_ind = int(metrics_df["industry_code"].nunique()) if not metrics_df.empty else 0

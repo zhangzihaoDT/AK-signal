@@ -107,82 +107,42 @@ class TestMarketPulseColumns:
         assert pd.notna(m["liquidity"])
 
 
-class TestMarketPulseSummary:
-    def _df(self) -> pd.DataFrame:
-        return pd.DataFrame({
-            "fund_code": ["e1", "e2", "e3", "e4"],
-            "fund_name": ["AIETF", "AIETF2", "电力ETF", "电力ETF2"],
-            "theme": ["ai_infrastructure", "ai_infrastructure", "high_cashflow", "high_cashflow"],
-            "rps1": [90, 80, 30, 40],
-            "rps15": [70, 60, 95, 90],
-            "delta_rps15": [20, 10, -5, -3],
-        })
-
-    def test_pulse_picks_theme_medians(self):
-        pulse = rotation.market_pulse(self._df(), {"preference": "防御"})
-        assert pulse["today_hot"]["theme"] == "ai_infrastructure"
-        assert pulse["trend_leader"]["theme"] == "high_cashflow"
-        assert pulse["acceleration"]["theme"] == "ai_infrastructure"
-        assert pulse["risk"] == {"preference": "防御", "level": "Low"}
-
-    def test_pulse_theme_labels(self):
-        pulse = rotation.market_pulse(self._df(), {})
-        assert pulse["today_hot"]["label"] == "AI 基础设施"
-        assert pulse["trend_leader"]["label"] == "高现金流资产"
-
-    def test_pulse_risk_mapping(self):
-        assert rotation.market_pulse(self._df(), {"preference": "进攻"})["risk"]["level"] == "High"
-        assert rotation.market_pulse(self._df(), {"preference": "均衡"})["risk"]["level"] == "Medium"
-
-    def test_pulse_empty(self):
-        pulse = rotation.market_pulse(pd.DataFrame(), {})
-        assert pulse["today_hot"] is None and pulse["trend_leader"] is None
-        assert pulse["acceleration"] is None
-
-
-class TestLeaderLists:
-    def _df(self) -> pd.DataFrame:
-        return pd.DataFrame({
-            "fund_code": ["e1", "e2", "e3"],
-            "fund_name": ["AIETF", "电力ETF", "云计算"],
-            "rps1": [90, 30, 80],
-            "rps15": [70, 95, 60],
-            "delta_rps15": [5, -5, 20],
-        })
-
-    def test_sorted_desc(self):
-        leaders = rotation.leader_lists(self._df(), top_n=2)
-        assert [it["fund_name"] for it in leaders["today"]] == ["AIETF", "云计算"]
-        assert [it["fund_name"] for it in leaders["trend"]] == ["电力ETF", "AIETF"]
-        assert [it["fund_name"] for it in leaders["fast"]] == ["云计算", "AIETF"]
-
-    def test_values_preserved(self):
-        leaders = rotation.leader_lists(self._df(), top_n=8)
-        assert leaders["fast"][0]["value"] == pytest.approx(20.0)
-        assert leaders["trend"][0]["value"] == pytest.approx(95.0)
-
-    def test_empty(self):
-        assert rotation.leader_lists(pd.DataFrame()) == {"today": [], "trend": [], "fast": []}
-
-
-class TestReportRendersMarketPulse:
-    def test_html_contains_pulse_sections(self, tmp_path):
+class TestReportThreeQuestions:
+    def test_html_renders_three_questions(self, tmp_path):
         rot = rotation.compute_rotation_metrics(_combined_df(), _master_df())
-        pulse = rotation.market_pulse(rot, {"preference": "均衡"})
-        leaders = rotation.leader_lists(rot)
-        cov = rotation.coverage(rot, pd.DataFrame(), master_count=4)
+        # 注入 trend_state 以便三问三答消费
+        rot["trend_state"] = "WATCH"
         path = rotation_report.render_rotation_report(
-            rot, pd.DataFrame(), rotation.market_summary(rot), {},
-            {"preference": "均衡", "note": "测试"}, pd.DataFrame(), [],
-            tmp_path, "20260220", pulse=pulse, leaders=leaders, coverage=cov,
+            rot, tmp_path, "20260220", coverage={"data_status": "confirmed"},
         )
         html = path.read_text(encoding="utf-8")
-        assert "Market Pulse" in html
-        assert "四维观察表" in html
-        assert "Today's Leaders" in html
-        assert "Fast Movers" in html
-        assert "ΔRPS15" in html
-        assert "master_count" in html
+        # 三个问题
+        assert "大类资产往哪里动" in html
+        assert "趋势活跃 ETF" in html
+        assert "我的主题 ETF" in html
+        # 不再展示审计信息与宏观判断
+        assert "Market Pulse" not in html
+        assert "四维观察表" not in html
+        assert "master_count" not in html
+        assert "Today's Leaders" not in html
+        assert "Fast Movers" not in html
+        # 页脚审计行
+        assert "异常 ETF" in html
+
+    def test_cross_asset_direction_groups(self):
+        rot = rotation.compute_rotation_metrics(_combined_df(), _master_df())
+        rows = rotation.cross_asset_direction(rot)
+        # A/B/C 是 industry（权益），M 是货币
+        dirs = {r["direction"]: r for r in rows}
+        assert "A股行业/主题" in dirs
+        assert "现金/货币" in dirs
+
+    def test_active_etf_representatives(self):
+        rot = rotation.compute_rotation_metrics(_combined_df(), _master_df())
+        rot["trend_state"] = "BUY_CANDIDATE"
+        reps, total = rotation.active_etf_representatives(rot, _master_df(), top_n=5)
+        assert total > 0
+        assert all(r["trend_state"] == "BUY_CANDIDATE" for r in reps)
 
 
 class TestDataQualityAnomaly:

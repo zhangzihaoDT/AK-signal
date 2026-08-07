@@ -72,9 +72,6 @@ CROSS_SECTIONAL_TAIL = 21
 # 流动性观察口径：最近 N 个交易日成交额均值（Observation 展示）
 LIQUIDITY_AVG_DAYS = 5
 
-# 风险偏好 → Market Pulse Risk 等级（仅 Observation 展示）
-RISK_LABEL_BY_PREFERENCE = {"进攻": "High", "均衡": "Medium", "防御": "Low"}
-
 
 def _rps_windows() -> tuple[int, ...]:
     from src.common.spec.loaders import load_indicator_spec
@@ -688,90 +685,165 @@ def assess_market_regime(bucket_table: pd.DataFrame) -> dict[str, Any]:
     }
 
 
-# ── v0.7.0 Market Pulse（市场脉搏）──────────────────────────────────
-
-def _theme_label_map() -> dict[str, str]:
-    """theme key → 中文标签（config/themes_two_directions.yaml）。"""
-    return {th.key: th.label for b in themes_cfg.load_buckets() for th in b.themes}
+# ── 三问三答：跨资产大类 / 方向去重 / 主题池（v0.7.1）─────────────────────────
+# 七个跨资产方向（对应 etf_buckets.yaml 大类），消费侧只做展示排版，不改排序/选择。
+CROSS_ASSET_ORDER = ["A股宽基", "A股行业/主题", "港股", "海外权益", "债券", "商品/黄金", "现金/货币", "其他"]
 
 
-def market_pulse(
-    etf: pd.DataFrame,
-    regime: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Market Pulse（市场脉搏）：一句话概括今天市场。
+def _cross_asset_direction(row: Any) -> str:
+    """把单只 ETF 归到跨资产方向（消费侧分组，不改任何 Policy）。"""
+    asset_class = str(row.get("asset_class", "") or "")
+    bucket = str(row.get("asset_bucket", "") or "")
+    name = str(row.get("fund_name", "") or "")
+    if asset_class == "现金" or bucket == "money_market":
+        return "现金/货币"
+    if asset_class == "商品" or bucket in ("commodity_gold", "commodity_futures"):
+        return "商品/黄金"
+    if asset_class == "债券" or bucket in ("bond_treasury", "bond_credit", "bond_convertible"):
+        return "债券"
+    if asset_class == "海外" or bucket == "overseas_equity":
+        if any(k in name for k in ("港股", "恒生", "香港", "h股", "H股", "港通")):
+            return "港股"
+        return "海外权益"
+    if asset_class == "权益" or bucket in ("industry", "theme", "factor_style"):
+        if bucket == "broad_market":
+            return "A股宽基"
+        return "A股行业/主题"
+    return "其他"
 
-    主题级四要素（均按主题 ETF 横截面中位计算，仅 Observation 展示）：
-      - today_hot     ：中位 RPS1 最高的主题（今天的热点）
-      - trend_leader  ：中位 RPS15 最高的主题（趋势龙头）
-      - acceleration  ：中位 ΔRPS15 最高的主题（正在加速的方向）
-      - risk          ：由板块风险偏好映射（进攻 High / 均衡 Medium / 防御 Low）
 
-    Returns:
-        {"today_hot": {theme,label,median_rps1} | None,
-         "trend_leader": {...} | None,
-         "acceleration": {...} | None,
-         "risk": {"preference", "level"}}
+def _direction_state(median_rps15: float | None, change_5d: float | None) -> str:
+    """把 (RPS15中位, 5日变化) 映射为当前方向描述（消费侧展示）。"""
+    if median_rps15 is None:
+        return "—"
+    if median_rps15 >= 75 and change_5d is not None and change_5d >= 5:
+        return "强势上行"
+    if median_rps15 >= 60 and change_5d is not None and change_5d > 0:
+        return "加速"
+    if median_rps15 >= 45:
+        return "横盘"
+    return "弱势下行"
+
+
+def cross_asset_direction(etf: pd.DataFrame) -> list[dict[str, Any]]:
+    """① 全市场大类资产往哪里动：按跨资产方向聚合。
+
+    每行一个方向，字段：direction / etf_count / median_rps15 / change_5d /
+    active_ratio / rep_name / direction_state。不展示 RPS1 / 分位数 / 全市场数量。
     """
-    empty = {"today_hot": None, "trend_leader": None, "acceleration": None, "risk": None}
-    if etf.empty or "theme" not in etf.columns:
-        return empty
-    labels = _theme_label_map()
+    if etf.empty:
+        return []
+    df = etf.copy()
+    df["_dir"] = df.apply(_cross_asset_direction, axis=1)
     rows: list[dict[str, Any]] = []
-    for theme_key, g in etf.groupby("theme"):
-        if not theme_key:
-            continue
-        r1 = g["rps1"].dropna()
-        r15 = g["rps15"].dropna()
-        dv = g["delta_rps15"].dropna()
-        rows.append({
-            "theme": theme_key,
-            "label": labels.get(theme_key, theme_key),
-            "median_rps1": float(r1.median()) if not r1.empty else None,
-            "median_rps15": float(r15.median()) if not r15.empty else None,
-            "median_delta_rps15": float(dv.median()) if not dv.empty else None,
-        })
-    if not rows:
-        return empty
-
-    def _pick(key: str) -> dict[str, Any] | None:
-        valid = [r for r in rows if r[key] is not None]
-        if not valid:
-            return None
-        return max(valid, key=lambda r: r[key])
-
-    preference = (regime or {}).get("preference", "均衡")
-    return {
-        "today_hot": _pick("median_rps1"),
-        "trend_leader": _pick("median_rps15"),
-        "acceleration": _pick("median_delta_rps15"),
-        "risk": {"preference": preference,
-                 "level": RISK_LABEL_BY_PREFERENCE.get(preference, "Medium")},
-    }
-
-
-def leader_lists(etf: pd.DataFrame, top_n: int = 8) -> dict[str, list[dict[str, Any]]]:
-    """三张排行榜（纯 Observation 展示，均不参与排序/选择）：
-      - today: Today's Leaders（今日领涨，按 RPS1）
-      - trend: Trend Leaders（趋势龙头，按 RPS15）
-      - fast:  Fast Movers（趋势加速，按 ΔRPS15）
-
-    Returns:
-        {"today": [{"fund_name", "value"}, ...], "trend": [...], "fast": [...]}
-    """
-    specs = [("today", "rps1"), ("trend", "rps15"), ("fast", "delta_rps15")]
-    out: dict[str, list[dict[str, Any]]] = {}
-    for key, col in specs:
-        if col not in etf.columns:
-            out[key] = []
-            continue
-        sub = etf[etf[col].notna() & etf["fund_name"].ne("")].copy()
+    for d in CROSS_ASSET_ORDER:
+        sub = df[df["_dir"] == d]
         if sub.empty:
-            out[key] = []
             continue
-        sub = sub.sort_values(col, ascending=False).head(top_n)
-        out[key] = [
-            {"fund_name": str(r["fund_name"]), "value": round(float(r[col]), 1)}
-            for _, r in sub.iterrows()
-        ]
-    return out
+        rps = pd.to_numeric(sub["rps15"], errors="coerce").dropna()
+        chg = pd.to_numeric(sub["rank_change_5d"], errors="coerce").dropna()
+        n = len(sub)
+        n_active = int((sub.get("trend_state", pd.Series(dtype=str)).astype(str) != "OUT_OF_SCOPE").sum()) \
+            if "trend_state" in sub.columns else 0
+        rep = sub.copy()
+        if "liquidity" in rep.columns:
+            rep = rep[pd.to_numeric(rep["liquidity"], errors="coerce").notna()]
+        if not rep.empty:
+            rep = rep.sort_values("liquidity", ascending=False)
+        median = round(float(rps.median()), 1) if not rps.empty else None
+        change = round(float(chg.median()), 1) if not chg.empty else None
+        rows.append({
+            "direction": d,
+            "etf_count": n,
+            "median_rps15": median,
+            "change_5d": change,
+            "active_ratio": round(n_active / n, 2) if n else 0,
+            "rep_name": str(rep.iloc[0]["fund_name"]) if not rep.empty else "—",
+            "direction_state": _direction_state(median, change),
+        })
+    return rows
+
+
+# 方向去重键：优先具体 exposure_name；粗粒度/未分类 → 用基金名去掉公司/ETF 后缀
+_GENERIC_EXPOSURES = {"海外", "策略", "周期", "消费", "科技", "金融", "宽基", "地产基建", "新能源", ""}
+_ETF_COMPANIES = [
+    "华夏", "国泰", "易方达", "南方", "嘉实", "招商", "博时", "广发", "富国", "汇添富",
+    "华安", "华宝", "工银", "工银瑞信", "平安", "永赢", "景顺", "银华", "天弘", "华泰柏瑞",
+    "鹏华", "浦银", "浦银安盛", "中银", "建信", "兴业", "泰康", "万家", "东财", "海富通",
+    "大成", "国联", "融通", "兴全", "中欧", "鹏扬", "浙商", "方正", "华泰", "南方基金",
+]
+
+
+def _direction_key(fund_name: str, exposure_name: str = "") -> str:
+    """ETF 方向去重键：具体 exposure_name 优先，否则剥掉基金名公司/ETF 后缀。"""
+    exp = str(exposure_name or "").strip()
+    if exp and exp not in _GENERIC_EXPOSURES:
+        return exp
+    s = str(fund_name or "")
+    for c in _ETF_COMPANIES:
+        if s.endswith(c):
+            s = s[: -len(c)]
+            break
+    for tok in ("ETF", "指数", "基金", "LOF", "联接"):
+        s = s.replace(tok, "")
+    return s.strip() or str(fund_name or "")
+
+
+def active_etf_representatives(
+    rotation: pd.DataFrame,
+    master: pd.DataFrame,
+    top_n: int = 40,
+) -> tuple[list[dict[str, Any]], int]:
+    """② 当前趋势活跃 ETF：按方向去重，每个方向保留一只流动性最好的代表。
+
+    排序：STRONG_WATCH → BUY_CANDIDATE → WATCH → RPS15 → 流动性。
+    返回 (代表清单, 总活跃方向数)。完整活跃名单由 watchlist_active.csv 承载。
+    """
+    if rotation.empty:
+        return [], 0
+    df = rotation.copy()
+    if "trend_state" not in df.columns:
+        return [], 0
+    active = df[df["trend_state"].astype(str) != "OUT_OF_SCOPE"].copy()
+    if active.empty:
+        return [], 0
+    exp_map = {}
+    if not master.empty and "fund_code" in master.columns and "exposure_name" in master.columns:
+        exp_map = dict(zip(master["fund_code"], master["exposure_name"]))
+    active["_dir"] = active.apply(
+        lambda r: _direction_key(str(r.get("fund_name", "")), str(exp_map.get(r.get("fund_code"), ""))),
+        axis=1,
+    )
+    # 每个方向保留流动性最好的代表
+    reps: list[dict[str, Any]] = []
+    state_rank = {"STRONG_WATCH": 0, "BUY_CANDIDATE": 1, "WATCH": 2}
+    for d, g in active.groupby("_dir"):
+        liq = pd.to_numeric(g.get("liquidity"), errors="coerce")
+        best_idx = liq.idxmax() if liq.notna().any() else g.index[0]
+        r = g.loc[best_idx]
+        reps.append({
+            "direction": d,
+            "fund_name": str(r.get("fund_name", "")),
+            "fund_code": str(r.get("fund_code", "")),
+            "trend_state": str(r.get("trend_state", "")),
+            "rps15": _num_round(r.get("rps15")),
+            "rps20": _num_round(r.get("rps20")),
+            "liquidity": _num_round(r.get("liquidity")),
+            "same_count": int(len(g)),
+        })
+    reps.sort(key=lambda x: (state_rank.get(x["trend_state"], 9),
+                             -(x["rps15"] if x["rps15"] is not None else -999),
+                             -(x["liquidity"] if x["liquidity"] is not None else -999)))
+    total_directions = len(reps)
+    return reps[:top_n], total_directions
+
+
+def _num_round(v: Any) -> float | None:
+    try:
+        x = float(v)
+        return round(x, 1) if not pd.isna(x) else None
+    except (TypeError, ValueError):
+        return None
+
+
+# ── 横截面观察（v0.7.0）──────────────────────────────────────────────

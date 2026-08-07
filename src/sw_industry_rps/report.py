@@ -134,6 +134,53 @@ def _strength_tag(rps15: Any) -> str:
         return "<span class='tag normal'>—</span>"
 
 
+STATE_TAG_CLS = {
+    "强势延续": "tag-strong",
+    "加速启动": "tag-observe",
+    "高位休整": "tag-normal",
+    "一日脉冲": "tag-normal",
+    "走弱": "tag-weak",
+}
+
+
+def _state_tag(state: Any) -> str:
+    cls = STATE_TAG_CLS.get(str(state))
+    if cls is None:
+        return "<span class='tag normal'>—</span>"
+    return f"<span class='tag {cls}'>{escape(str(state))}</span>"
+
+
+def render_rotation_state_sections(snapshot: pd.DataFrame) -> str:
+    """四类行业轮动状态（Observation 分类，不改变确认 Policy）。"""
+    if snapshot.empty:
+        return "<p>无数据</p>"
+    df = snapshot.copy()
+    if "rotation_state" not in df.columns:
+        from . import confirmation as _conf
+        df = _conf.add_rotation_state_column(df)
+
+    parts: list[str] = []
+    states = ["强势延续", "加速启动", "高位休整", "一日脉冲", "走弱"]
+    for state in states:
+        sub = df[df["rotation_state"] == state].sort_values("RPS15", ascending=False)
+        if sub.empty:
+            continue
+        items: list[str] = []
+        for _, r in sub.head(10).iterrows():
+            name = r.get("industry_name", "")
+            code = r.get("industry_code", "")
+            detail = (f"RPS15 {_num(r.get('RPS15'), 1)} · RPS5 {_num(r.get('RPS5'), 1)} · "
+                      f"RPS1 {_num(r.get('RPS1'), 1)} · Δ5 {_num(r.get('delta_rps15_5d'), 1)}")
+            items.append(
+                f"<div class='stats-item'><span class='name'>{escape(str(name))}</span> "
+                f"<span style='font-family:monospace;color:#6B7280'>{escape(str(code))}</span>"
+                f"<div class='detail'>{escape(detail)}</div></div>")
+        parts.append(f"<div class='section'><h3>{escape(state)}</h3><div class='stats-list'>")
+        parts.extend(items)
+        parts.append("</div></div>")
+    return "\n".join(parts) if parts else "<p>无显著轮动状态</p>"
+
+
 def _change_status(row: pd.Series) -> tuple[str, str]:
     """返回 (中文标签, 机器标签)"""
     falling_out = row.get("falling_out", 0)
@@ -169,15 +216,18 @@ def render_strength_table(snapshot: pd.DataFrame, rotation_days: int = 20) -> st
         ("排名", "排名"),
         ("industry_code", "行业代码"),
         ("industry_name", "行业名称"),
+        ("RPS1", "RPS1"),
         ("RPS5", "RPS5"),
         ("RPS10", "RPS10"),
         ("RPS15", "RPS15"),
+        ("delta_rps15_5d", "Δ5RPS15"),
         ("return_5", "5日涨幅"),
         ("return_10", "10日涨幅"),
         ("return_15", "15日涨幅"),
         ("delta_rps15", "ΔRPS15"),
         ("streak_90", "连续天数"),
         ("_strength", "强度层级"),
+        ("_state", "轮动状态"),
         ("_change", "变化状态"),
         ("short_term_acceleration", "短期动能差"),
     ]
@@ -189,6 +239,7 @@ def render_strength_table(snapshot: pd.DataFrame, rotation_days: int = 20) -> st
 
     for _, r in df.iterrows():
         ch_label, ch_machine = _change_status(r)
+        state = r.get("rotation_state", "—")
         data_attr = f" data-status='{ch_machine}'" if ch_machine != "none" else ""
         tr_attrs = f" style='display:none'" if False else ""
         tds: list[str] = []
@@ -196,6 +247,9 @@ def render_strength_table(snapshot: pd.DataFrame, rotation_days: int = 20) -> st
             val = r.get(col)
             if col == "_strength":
                 tds.append(f"<td>{_strength_tag(r.get('RPS15'))}</td>")
+                continue
+            if col == "_state":
+                tds.append(f"<td>{_state_tag(state)}</td>")
                 continue
             if col == "_change":
                 tds.append(f"<td>{escape(ch_label)}</td>")
@@ -213,7 +267,7 @@ def render_strength_table(snapshot: pd.DataFrame, rotation_days: int = 20) -> st
                 cls = "pos" if pd.notna(val) and float(val) >= 0 else "neg"
                 tds.append(f"<td class='right {cls}'>{txt}</td>")
                 continue
-            if col in ("delta_rps15", "short_term_acceleration"):
+            if col in ("delta_rps15", "short_term_acceleration", "delta_rps15_5d"):
                 txt = _num(val, 2)
                 cls = "pos" if pd.notna(val) and float(val) >= 0 else ""
                 tds.append(f"<td class='right {cls}'>{txt}</td>")
@@ -452,8 +506,13 @@ def build_html(
                  "</select></label>")
     parts.append("</div>")
 
-    parts.append("<h2>今日强度榜</h2>")
+    parts.append("<h2>行业轮动概览（今日强度榜）</h2>")
+    parts.append("<p>全市场 124 行业横截面：RPS15 趋势位置 · RPS5 近期轮动 · RPS1 当日热度 · Δ5RPS15 趋势变化 · 轮动状态。RPS1 / Δ5RPS15 为 Observation 展示，不参与确认（确认仍看 RPS15≥80）。</p>")
     parts.append(render_strength_table(snapshot, rotation_days))
+
+    parts.append("<h2>行业轮动状态</h2>")
+    parts.append("<p>四类观察分类（强势延续 / 加速启动 / 高位休整 / 一日脉冲），仅描述今日轮动到哪、是延续还是启动，不改变确认 Policy。</p>")
+    parts.append(render_rotation_state_sections(snapshot))
 
     parts.append("<h2>行业轮动矩阵（最近 20 个交易日 RPS15）</h2>")
     parts.append(render_rotation_matrix(metrics, rotation_days))
@@ -510,9 +569,9 @@ def build_report_csv(snapshot: pd.DataFrame) -> pd.DataFrame:
     if snapshot.empty:
         return snapshot
     cols = [
-        "industry_code", "industry_name", "RPS5", "RPS10", "RPS15",
+        "industry_code", "industry_name", "RPS1", "RPS5", "RPS10", "RPS15",
         "return_5", "return_10", "return_15",
-        "delta_rps15", "streak_90", "new_entry", "strong_streak",
+        "delta_rps15_5d", "delta_rps15", "streak_90", "new_entry", "strong_streak",
         "accelerating", "falling_out", "short_term_acceleration",
         "medium_term_acceleration",
     ]

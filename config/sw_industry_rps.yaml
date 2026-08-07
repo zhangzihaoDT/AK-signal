@@ -3,6 +3,8 @@
 
 rps:
   windows: [5, 10, 15]          # RPS 计算窗口（交易日）
+  today_window: 1               # RPS1（今日热度）窗口：最新 1 日收益横截面百分位，仅 Observation 展示
+  velocity_window: 5            # ΔRPS15_5d（轮动）回溯交易日数：RPS15 今日 − RPS15 N 交易日前，仅展示
   range: [0, 100]               # RPS 取值范围
 
 provisional:

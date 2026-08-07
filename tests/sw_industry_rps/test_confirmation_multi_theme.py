@@ -67,3 +67,49 @@ class TestMultiThemeConfirmation:
             tdf = fd[fd["theme"] == theme_key]
             d = confirmation.classify_divergence(tdf, 50.0)
             assert d["status"] in ("行业支持", "中性", "行业背离", "无数据")
+
+
+class TestRotationState:
+    def _row(self, **kw):
+        base = {"RPS15": 50.0, "RPS5": 50.0, "RPS1": 50.0}
+        base.update(kw)
+        return base
+
+    def test_strong_continuation(self):
+        r = confirmation.classify_rotation_state(self._row(RPS15=92, RPS5=90, RPS1=75))
+        assert r == "强势延续"
+
+    def test_high_position_consolidation(self):
+        r = confirmation.classify_rotation_state(self._row(RPS15=92, RPS5=90, RPS1=30))
+        assert r == "高位休整"
+
+    def test_accelerating_launch(self):
+        r = confirmation.classify_rotation_state(self._row(RPS15=50, RPS5=88, RPS1=60))
+        assert r == "加速启动"
+
+    def test_one_day_pulse(self):
+        r = confirmation.classify_rotation_state(self._row(RPS15=20, RPS5=30, RPS1=90))
+        assert r == "一日脉冲"
+
+    def test_weakening(self):
+        r = confirmation.classify_rotation_state(self._row(RPS15=30, RPS5=30, RPS1=30))
+        assert r == "走弱"
+
+    def test_missing_returns_placeholder(self):
+        r = confirmation.classify_rotation_state({"RPS15": None, "RPS5": None, "RPS1": None})
+        assert r == "—"
+
+    def test_add_rotation_state_column(self):
+        fd = _focus_df()
+        out = confirmation.add_rotation_state_column(fd)
+        assert "rotation_state" in out.columns
+        assert out["rotation_state"].notna().all()
+
+    def test_theme_heat_aggregation(self):
+        fd = confirmation.add_rotation_state_column(_focus_df())
+        tr = confirmation.compute_theme_resonance(fd)
+        out = confirmation.add_theme_heat(tr, fd)
+        d = {r["theme"]: r for r in out}
+        assert "median_rps1" in d["ai_infrastructure"]
+        assert "median_rps5" in d["ai_infrastructure"]
+        assert "rotation_states" in d["ai_infrastructure"]

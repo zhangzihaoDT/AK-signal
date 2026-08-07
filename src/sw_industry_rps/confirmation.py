@@ -107,6 +107,91 @@ def industry_strength_level(rps15: float | None) -> str:
     return "弱势"
 
 
+# ── 行业轮动四类状态（Observation only，v0.7.1）────────────────────────────
+# 基于 RPS15（趋势）/ RPS5（近期轮动）/ RPS1（当日热度）的纯观察分类，
+# 只刻画「今天市场轮动到哪、是延续还是启动」，不改变任何确认 Policy。
+ROTATION_STATE_ORDER = ["强势延续", "加速启动", "高位休整", "一日脉冲", "走弱"]
+
+
+def classify_rotation_state(row: Any) -> str:
+    """四类行业轮动状态（Observation）。
+
+    语义（参考行业轮动观察）：
+      强势延续  RPS15 高，RPS5 高，RPS1 仍高（趋势强且今天仍在走）
+      加速启动  RPS15 中等，RPS5/RPS1 快速上升（趋势刚开始形成）
+      高位休整  RPS15 高，但 RPS1 较低（强趋势但今日降温）
+      一日脉冲  RPS1 高，但 RPS5/RPS15 仍低（单日异动，无趋势支撑）
+      走弱      上述皆不符合（趋势与热度均弱）
+
+    仅展示，不参与确认（确认仍只看 RPS15≥observe_threshold）。
+    """
+    def _v(col: str) -> float | None:
+        x = row.get(col)
+        try:
+            x = float(x)
+        except (TypeError, ValueError):
+            return None
+        return x if not pd.isna(x) else None
+
+    r15 = _v("RPS15")
+    r5 = _v("RPS5")
+    r1 = _v("RPS1")
+    if r15 is None or r5 is None or r1 is None:
+        return "—"
+
+    hi = OBSERVE_THRESHOLD      # 80：观察区之上视为「高」
+    lo = NEUTRAL_THRESHOLD      # 60：中性区之下视为「低」
+
+    if r1 >= hi and r5 < lo and r15 < lo:
+        return "一日脉冲"
+    if r15 >= hi and r5 >= hi and r1 >= lo:
+        return "强势延续"
+    if r15 >= hi and r1 < lo:
+        return "高位休整"
+    if r15 < hi and (r5 >= hi or r1 >= hi) and r5 > r15:
+        return "加速启动"
+    return "走弱"
+
+
+def add_rotation_state_column(df: pd.DataFrame) -> pd.DataFrame:
+    """给行业明细追加 rotation_state 观察列（复用 classify_rotation_state）。"""
+    if df.empty:
+        return df
+    out = df.copy()
+    out["rotation_state"] = out.apply(classify_rotation_state, axis=1)
+    return out
+
+
+def _median(col: pd.Series) -> float | None:
+    if col is None:
+        return None
+    try:
+        v = pd.to_numeric(col, errors="coerce").dropna()
+    except (TypeError, ValueError):
+        return None
+    return round(float(v.median()), 1) if not v.empty else None
+
+
+def add_theme_heat(theme_resonance: list[dict[str, Any]], focus_df: pd.DataFrame) -> list[dict[str, Any]]:
+    """为主题共振结果补充「今日热度 / 近期轮动 / 内部结构」观察字段（③ 主题视角）。"""
+    if not theme_resonance or focus_df.empty or "theme" not in focus_df.columns:
+        return theme_resonance
+    out: list[dict[str, Any]] = []
+    for tr in theme_resonance:
+        sub = focus_df[focus_df["theme"] == tr["theme"]]
+        if sub.empty:
+            out.append(tr)
+            continue
+        d = dict(tr)
+        d["median_rps1"] = _median(sub.get("RPS1"))
+        d["median_rps5"] = _median(sub.get("RPS5"))
+        d["median_delta_rps15_5d"] = _median(sub.get("delta_rps15_5d"))
+        d["rotation_states"] = sub["rotation_state"].value_counts().to_dict() \
+            if "rotation_state" in sub.columns else {}
+        out.append(d)
+    return out
+
+
 def compute_focus_snapshot(
     metrics_df: pd.DataFrame,
     date: str | None = None,
@@ -143,10 +228,12 @@ def compute_focus_snapshot(
             "theme_label": theme_label,
             "bucket": bucket,
             "bucket_label": bucket_label,
+            "RPS1": _f("RPS1"),
             "RPS5": _f("RPS5"),
             "RPS10": _f("RPS10"),
             "RPS15": rps15,
             "delta_rps15": _f("delta_rps15"),
+            "delta_rps15_5d": _f("delta_rps15_5d"),
             "short_term_acceleration": _f("short_term_acceleration"),
             "streak_90": _f("streak_90"),
             "return_15": _f("return_15"),

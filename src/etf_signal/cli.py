@@ -43,7 +43,6 @@ P0 数据对象：
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import random
 import sys
@@ -989,7 +988,7 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
         if not active.empty:
             active.to_csv(output_dir / f"watchlist_active_{date_str}.csv", index=False, encoding="utf-8-sig")
 
-    # 4b: Layer ① A股全市场 ETF 轮动报告
+    # 4b: Layer ① A股全市场 ETF 轮动报告（三问三答）
     rotation_df = pd.DataFrame()
     rotation_path = daily_dir / f"rotation_{date_str}.parquet"
     if rotation_path.exists():
@@ -1008,38 +1007,45 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
                 on="fund_code", how="left",
             )
 
-        market = rotation.market_summary(rotation_df)
-        bucket_table = rotation.build_bucket_table(rotation_df)
-        focus = rotation.focus_group(rotation_df, market)
-        regime = rotation.assess_market_regime(bucket_table)
-        theme_groups = rotation.theme_focus_groups(rotation_df)
-        # v0.7.0 Market Pulse（市场脉搏）：仅 Observation 展示
-        pulse = rotation.market_pulse(rotation_df, regime)
-        leaders = rotation.leader_lists(rotation_df)
-        # v0.7.0 数据口径统一（P0-3）：master / price_current / rps_eligible / trend_active
+        # 昨日活跃 ETF 集（用于「新增 / 退出趋势活跃」简报）
+        prev_active: set[str] = set()
+        prev_files = sorted(signals_dir.glob("watchlist_*.parquet"))
+        for pf in reversed(prev_files):
+            if pf.name == f"watchlist_{date_str}.parquet":
+                continue
+            try:
+                pw = pd.read_parquet(pf)
+                prev_active = set(pw[pw["trend_state"].astype(str) != "OUT_OF_SCOPE"]["fund_code"])
+                break
+            except Exception:
+                continue
+
+        # ③ 我的主题 ETF 池（config/stock_universe.yaml theme_etf + sub_industry_etf）
+        theme_pool: list[dict] = []
+        try:
+            from src.selection.universe import load_universe_items
+            from src.common.paths import stock_universe_path
+            for item in load_universe_items(stock_universe_path()):
+                if item.tier in ("theme_etf", "sub_industry_etf"):
+                    theme_pool.append({
+                        "fund_code": item.asset.symbol,
+                        "name": item.asset.name,
+                        "theme": item.theme,
+                        "theme_label": item.theme_label,
+                        "note": item.note,
+                    })
+        except Exception as e:
+            logger.warning("theme_etf pool load failed: %s", e)
+
+        data_status = str(rotation_df.get("data_status", "").dropna().iloc[0]) \
+            if not rotation_df.empty and "data_status" in rotation_df.columns and rotation_df["data_status"].notna().any() else ""
         cov = rotation.coverage(rotation_df, wl, master_count=len(master))
 
-        cards_path = output_dir / f"candidate_cards_{date_str}.json"
-        cards_list: list[dict] = []
-        if cards_path.exists():
-            raw = json.loads(cards_path.read_text(encoding="utf-8"))
-            cards_list = raw.get("cards", raw) if isinstance(raw, dict) else raw
-
-        # 国金可交易池（来自 account_candidates）
-        account_df = pd.DataFrame()
-        ac_files = sorted(signals_dir.glob(f"account_candidates_{date_str}.parquet"))
-        if ac_files:
-            account_df = pd.read_parquet(ac_files[0])
-
         rotation_report.render_rotation_report(
-            rotation_df, bucket_table, market, focus, regime,
-            wl, cards_list, output_dir, date_str,
-            n_indicators=len(wl),
-            account_candidates=account_df,
-            theme_groups=theme_groups,
-            pulse=pulse,
-            leaders=leaders,
-            coverage=cov,
+            rotation_df, output_dir, date_str,
+            master=master, watchlist=wl,
+            prev_active_codes=prev_active, theme_pool=theme_pool,
+            coverage=cov, data_status=data_status,
         )
     else:
         logger.error("rotation metrics empty — skip rotation report")

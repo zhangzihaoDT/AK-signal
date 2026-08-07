@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -178,21 +179,28 @@ def render_confirmation_report(
     # 主题共振表
     if theme_resonance:
         parts.append("<h3>主题共振（每 Theme 独立确认）</h3>")
+        parts.append("<p>③ 主题视角：中位 RPS15 中期趋势 · 中位 RPS5 近期轮动 · 中位 RPS1 今日热度 · 中位 Δ5 趋势变化 · 轮动状态分布。</p>")
         parts.append("<table><tr>")
         parts.append("<th>Bucket</th><th>主题</th><th class='num'>行业数</th><th class='num'>强势(≥90)</th><th class='num'>观察(≥80)</th>")
-        parts.append("<th class='num'>中位 RPS15</th><th class='num'>中位 ΔRPS15</th><th>状态</th></tr>")
+        parts.append("<th class='num'>中位 RPS15</th><th class='num'>中位 RPS5</th><th class='num'>中位 RPS1</th><th class='num'>中位 Δ5RPS15</th><th class='num'>中位 ΔRPS15</th><th>状态</th><th>轮动状态</th></tr>")
         theme_rank = {"群共振": "tag-strong", "局部走强": "tag-observe", "整体弱势": "tag-weak"}
         for tr in theme_resonance:
             tag = theme_rank.get(tr["status"], "tag-none")
+            rs_counts = tr.get("rotation_states", {})
+            rs_str = " · ".join(f"{k}×{v}" for k, v in rs_counts.items() if k != "走弱") or "—"
             parts.append(
                 f"<tr><td>{tr.get('bucket_label', '—')}</td><td>{tr['theme_label']}</td>"
                 f"<td class='num'>{tr['n']}</td>"
                 f"<td class='num'>{tr['n_strong']}</td>"
                 f"<td class='num'>{tr['n_observe']}</td>"
                 f"<td class='num'>{_num(tr['median_rps15'])}</td>"
+                f"<td class='num'>{_num(tr.get('median_rps5'))}</td>"
+                f"<td class='num'>{_num(tr.get('median_rps1'))}</td>"
+                f"<td class='num'>{_sign(tr.get('median_delta_rps15_5d'))}</td>"
                 f"<td class='num'>{_sign(tr['median_delta_rps15'])}</td>"
                 f"<td><span class='tag {tag}'>{tr['status']}</span> · {tr['summary']}"
-                f"{' · <b>' + tr.get('confirmation_breadth', '') + '</b>' if tr.get('confirmation_breadth') else ''}</td></tr>")
+                f"{' · <b>' + tr.get('confirmation_breadth', '') + '</b>' if tr.get('confirmation_breadth') else ''}</td>"
+                f"<td>{escape(rs_str)}</td></tr>")
         parts.append("</table>")
         parts.append("<p style='font-size:12px'>同一主题内产业周期可能不同步，主题级共振用于识别「是主题内群共振，还是单一行业行情」。</p>")
 
@@ -202,8 +210,8 @@ def render_confirmation_report(
     parts.append('<div class="section"><h2>② 证据明细 · SW 行业</h2>')
     if not focus_df.empty:
         parts.append("<table><tr>")
-        parts.append("<th>行业</th><th>Bucket</th><th>主题</th><th>关联</th><th class='num'>RPS5</th><th class='num'>RPS10</th><th class='num'>RPS15</th>")
-        parts.append("<th class='num'>ΔRPS15</th><th class='num'>短期动能</th><th>强势层级</th><th>驱动分类</th><th class='num'>参与率</th><th>重构质量</th>")
+        parts.append("<th>行业</th><th>Bucket</th><th>主题</th><th>关联</th><th class='num'>RPS1</th><th class='num'>RPS5</th><th class='num'>RPS10</th><th class='num'>RPS15</th>")
+        parts.append("<th class='num'>Δ5RPS15</th><th class='num'>ΔRPS15</th><th>轮动状态</th><th>强势层级</th><th>驱动分类</th><th class='num'>参与率</th><th>重构质量</th>")
         parts.append("</tr>")
         for _, r in focus_df.iterrows():
             rt = RELEVANCE_TAG.get(r["relevance_label"], "")
@@ -213,16 +221,19 @@ def render_confirmation_report(
             drive = r.get("drive_pattern", "") or "—"
             acc = _sign(r.get("short_term_acceleration"))
             ql = r.get("reconstruction_quality", "") or ""
+            rot_state = r.get("rotation_state", "—")
             parts.append(
                 f"<tr><td>{r['industry_name']}</td>"
                 f"<td>{r.get('bucket_label', '')}</td>"
                 f"<td>{r.get('theme_label', '')}</td>"
                 f"<td><span class='tag {rt}'>{rl}</span></td>"
+                f"<td class='num'>{_num(r['RPS1'])}</td>"
                 f"<td class='num'>{_num(r['RPS5'])}</td>"
                 f"<td class='num'>{_num(r['RPS10'])}</td>"
                 f"<td class='num'>{_num(r['RPS15'])}</td>"
+                f"<td class='num'>{_sign(r.get('delta_rps15_5d'))}</td>"
                 f"<td class='num'>{_sign(r['delta_rps15'])}</td>"
-                f"<td class='num'>{acc}</td>"
+                f"<td>{escape(str(rot_state))}</td>"
                 f"<td><span class='tag {st}'>{sl}</span></td>"
                 f"<td>{drive}</td>"
                 f"<td class='num'>{_pct(r.get('participation_rate'))}</td>"

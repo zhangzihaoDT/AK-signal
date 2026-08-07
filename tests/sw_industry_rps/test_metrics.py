@@ -6,6 +6,7 @@ from src.sw_industry_rps.metrics import (
     calc_returns,
     calc_rps_cross_section,
     calc_delta_rps15,
+    calc_delta_rps15_n,
     calc_acceleration_fields,
     compute_all_metrics,
 )
@@ -135,3 +136,33 @@ def test_compute_all_metrics(sample_industry_data):
         assert col in result.columns, f"missing {col}"
     assert result["trade_date"].is_monotonic_increasing
     assert not result.empty
+
+
+def test_compute_all_metrics_includes_today_and_velocity(sample_industry_data):
+    result = compute_all_metrics(sample_industry_data)
+    assert "return_1" in result.columns
+    assert "RPS1" in result.columns
+    assert "delta_rps15_5d" in result.columns
+    # RPS1 是 0-100 百分位
+    vals = result["RPS1"].dropna()
+    if not vals.empty:
+        assert (vals >= 0).all() and (vals <= 100).all()
+    # Δ5 需要 RPS15 有 5 个交易日前史；历史足够时存在
+    if result["RPS15"].notna().sum() > 5:
+        assert result["delta_rps15_5d"].notna().any()
+
+
+def test_delta_rps15_5d_window(sample_industry_data):
+    with_returns = calc_returns(sample_industry_data)
+    with_rps = calc_rps_cross_section(with_returns)
+    result = calc_delta_rps15_n(with_rps, velocity_window=5)
+    assert "delta_rps15_5d" in result.columns
+    industry = result[result["industry_code"] == "801016.SI"].sort_values("trade_date")
+    expected = industry["RPS15"].diff(5).values
+    actual = industry["delta_rps15_5d"].values
+    matches = sum(
+        1 for i in range(5, len(expected))
+        if pd.notna(expected[i]) and pd.notna(actual[i])
+        and abs(expected[i] - actual[i]) < 0.01
+    )
+    assert matches > 0

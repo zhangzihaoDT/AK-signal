@@ -25,6 +25,8 @@
   - Quality（质量，高现金流防守）：**高现金流资产**（电力（火电·水电·核电）/ 三大运营商 / 公用事业（高速·公路·港口））
 - **ETF 归属**：按 `themes_two_directions.yaml` 的 `etf_keywords` 匹配（bucket 顺序优先），不再依赖单一 is_tech 焦点组。`is_tech` 列保留作向后兼容。
 - **Layer ②**：确认输出按 bucket/theme 分层，confirmation parquet 新增 `bucket` / `bucket_label` 列，报告按 Bucket → Theme 展示。
+- **Layer ② 行业轮动脉冲（v0.7.1）**：Layer② 是全市场行业轮动观察的唯一主场（不做 ETF 产品层面判断）。metrics 与 confirmation 新增 `RPS1`（今日热度，today_window=1）、`delta_rps15_5d`（Δ5RPS15，velocity_window=5，RPS15 今日 − RPS15 5 交易日前）两列（`sw_industry_rps.yaml rps.today_window/velocity_window`），均为 Observation 展示，**不参与确认（确认仍只看 RPS15≥observe_threshold）**，也不进入 Layer③。主行业报告首表改为「行业轮动概览（今日强度榜）」，新增「行业轮动状态」四类观察分类（`classify_rotation_state`：强势延续 / 加速启动 / 高位休整 / 一日脉冲 / 走弱，仅描述今日轮动到哪、是延续还是启动，不改确认 Policy）；confirmation 报告证据表加 RPS1/Δ5RPS15/轮动状态，主题共振表加「③ 主题视角」（中位 RPS1 今日热度 / 中位 RPS5 近期轮动 / 轮动状态分布）。积累一段历史后，才验证短周期 RPS 是否进入确认 Policy。
+- **Layer ① ETF 三问三答（v0.7.1）**：Layer① 主语是 ETF 产品，报告只回答三问——① 大类资产往哪里动（跨资产方向：A股宽基/行业主题/港股/海外/债券/商品黄金/现金，`cross_asset_direction`）；② 趋势活跃 ETF（`active_etf_representatives` 按方向去重、每方向一只流动性最好代表，排序 STRONG_WATCH→BUY_CANDIDATE→WATCH→RPS15→流动性，新增/退出活跃简报，完整名单在 `watchlist_active_{date}.csv`）；③ 我的主题 ETF（config/stock_universe.yaml 固定主题池 theme_etf+sub_industry_etf）。RPS1/ΔRPS15/流动性作为单只 ETF 补充信息保留在②③，不做「今日热点主题/加速主题」宏观判断（`market_pulse`/`leader_lists` 已移除）。数据覆盖/异常数量等审计信息只保留在页脚一行，不进正文。全市场行业脉搏整体归 Layer②。
 - **Layer ③**：候选对象 JSON 结构升级为 `layer3.buckets[].themes[]`（含 confirmed/expression/core_etf/sub_industry_etf/stock_watchlist/stock_candidates）。
 - 主题资产池：`config/stock_universe.yaml` 保持 theme → tier → assets；bucket 归属由 `config/themes_two_directions.yaml` 推导，不在两个配置重复维护。
 - **跨主题资产语义**：同一资产可在多个 theme 注册（如 通信ETF 同时属 ai_infrastructure 与 high_cashflow）。
@@ -130,7 +132,7 @@ make test             # 全部测试
 - ETF 轮动数据：`data/etf_signal/daily/rotation_{trade_date}.parquet`（全市场横截面 RPS15/20/60 + 5日排名变动，含 trade_date/run_date/data_status/source 元数据）
 - 账户候选：`data/etf_signal/signals/account_candidates_{trade_date}.parquet`（趋势池 ∩ 账户池，含元数据列）
 - SW-RPS：`outputs/sw_industry_rps/sw_industry_rps_{date}.html`（+ `_latest.html` 指向最新）
-- Layer ② 主题确认：`outputs/sw_industry_rps/sw_industry_confirmation_{date}.html` + `data/processed/sw_industry/confirmation_{trade_date}.parquet`（含 data_status/source/coverage/generated_at，多主题 bucket/theme 行业证据共振/龙头广度/背离）
+- Layer ② 主题确认：`outputs/sw_industry_rps/sw_industry_confirmation_{date}.html` + `data/processed/sw_industry/confirmation_{trade_date}.parquet`（含 data_status/source/coverage/generated_at，多主题 bucket/theme 行业证据共振/龙头广度/背离；v0.7.1 起含 RPS1/Δ5RPS15/rotation_state）
 - Layer ③ 个股趋势输入：`outputs/selection_inputs/stock_metrics_{trade_date}.parquet`（预计算趋势指标，Selection 只读此产物）
 - Layer ③ 交易候选：`outputs/selection/tradable_candidates_{date}.json`（结构化推荐对象，`role: recommendation`，`layer3.buckets[].themes[]` 每主题 5 块：today/why/recommendation/rationale/watchlist）+ `.html`（投资建议可视化）
 
@@ -228,24 +230,23 @@ make test             # 全部测试
 - **Parity 已验证**：Daily（20260803/20260731）、Trade（AI fixed_20 n=121 win 50.4%）、Portfolio（5 条 NAV 线）与迁移前完全一致
 - 命令：`python src/main.py ...` 行为不变；改策略参数只改 config、跑 Parity 验证
 
-## v0.7 Layer① Market Pulse（市场脉搏）
+## v0.7 Layer① 观察指标与三问三答报告
 
-- **定位**：Layer① 从单维「谁最强」升级为四维观察——趋势（Level）/ 今日（Today）/ 动量（Velocity）/ 流动性，回答「今天市场的强度、热度、速度分别在哪里」
-- **四个观察维度**（ETF 横截面，全部为 Observation 事实）：
+- **四个观察指标**（ETF 横截面，全部为 Observation 事实，保留在 `rotation_{trade_date}.parquet` 供单只 ETF 补充展示）：
   - `Trend（趋势）` = **rps15**（15 日收益横截面百分位），仍是主排序与主指标
-  - `Today（今日）` = **rps1**（最新 1 日收益横截面百分位，`indicators.yaml rps.today_window`，默认 1），观察「今天是不是热点」
-  - `Velocity（动量）` = **delta_rps15**（rps15 今日 − rps15 N 个交易日前，`indicators.yaml rps.velocity_window`，默认 5），观察「趋势有没有加速」
-  - `Liquidity（流动性）` = **liquidity**（最近 5 日均成交额横截面百分位，Observation 展示；Selection 的 amount_score 口径独立不受影响）
-- **仅展示，不参与排序/选择**：主表仍按 rps15 降序（排序规则不变）；RPS1 / ΔRPS15 / liquidity 不进 Selection（Decision 仍只看 rps15 / TrendState / Amount）
-- **数据质量（P0-2，v0.7.0）**：回溯 `data_quality.flag_window`（默认 60 交易日）内任一日 |收益| ≥ `max_single_day_return`（默认 20%）→ 判定异常（份额折算/除权/异常行情）。异常资产**不参与对应窗口的 RPS 横截面排名**（按窗口分别排除：折算发生在 w 日前只污染 w 日以内的累计收益），原值保留并标记 `data_quality_flag=corporate_action`。`rotation` 新增 `return_1d` 列
-- **产物**：`rotation_{trade_date}.parquet` 新增 `rps1 / delta_rps15 / liquidity / return_1d / data_quality_flag` 列（元数据列不变）；`daily_indicators.parquet` 同步合并 rps1/delta_rps15/liquidity；`watchlist / account_candidates / candidate_cards` 链路携带 rps20 / rps1 / delta_rps15（修复 P0-1：卡片 rps20 不再输出 0.0）
-- **数据口径统一（P0-3）**：`rotation.coverage` 输出四个命名计数——`master_count`（全量）/ `price_current_count`（横截面有效，rps15 可算）/ `rps_eligible_count`（指标完整，≥60 交易日）/ `trend_active_count`（趋势活跃）；报告「数据口径」块与漏斗明确展示分母，百分比注明相对谁
-- **HTML 布局（etf_rotation_{date}.html）**：
-  - ① Market Pulse 卡：Today's Hot（中位 RPS1）/ Trend Leader（中位 RPS15）/ Acceleration（中位 ΔRPS15）/ Risk（由风险偏好映射 进攻 High / 均衡 Medium / 防御 Low）+ 数据口径四计数 + 全市场观察指标
-  - 三张排行榜：Today's Leaders（RPS1）/ Trend Leaders（RPS15）/ Fast Movers（ΔRPS15）各 Top 8
-  - ② 四维观察表：全市场 ETF 趋势/今日/动量/流动性（滚动容器，按 RPS15 排；异常 ETF 标 ⚠ 且不参与 RPS）
-  - ③ 板块轮动表 / ④ 多主题主线焦点 / ⑤ 收益排名（已剔除 data_quality_flag 异常）/ ⑥ 发现漏斗（分母=master_count）
-- **计算位置**：`rotation.compute_rotation_metrics`（rps1/delta_rps15/liquidity/return_1d/data_quality_flag）、`rotation.market_pulse`（主题级四要素）、`rotation.leader_lists`（三张榜）、`rotation.coverage`（数据口径）；报告纯排版消费
-- **Event Study 前置**：rps1 / delta_rps15 随每日 `rotation_{trade_date}.parquet` 累积落盘（每天一行横截面即时间序列）；运行满 1 个月后可用 `research replay range` + `research event-study` 验证「RPS1>95 / ΔRPS>20 之后前向收益是否有统计优势」，**确认有优势才考虑进入 Layer③**（当前不进入）
-- **rule_version**：bump 至 v0.7.0（Layer① 新增 Observation 指标，算法变化）；config_hash 随 indicators.yaml 自动变化
-- 命令：`make etf-calculate` / `make etf-pipeline` 行为不变，产物自动含新列
+  - `Today（今日）` = **rps1**（最新 1 日收益横截面百分位，`indicators.yaml rps.today_window`，默认 1）
+  - `Velocity（动量）` = **delta_rps15**（rps15 今日 − rps15 N 个交易日前，`indicators.yaml rps.velocity_window`，默认 5）
+  - `Liquidity（流动性）` = **liquidity**（最近 5 日均成交额横截面百分位；Selection 的 amount_score 口径独立不受影响）
+- **仅展示，不参与排序/选择**：主排序仍按 rps15 降序；RPS1 / ΔRPS15 / liquidity 不进 Selection（Decision 仍只看 rps15 / TrendState / Amount）
+- **数据质量（P0-2）**：回溯 `data_quality.flag_window`（默认 60 交易日）内任一日 |收益| ≥ `max_single_day_return`（默认 20%）→ 判定异常（份额折算/除权/异常行情）。异常资产**不参与对应窗口的 RPS 横截面排名**，原值保留并标记 `data_quality_flag=corporate_action`。`rotation` 含 `return_1d` 列
+- **产物**：`rotation_{trade_date}.parquet` 含 `rps1 / delta_rps15 / liquidity / return_1d / data_quality_flag`；`daily_indicators.parquet` 同步合并；`watchlist / account_candidates / candidate_cards` 链路携带 rps20 / rps1 / delta_rps15
+- **数据口径（P0-3）**：`rotation.coverage` 输出 `master_count / price_current_count / rps_eligible_count / trend_active_count`，仅供日志/审计，不进正文
+- **HTML 布局（etf_rotation_{date}.html，v0.7.1 三问三答）**：
+  - ① 大类资产往哪里动：`cross_asset_direction` 按跨资产方向聚合（A股宽基/A股行业主题/港股/海外权益/债券/商品黄金/现金货币），每行 RPS15中位/5日变化/趋势活跃占比/代表ETF/当前方向
+  - ② 趋势活跃 ETF：`active_etf_representatives` 按方向去重、每方向一只流动性最好代表，排序 STRONG_WATCH→BUY_CANDIDATE→WATCH→RPS15→流动性，正文展示 top 40 + 新增/退出活跃简报，完整名单 `watchlist_active_{date}.csv`
+  - ③ 我的主题 ETF：config/stock_universe.yaml 固定主题池（theme_etf+sub_industry_etf），按主题分组，RPS15/20/60 + RPS1/Δ + 流动性 + 状态
+  - 页脚：日期｜数据状态｜异常数量（审计信息只进页脚一行）
+- **计算位置**：`rotation.compute_rotation_metrics`（rps1/delta_rps15/liquidity/return_1d/data_quality_flag）、`rotation.cross_asset_direction`（①）、`rotation.active_etf_representatives`（②）、`rotation._direction_key`（方向去重键）；`rotation.coverage`（口径）。报告纯排版消费
+- **Event Study 前置**：rps1 / delta_rps15 随每日 `rotation_{trade_date}.parquet` 累积落盘；运行满 1 个月后可用 `research replay range` + `research event-study` 验证「RPS1>95 / ΔRPS>20 之后前向收益是否有统计优势」，**确认有优势才考虑进入 Layer③**（当前不进入）
+- **rule_version**：v0.7.1（报告消费/排版重写，算法与 parquet 不变）
+- 命令：`make etf-calculate` / `make etf-pipeline` 行为不变，产物自动含新列与新报告
