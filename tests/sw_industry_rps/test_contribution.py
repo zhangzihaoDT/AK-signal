@@ -291,6 +291,17 @@ class TestDrilldownGate:
         assert hasattr(r1, "fetch_failures")
         assert r1.fetch_failures == 0
 
+    def test_offline_mode_works_with_legulegu(self):
+        """offline=True 时基于 legulegu 成分股涨幅列仍可计算（零网络），不抛异常。"""
+        const = self._make_constituents([60, 20, 20])
+        hist = pd.DataFrame({"trade_date": pd.date_range("2026-07-01", periods=20, freq="B"),
+                              "close": range(100, 120)})
+        result = compute_drilldown("801095.SI", "测试", "20260716", const, hist,
+                                   window=5, offline=True)
+        assert result is not None
+        assert hasattr(result, "contribution_structure")
+        assert hasattr(result, "weight_coverage")
+
 
 class TestMarketDataCache:
     """验证缓存读写。"""

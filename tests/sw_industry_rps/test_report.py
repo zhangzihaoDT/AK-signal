@@ -131,8 +131,12 @@ def test_build_html_creates_files(sample_snapshot, tmp_reports_dir):
     assert csv_path.exists()
     assert html_path.exists()
     html_content = html_path.read_text(encoding="utf-8")
-    assert "申万二级行业 RPS 监控" in html_content
-    assert "801016.SI" in html_content
+    assert "② A股全市场 行业轮动" in html_content
+    assert "产业方向 → 趋势行业 → 我的主题支撑" in html_content
+    assert "种植业" in html_content
+    assert "① 行业轮动往哪里动" in html_content
+    assert "② 哪些行业值得关注" in html_content
+    assert "③ 我的主题获得哪些行业支撑" in html_content
 
 
 def test_build_csv(sample_snapshot):

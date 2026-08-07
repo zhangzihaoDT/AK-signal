@@ -34,8 +34,8 @@ from src.common import warnings as run_warnings
 from . import data_source, storage, metrics, regimes, validator, report
 from . import constituents as sw_constituents
 from . import contribution as sw_contribution
-from . import confirmation, confirmation_report
-from . import ths_mapping
+from . import confirmation, ths_mapping
+from . import structure
 
 
 def build_logger(level: str = "INFO") -> logging.Logger:
@@ -655,6 +655,8 @@ def cmd_calculate(args: argparse.Namespace) -> None:
             df["industry_code"] = code
             name_row = master[master["industry_code"] == code]
             df["industry_name"] = name_row.iloc[0]["industry_name"] if not name_row.empty else ""
+            df["parent_industry"] = name_row.iloc[0]["parent_industry"] if not name_row.empty and \
+                "parent_industry" in name_row.columns else ""
             all_hist.append(df)
 
     combined = pd.concat(all_hist, ignore_index=True)
@@ -794,6 +796,17 @@ def cmd_report(args: argparse.Namespace) -> None:
     master = storage.load_master(raw_dir)
     active_codes, inactive_codes, universe_changed = storage.compute_active_codes(raw_dir, master)
 
+    # 报告消费侧补充观察字段：parent_industry（一级方向）、strength_level、rotation_state。
+    # 这些均为 Observation 展示字段，不改任何确认 Policy。
+    parent_map = dict(zip(master["industry_code"], master["parent_industry"])) \
+        if "parent_industry" in master.columns else {}
+    if "parent_industry" not in snapshot.columns:
+        snapshot["parent_industry"] = snapshot["industry_code"].map(parent_map).fillna("")
+    if "strength_level" not in snapshot.columns:
+        snapshot["strength_level"] = snapshot["RPS15"].apply(confirmation.industry_strength_level)
+    if "rotation_state" not in snapshot.columns:
+        snapshot = confirmation.add_rotation_state_column(snapshot)
+
     # 判断数据是否为 provisional
     update_status = storage.load_update_status(raw_dir)
     is_provisional = update_status.get("status", "") in ("provisional", "completed_provisional") and \
@@ -857,6 +870,8 @@ def cmd_report(args: argparse.Namespace) -> None:
                 "industry_return_pct": result.industry_return_pct,
                 "proxy_return_pct": result.proxy_return_pct,
                 "reconstruction_gap_pct": result.reconstruction_gap_pct,
+                "contribution_structure": cs,
+                "breadth_structure": bs,
                 "pattern_display": f"{cl} × {bl}",
                 "top_contributors": [
                     {"name": c.stock_name, "ret": c.stock_return_pct, "contribution": c.contribution_pct}
@@ -879,6 +894,16 @@ def cmd_report(args: argparse.Namespace) -> None:
     # 限制 metrics 范围到目标日期，使轮动矩阵不展示未来数据
     report_metrics = metrics_df[metrics_df["trade_date"] <= latest_date].copy() if explicit_target else metrics_df
 
+    # 消费已有产物：结构 artifact（第二问驱动模式）与 confirmation（第三问主题支撑）。
+    # 二者缺省时报告局部降级（第二问驱动模式显示 —，第三问提示未生成），不阻塞整体。
+    structure_df = structure.load_structure(processed_dir, date_str)
+    confirmation_df = pd.DataFrame()
+    confirmation_available = False
+    _conf_path = processed_dir / f"confirmation_{date_str}.parquet"
+    if _conf_path.exists():
+        confirmation_df = pd.read_parquet(_conf_path)
+        confirmation_available = not confirmation_df.empty
+
     csv_path, html_path = report.build_html(
         snapshot=snapshot, metrics=report_metrics,
         validator_result=metrics_valid,
@@ -886,6 +911,9 @@ def cmd_report(args: argparse.Namespace) -> None:
         rotation_days=rotation_days,
         drilldown_results=drilldown_results,
         provisional_suffix="_provisional" if is_provisional else "",
+        structure_df=structure_df,
+        confirmation_df=confirmation_df,
+        confirmation_available=confirmation_available,
     )
 
     # Verify HTML was produced
@@ -901,7 +929,7 @@ def cmd_report(args: argparse.Namespace) -> None:
         return
 
     if is_provisional:
-        report.save_latest_html(html_path, reports_dir, latest_name="sw_industry_rps_latest_provisional.html")
+        # provisional 只落主报告，不写 _latest 副本，避免与 confirmed 版本混淆
         logger.info("report published (provisional): %s", html_path)
     else:
         report.save_latest_html(html_path, reports_dir)
@@ -1278,12 +1306,51 @@ def cmd_confirm(args: argparse.Namespace) -> None:
     final_df.to_parquet(out_path, index=False)
     logger.info("confirmation detail saved: %d industries -> %s", len(final_df), out_path)
 
-    # 4. 生成 HTML 报告
-    reports_dir = sw_industry_rps_output_dir()
-    confirmation_report.render_confirmation_report(
-        final_df, resonance, theme_resonance, bucket_resonance, divergence_map,
-        market_context, drilldown_results, reports_dir, date_str,
+    # 注：独立 confirmation HTML 已并入主报告第三问（report 消费本 parquet）。
+    # 此处只落盘事实 parquet，不再单独生成 confirmation 页面。
+
+
+# ---------------------------------------------------------------------------
+# Structure artifact — 行业内部结构（趋势 ∪ 焦点）
+# ---------------------------------------------------------------------------
+
+def cmd_structure(args: argparse.Namespace) -> None:
+    logger = build_logger(args.log_level)
+    logger.info("=" * 60)
+    logger.info("LAYER ② STRUCTURE: 行业内部结构产物（趋势 ∪ 焦点）")
+    logger.info("=" * 60)
+
+    raw_dir = sw_industry_raw_dir()
+    processed_dir = sw_industry_processed_dir()
+    window = getattr(args, "window", 10)
+    offline = not getattr(args, "allow_online_fetch", False)
+    target_date = getattr(args, "target_date", "") or ""
+
+    metrics_df = storage.load_metrics(processed_dir)
+    if metrics_df.empty:
+        logger.error("no metrics data, run calculate first")
+        return
+    if target_date:
+        ts = pd.Timestamp(target_date)
+        if ts not in metrics_df["trade_date"].values:
+            logger.error("target date %s not found in metrics", target_date)
+            return
+        latest_date = ts
+    else:
+        latest_date = metrics_df["trade_date"].max()
+    date_str = latest_date.strftime("%Y%m%d")
+    snapshot = metrics_df[metrics_df["trade_date"] == latest_date].copy()
+
+    scope, trend, focus = structure.compute_structure_scope(snapshot)
+    logger.info("structure scope: %d (trend=%d, focus=%d) on %s",
+                len(scope), len(trend), len(focus), latest_date.date())
+
+    structure.build_structure_parquet(
+        snapshot, raw_dir, processed_dir, date_str,
+        window=window, offline=offline, allow_online=not offline,
+        sleep_between=0.0 if offline else 4.0,
     )
+    logger.info("structure complete: %s", date_str)
 
 
 # ---------------------------------------------------------------------------
@@ -1391,6 +1458,18 @@ def cmd_run_day(args: argparse.Namespace) -> None:
     cmd_calculate(args)
     calc_dur = time.monotonic() - t0
 
+    # ── Step 2.5: Structure（Enrichment，offline-only，soft-fail）──────
+    # Structure 是 Layer② 的 Enrichment（驱动模式解释），非 Core 事实：
+    #   缓存够 → 生成 sw_industry_structure_{date}.parquet，日报出现驱动；
+    #   缓存不够 → 记 unavailable/insufficient，日报照常发布。
+    #   绝不因 Structure 缺数据在 run-day 里自动联网（联网补数走独立 --allow-online-fetch）。
+    t0 = time.monotonic()
+    try:
+        cmd_structure(args)
+    except Exception as e:
+        logger.warning("structure (offline enrichment) soft-failed: %s", e)
+    structure_dur = time.monotonic() - t0
+
     # ── Step 3: Report ─────────────────────────────────────────────────
     t0 = time.monotonic()
     cmd_report(args)
@@ -1403,10 +1482,11 @@ def cmd_run_day(args: argparse.Namespace) -> None:
     logger.info("RUN-DAY SUMMARY")
     logger.info("  requested_target_date: %s", requested_target)
     logger.info("  source_latest_common_date: %s", result.source_latest_common_date)
-    logger.info("  fetch:     %.1fs", fetch_dur)
-    logger.info("  calculate: %.1fs", calc_dur)
-    logger.info("  report:    %.1fs", report_dur)
-    logger.info("  total:     %.1fs", total_dur)
+    logger.info("  fetch:      %.1fs", fetch_dur)
+    logger.info("  calculate:  %.1fs", calc_dur)
+    logger.info("  structure:  %.1fs (enrichment, soft-fail)", structure_dur)
+    logger.info("  report:     %.1fs", report_dur)
+    logger.info("  total:      %.1fs", total_dur)
     logger.info("=" * 60)
 
 
@@ -1454,6 +1534,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_confirm.add_argument("--max-drill", type=int, default=10, help="最多穿透的行业数（默认 10 = 全部重点行业，结构字段全覆盖）")
     p_confirm.add_argument("--log-level", default="INFO")
 
+    p_struct = sub.add_parser("structure", help="[Layer ②] Enrichment 行业内部结构（offline 读缓存生成，soft-fail；--allow-online-fetch 做 Cache Refresh）")
+    p_struct.add_argument("--window", type=int, default=10, help="结构穿透回看窗口（交易日数，默认 10）")
+    p_struct.add_argument("--target-date", default="", help="目标日期 YYYYMMDD（默认最新）")
+    p_struct.add_argument("--allow-online-fetch", action="store_true", help="Structure Cache Refresh：允许联网补数（默认仅读缓存，缺数据 soft-fail）")
+    p_struct.add_argument("--log-level", default="INFO")
+
     p_run = sub.add_parser("run-day", help="依次执行 update → calculate → report")
     p_run.add_argument("--target-date", default="", help="目标日期 YYYYMMDD（默认今天）")
     p_run.add_argument("--force-report", action="store_true", help="允许对已有报告的日期重新生成报告")
@@ -1474,6 +1560,7 @@ def main() -> None:
         "validate": cmd_validate,
         "drilldown": cmd_drilldown,
         "confirm": cmd_confirm,
+        "structure": cmd_structure,
         "run-day": cmd_run_day,
     }
     fn = dispatch.get(args.command)

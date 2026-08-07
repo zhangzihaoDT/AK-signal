@@ -30,11 +30,11 @@ src/
 │   ├── rotation.py               # 全市场横截面 RPS15/20/60 + 每主题焦点组
 │   ├── rotation_report.py        # Layer ① 报告
 │   └── ...（master/classifier/account/card 等）
-├── sw_industry_rps/              # Layer ② 主题确认（Theme Confirmation）
-│   ├── cli.py                    # 行业 CLI（bootstrap/update/.../confirm）
+├── sw_industry_rps/              # Layer ② 行业轮动三问三答（与 Layer① 镜像）
+│   ├── cli.py                    # 行业 CLI（bootstrap/update/.../confirm/structure）
 │   ├── confirmation.py           # 主题确认：行业证据 + bucket 聚合 + 龙头广度
-│   ├── confirmation_report.py    # Layer ② 报告
-│   └── ...（metrics/regimes/contribution 等）
+│   ├── confirmation_sections.py  # 第三问渲染 section（主题概览 + 完整确认证据）
+│   └── ...（metrics/regimes/contribution/structure 等）
 ├── selection/                    # Layer ③ 多主题交易标的筛选（执行对象压缩）
 │   ├── cli.py                    # select 命令
 │   ├── universe.py               # 分层资产池（theme→tier→assets）

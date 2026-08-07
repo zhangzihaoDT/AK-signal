@@ -430,10 +430,10 @@ def render_selection_html(
 
     parts = [
         "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>",
-        f"<title>③ 投资建议 · {date_str}</title>",
+        f"<title>③ 今日投资建议 · {date_str}</title>",
         f"<style>{CSS}</style></head><body><div class='container'>",
-        "<h1>③ 投资建议（多主题）</h1>",
-        f"<div class='subtitle'>报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · "
+        "<h1>③ 今日投资建议</h1>",
+        f"<div class='subtitle'>策略判断 → ETF/个股选择 → 今日行动 · 报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · "
         f"Decision Layer：只消费 Layer①/②（Observation）已落盘的事实，禁止联网/重算 · "
         f"本报告由 Recommendation Builder 按「投资决策顺序」排版，不产生新事实 · "
         f"只回答「买什么」，买多少/何时买卖由 Layer 4 决定</div>",

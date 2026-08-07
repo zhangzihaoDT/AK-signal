@@ -8,7 +8,7 @@ SRC_MAIN = src/main.py
 	etf-classify etf-layer1 etf-watchlist etf-account etf-account-blacklist etf-card etf-pipeline \
 	etf-retry-uncovered \
 	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-report sw-rps-confirm \
-	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown \
+	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown sw-rps-structure \
 	select select-inputs select-inputs-online select-offline \
 	replay-single replay-parity replay-range event-study \
 	backtest-trades backtest-sensitivity backtest-matrix backtest-portfolio backtest-construction \
@@ -91,10 +91,10 @@ etf-pipeline: ## 完整发现链路：watchlist → account → card → JSON+CS
 # 结构：confirm 是 calculate 的下游，复用 calculate 产出的 RPS/指标，
 #       不维护第二套指标计算逻辑。
 
-sw-rps-run-day: ## SW-RPS 全流程：update→calculate→report→confirm
+sw-rps-run-day: ## SW-RPS 全流程：update→calculate→structure(offline enrichment,soft-fail)→report
 	$(MAKE) sw-rps-update      # 1. 获取行情（内置 freshness probe）
 	$(MAKE) sw-rps-calculate   # 2. 计算全量申万二级 RPS
-	$(MAKE) sw-rps-report      # 3. 原有全市场行业报告
+	$(MAKE) sw-rps-report      # 3. report 前置 offline structure enrichment（soft-fail），再生成报告
 	$(MAKE) sw-rps-confirm     # 4. Layer ② 行业群确认（下游复用指标）
 
 sw-rps-run-day-provisional: ## SW-RPS 全流程（允许 provisional 数据）
@@ -123,6 +123,9 @@ sw-rps-drilldown: ## 强势区成分股贡献穿透分析
 
 sw-rps-confirm: ## [Layer ②] 主题确认（Theme Confirmation：行业证据，bucket/theme 分层）
 	$(PYTHON) $(SRC_MAIN) industry confirm
+
+sw-rps-structure: ## [Layer ②] Enrichment 行业内部结构（offline 读缓存生成，soft-fail；--allow-online-fetch 做 Cache Refresh）
+	$(PYTHON) $(SRC_MAIN) industry structure
 
 # ── Layer ③ 交易标的筛选（selection 内部调用 trend_engine） ──────
 

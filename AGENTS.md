@@ -18,6 +18,12 @@
 - `select run --date YYYYMMDD` 的 `--date` 语义 = **目标 trade_date**，字面按 `rotation_{date} / account_candidates_{date} / confirmation_{date}` 精确加载、缺文件不降级。
 - 盘中快照与日频收盘信号分离：日频 run-day 只输出完整交易日横截面；盘中版本（snapshot_type=intraday）为独立模式，未启用。
 
+## Latest Alias Policy（统一产物别名规范）
+
+- **`*_latest.*` 仅在 CONFIRMED 发布时更新**；PROVISIONAL 仅生成带日期归档文件（如 `{name}_{date}_provisional.html`），**不写 / 不更新 `*_latest*`**。latest 永远代表当前最新正式发布版本。
+- Layer①/②/③ 一律遵守：CONFIRMED 主报告落盘后同步复制为 `{name}_latest.*`；PROVISIONAL 只落带日期文件。
+- 实现要点：`cmd_report` 仅非 provisional 分支调用 `save_latest_html`；provisional 分支只发布主报告。已落实于 Layer②，Layer①/③ 若引入 `_latest` 别名须同样遵守（详见 docs/ARCHITECTURE.md）。
+
 ## 多主题框架（v0.4.3，两方向）
 
 - **单一事实源**：`config/themes_two_directions.yaml` 定义 bucket → theme → 申万二级行业焦点组 + ETF 关键词。Layer ①②③ 共同消费，不再硬编码。
@@ -27,6 +33,12 @@
 - **Layer ②**：确认输出按 bucket/theme 分层，confirmation parquet 新增 `bucket` / `bucket_label` 列，报告按 Bucket → Theme 展示。
 - **Layer ② 行业轮动脉冲（v0.7.1）**：Layer② 是全市场行业轮动观察的唯一主场（不做 ETF 产品层面判断）。metrics 与 confirmation 新增 `RPS1`（今日热度，today_window=1）、`delta_rps15_5d`（Δ5RPS15，velocity_window=5，RPS15 今日 − RPS15 5 交易日前）两列（`sw_industry_rps.yaml rps.today_window/velocity_window`），均为 Observation 展示，**不参与确认（确认仍只看 RPS15≥observe_threshold）**，也不进入 Layer③。主行业报告首表改为「行业轮动概览（今日强度榜）」，新增「行业轮动状态」四类观察分类（`classify_rotation_state`：强势延续 / 加速启动 / 高位休整 / 一日脉冲 / 走弱，仅描述今日轮动到哪、是延续还是启动，不改确认 Policy）；confirmation 报告证据表加 RPS1/Δ5RPS15/轮动状态，主题共振表加「③ 主题视角」（中位 RPS1 今日热度 / 中位 RPS5 近期轮动 / 轮动状态分布）。积累一段历史后，才验证短周期 RPS 是否进入确认 Policy。
 - **Layer ① ETF 三问三答（v0.7.1）**：Layer① 主语是 ETF 产品，报告只回答三问——① 大类资产往哪里动（跨资产方向：A股宽基/行业主题/港股/海外/债券/商品黄金/现金，`cross_asset_direction`）；② 趋势活跃 ETF（`active_etf_representatives` 按方向去重、每方向一只流动性最好代表，排序 STRONG_WATCH→BUY_CANDIDATE→WATCH→RPS15→流动性，新增/退出活跃简报，完整名单在 `watchlist_active_{date}.csv`）；③ 我的主题 ETF（config/stock_universe.yaml 固定主题池 theme_etf+sub_industry_etf）。RPS1/ΔRPS15/流动性作为单只 ETF 补充信息保留在②③，不做「今日热点主题/加速主题」宏观判断（`market_pulse`/`leader_lists` 已移除）。数据覆盖/异常数量等审计信息只保留在页脚一行，不进正文。全市场行业脉搏整体归 Layer②。
+- **Layer ② 三问三答镜像（v0.8.0/0.8.1）**：Layer② 与 Layer① 同构镜像——① 行业轮动往哪里动（`metrics.cross_industry_direction` 按 `parent_industry` 申万一级方向聚合，强度 median_rps15 × 速度 median_delta_rps15_5d × 广度 active_ratio，Top5 强势 + Bottom3 弱势 + 一句结构总结，全量折叠；`_industry_direction_state` 独立阈值不复制 ETF 口径）；② 哪些行业形成趋势（含驱动模式，按轮动状态语义筛选分组而非固定 Top40，矩阵与状态变化降级折叠）；③ 我的主题获得哪些行业支撑（主题概览：状态+结论+RPS15+驱动模式最小证据 + `<details>` 完整确认证据：主题判断/证据明细/龙头vs广泛/背离，删主题热图，未确认差值只在主题级一句话体现）。主报告 `sw_industry_rps_{date}.html` 一个 HTML 入口，confirmation 事实并入第三问，独立 confirmation HTML 已删除。
+  - **驱动模式展示层分离（v0.8.2）**：`contribution_structure`（贡献集中度：单核/集中/多龙头/分散）与 `breadth_structure`（参与广度：广泛/中度/少数/分化）是**机器事实**（data/structure parquet 原样保留，`drive_pattern`/`format_structures` 的 `×` 双维拼接不变，Layer③ 透传不受影响）；人类可读文案由**独立展示模块** `src/sw_industry_rps/drive_labels.py` 映射——`composite_drive_label(cs,bs)` 把 4×4 组合合成一句话综合语义（如「单核主导×广泛上涨」→「龙头拉动普涨」），`drive_detail(...)` 输出双维+数值。主报告/概览只显示综合标签，详情页显示双维+数值；unknown/missing 一律显式 fallback「驱动信息不足」。该展示模块不依赖 confirmation Policy（避免「全市场报告为显示文案反向依赖主题确认」的耦合）。
+  - **第二问趋势阶段三分类（v0.8.3）**：第二问从「算法状态分类（强势延续/加速启动/高位休整…）」改造成**语义三阶段** `classify_trend_stage`（Observation，不改确认 Policy）——A **已形成趋势**（RPS15 站稳观察区且持续，展示 RPS15/Δ5/驱动模式/参与率）· B **正在启动**（RPS5 快速领先而 RPS15 未跟上，如元件 RPS5=100/RPS15=2，展示 RPS5/RPS15/Δ5，不展示驱动因趋势未确立）· C **正在退潮**（falling_out 或 RPS15 高但 RPS5 明显回落，原强势降温/跌出）。三分类回答「强是刚开始强，还是已持续很强」；驱动模式（v0.8.2）回答「龙头拉还是全行业涨」。折叠区语义化为「▶ 20日轮动矩阵 · 状态变化详情」「▶ 全 124 行业」；第三问详情段对齐为 ①确认判断/②行业证据/③内部结构/④跨层对照。
+  - **日报精简「一句话 + 一张表」×3（v0.8.4）**：Layer② 日报收敛为「① 一句话+Top5 产业方向表 · ② 一句话+单张行业表（行业/阶段/RPS15/RPS5/驱动）· ③ 每主题一行表（主题/状态/支撑/最接近确认/判断）」，一个屏幕读完核心。**直接从日报删除**（非折叠）：31 个一级全表、20日轮动矩阵、6 组状态变化、全 124 行业表、Theme Confirmation 四段完整证据、HHI/Top1/Top3 结构明细、ETF-行业对照、市场宽度卡——全部保留在 `metrics/structure/confirmation` parquet + CSV，研究/审计/调试时读取。第二问阶段统一定义：趋势=RPS15≥80 · 启动=RPS15<80 且 RPS5≥80（按 RPS5 排）· 退潮=高 RPS15 短期明显回落；structure（Enrichment，可选）未跑时驱动列整列隐藏，meta 提示「结构穿透：未完成（Enrichment，可选）」而非红色异常。第三问支撑列仅在有确认行业时显示，未确认主题支撑显示 —。
+  - **Structure 定位 Core/Enrichment 分离（v0.8.4）**：Layer② 分两层——**Core Facts**（RPS / rotation / theme confirmation）必须每日稳定生成，决定报告能否发布；**Enrichment**（industry structure / drive pattern）尽力生成、可降级，决定报告解释得有多好。run-day 在 calculate 与 report 之间插入 **offline-only Structure（soft-fail）**：缓存够 → 生成 `sw_industry_structure_{date}.parquet` 驱动列出现；缓存不够 → 记 unavailable/insufficient，日报照常发布。**绝不因 Structure 缺数据在 run-day 自动联网**；联网补数走独立入口 `industry structure --allow-online-fetch`（Structure Cache Refresh / Enrichment，可手动/定时/收盘后跑，非主链路）。`compute_drilldown` 新增 `offline` 参数：offline 时跳过 `fetch_cn_daily` 网络回退，仅用缓存 + legulegu 成分股涨幅列。
+  - **收尾修正（v0.8.4）**：① 第一问一句话按**表内位置**生成（核心=表前3，正在快速增强=表第4-5名），与 Top5 表严格一一对应，杜绝「下面为什么没有 XX」的疑惑；③ 第三问「判断」列从重复计数（「1 个进入观察区」）改造成**人话判断**（`_theme_judgment`：已确认→「X 已确认支撑，Y 距观察门还差 N」；接近→「最强 X 接近观察门，差 N」；未确认→「焦点行业均未进入观察区，最强 X，尚未形成行业共振」）。
 - **Layer ③**：候选对象 JSON 结构升级为 `layer3.buckets[].themes[]`（含 confirmed/expression/core_etf/sub_industry_etf/stock_watchlist/stock_candidates）。
 - 主题资产池：`config/stock_universe.yaml` 保持 theme → tier → assets；bucket 归属由 `config/themes_two_directions.yaml` 推导，不在两个配置重复维护。
 - **跨主题资产语义**：同一资产可在多个 theme 注册（如 通信ETF 同时属 ai_infrastructure 与 high_cashflow）。
@@ -112,6 +124,7 @@
 make run-day          # 每日全流程
 make etf-pipeline     # 仅 ETF 发现链路
 make sw-rps-run-day   # SW-RPS 全流程：update(含probe)→calculate→report→confirm
+make sw-rps-structure # [Layer ②] Enrichment 行业内部结构（offline 读缓存 soft-fail；--allow-online-fetch 做 Cache Refresh）
 make select-inputs    # 构建个股趋势输入（离线读缓存）
 make select-inputs-online  # 个股行情在线补数（run-day 离线不抓个股）
 make select           # Layer ③ 交易候选（读预计算趋势，默认禁止联网）
@@ -128,13 +141,14 @@ make test             # 全部测试
 
 ## 产物
 
-- ETF：`outputs/etf_signal/etf_rotation_{date}.html`（Layer ① A股全市场 ETF 轮动，替换原 funnel_report）+ `candidate_cards_{date}.json`
+- ETF：`outputs/etf_signal/etf_rotation_{date}.html`（Layer ① 标题「① A股全市场 ETF轮动」，认知路径「大类资产 → 趋势ETF → 我的主题ETF」，替换原 funnel_report）+ `candidate_cards_{date}.json`
 - ETF 轮动数据：`data/etf_signal/daily/rotation_{trade_date}.parquet`（全市场横截面 RPS15/20/60 + 5日排名变动，含 trade_date/run_date/data_status/source 元数据）
 - 账户候选：`data/etf_signal/signals/account_candidates_{trade_date}.parquet`（趋势池 ∩ 账户池，含元数据列）
-- SW-RPS：`outputs/sw_industry_rps/sw_industry_rps_{date}.html`（+ `_latest.html` 指向最新）
-- Layer ② 主题确认：`outputs/sw_industry_rps/sw_industry_confirmation_{date}.html` + `data/processed/sw_industry/confirmation_{trade_date}.parquet`（含 data_status/source/coverage/generated_at，多主题 bucket/theme 行业证据共振/龙头广度/背离；v0.7.1 起含 RPS1/Δ5RPS15/rotation_state）
+- SW-RPS 主报告（Layer ② 日报精简，v0.8.4）：`outputs/sw_industry_rps/sw_industry_rps_{date}.html`（+ `_latest.html` 指向最新，标题「② A股全市场 行业轮动」，认知路径「产业方向 → 趋势行业 → 我的主题支撑」）——「一句话 + 一张表」×3：① 一句话+Top5 产业方向表 · ② 一句话+单张行业表（行业/阶段/RPS15/RPS5/驱动）· ③ 每主题一行表（主题/状态/支撑/最接近确认/判断）。完整证据（矩阵/状态变化/124全表/确认四段/结构明细）保留在 parquet+CSV，不进日报。
+- Layer ② 主题确认事实：`data/processed/sw_industry/confirmation_{trade_date}.parquet`（仅焦点行业主题确认事实，含 data_status/source/coverage/generated_at；v0.7.1 起含 RPS1/Δ5RPS15/rotation_state；由主报告第三问消费渲染）
+- Layer ② 行业内部结构产物（Enrichment）：`data/processed/sw_industry/sw_industry_structure_{trade_date}.parquet`（范围 = 趋势行业 ∪ 主题焦点行业，每行含 participation_rate/hhi/top1_share/top3_share/driver_mode/结构字段 + `structure_status` = available/insufficient/failed/not_in_scope 可审计，不静默空值）——独立于 confirmation，避免把非焦点行业混入「主题确认事实」；第二问驱动模式只消费此产物。run-day offline soft-fail 生成，联网补数走 `industry structure --allow-online-fetch`
 - Layer ③ 个股趋势输入：`outputs/selection_inputs/stock_metrics_{trade_date}.parquet`（预计算趋势指标，Selection 只读此产物）
-- Layer ③ 交易候选：`outputs/selection/tradable_candidates_{date}.json`（结构化推荐对象，`role: recommendation`，`layer3.buckets[].themes[]` 每主题 5 块：today/why/recommendation/rationale/watchlist）+ `.html`（投资建议可视化）
+- Layer ③ 交易候选：`outputs/selection/tradable_candidates_{date}.json`（结构化推荐对象，`role: recommendation`，`layer3.buckets[].themes[]` 每主题 5 块：today/why/recommendation/rationale/watchlist）+ `.html`（标题「③ 今日投资建议」，认知路径「策略判断 → ETF/个股选择 → 今日行动」）
 
 ## v0.5 Research（src/research/）
 

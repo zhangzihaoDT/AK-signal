@@ -250,6 +250,21 @@ tradable_candidates_{date}.json
 
 ---
 
+## Latest Alias Policy（统一产物别名规范）
+
+**`*_latest.*` 仅在 CONFIRMED 发布时更新；PROVISIONAL 仅生成带日期归档文件，不更新 latest。latest 永远代表当前最新正式发布版本。**
+
+Layer①、Layer②、Layer③ 一律遵循同一规则：
+
+1. **CONFIRMED**：主报告 `{name}_{date}.html` 落盘后，同步复制为 `{name}_latest.html` 作为「最新正式发布」指针。
+2. **PROVISIONAL**：只生成 `{name}_{date}_provisional.html` 带日期归档文件，**不写 / 不更新 `*_latest*`**，避免把临时数据混入正式别名。
+3. `latest` 语义单一：永远指向最新 CONFIRMED 发布；任何消费方读取 `*_latest*` 即视为取正式版本，不感知 provisional。
+4. provisional 覆盖 confirmed 后，重跑 run-day 即自然补齐 latest 指针（无需手工干预）。
+
+实现要点：`cmd_report` 中仅 `else`（非 provisional）分支调用 `save_latest_html`；provisional 分支只发布主报告，不写别名。该规则已落实于 Layer②；Layer①/③ 若引入 `_latest` 别名须同样遵守。
+
+---
+
 ## 与四层决策框架的关系
 
 ```

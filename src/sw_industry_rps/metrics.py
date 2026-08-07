@@ -93,3 +93,104 @@ def compute_all_metrics(
     result = calc_acceleration_fields(result)
     result = result.sort_values(["trade_date", "industry_code"]).reset_index(drop=True)
     return result
+
+
+# ---------------------------------------------------------------------------
+# 一级产业方向聚合（Layer② 第一问「行业轮动往哪里动」）
+#
+# 镜像 Layer① cross_asset_direction()：把 124 个申万二级行业收敛到申万一级
+# 方向。每个方向用 强度（median_rps15）× 速度（median_delta_rps15_5d）×
+# 广度（active_ratio）三维描述。纯 Observation 展示，不参与任何确认 Policy。
+# ---------------------------------------------------------------------------
+
+# 与 Layer① 共享四态枚举文案，但阈值独立实现（见 _industry_direction_state）。
+DIRECTION_STATE_ORDER = ["强势上行", "加速", "横盘", "弱势下行", "—"]
+
+
+def _industry_direction_state(median_rps15: float | None, active_ratio: float | None) -> str:
+    """一级方向状态分类（Layer② 独立阈值，不复制 ETF 口径）。
+
+    一级行业下二级行业数少，active_ratio 易出现 0/33/50/100 离散跳变，
+    不能机械套用 Layer① 的 (median, change_5d) 规则。这里用
+    （RPS15 强度中位, 内部广度）组合判断方向状态。
+    """
+    if median_rps15 is None:
+        return "—"
+    if median_rps15 >= 60 and active_ratio is not None and active_ratio >= 0.5:
+        return "强势上行"
+    if median_rps15 >= 60:
+        return "加速"
+    if median_rps15 >= 45:
+        return "横盘"
+    return "弱势下行"
+
+
+def cross_industry_direction(
+    snapshot: pd.DataFrame,
+    observe_threshold: float = 80,
+    active_state: set[str] | None = None,
+) -> list[dict[str, object]]:
+    """① 行业轮动往哪里动：按申万一级行业（parent_industry）聚合。
+
+    每行一个一级方向，字段：
+      parent_industry / industry_count / median_rps15 / median_rps1 /
+      median_delta_rps15_5d / active_count / active_ratio /
+      representative_industry / direction_state
+
+    强度（median_rps15）× 速度（median_delta_rps15_5d）× 广度（active_ratio）。
+    仅 Observation 展示，不参与排序/选择，也不改变确认门。
+    """
+    if snapshot is None or snapshot.empty or "parent_industry" not in snapshot.columns:
+        return []
+
+    df = snapshot.copy()
+    df = df[df["parent_industry"].notna() & (df["parent_industry"] != "")]
+    if df.empty:
+        return []
+
+    if active_state is None:
+        active_state = {"强势", "观察"}
+    if "strength_level" in df.columns:
+        df["_active"] = df["strength_level"].astype(str).isin(list(active_state))
+    else:
+        df["_active"] = False
+
+    rows: list[dict[str, object]] = []
+    for parent, sub in df.groupby("parent_industry"):
+        n = len(sub)
+        rps15 = pd.to_numeric(sub["RPS15"], errors="coerce").dropna()
+        if "RPS1" in sub.columns:
+            rps1 = pd.to_numeric(sub["RPS1"], errors="coerce").dropna()
+        else:
+            rps1 = pd.Series(dtype=float)
+        if "delta_rps15_5d" in sub.columns:
+            delta5 = pd.to_numeric(sub["delta_rps15_5d"], errors="coerce").dropna()
+        else:
+            delta5 = pd.Series(dtype=float)
+        active = int(sub["_active"].sum())
+
+        # 代表行业：该方向下 RPS15 最高的二级行业
+        rep = ""
+        if not rps15.empty:
+            top_row = sub.loc[rps15.idxmax()]
+            rep = str(top_row.get("industry_name", "") or "")
+
+        median = round(float(rps15.median()), 2) if not rps15.empty else None
+        median_rps1 = round(float(rps1.median()), 2) if not rps1.empty else None
+        median_delta = round(float(delta5.median()), 2) if not delta5.empty else None
+        active_ratio = round(active / n, 2) if n else 0.0
+
+        rows.append({
+            "parent_industry": parent,
+            "industry_count": n,
+            "median_rps15": median,
+            "median_rps1": median_rps1,
+            "median_delta_rps15_5d": median_delta,
+            "active_count": active,
+            "active_ratio": active_ratio,
+            "representative_industry": rep,
+            "direction_state": _industry_direction_state(median, active_ratio),
+        })
+
+    rows.sort(key=lambda r: (r["median_rps15"] is not None, r["median_rps15"] or 0), reverse=True)
+    return rows

@@ -9,6 +9,8 @@ from src.sw_industry_rps.metrics import (
     calc_delta_rps15_n,
     calc_acceleration_fields,
     compute_all_metrics,
+    cross_industry_direction,
+    _industry_direction_state,
 )
 
 
@@ -166,3 +168,66 @@ def test_delta_rps15_5d_window(sample_industry_data):
         and abs(expected[i] - actual[i]) < 0.01
     )
     assert matches > 0
+
+
+# --- 一级产业方向聚合（Layer② 第一问） ---
+
+
+def _make_snapshot_df():
+    return pd.DataFrame([
+        {"industry_code": "801016.SI", "industry_name": "种植业", "parent_industry": "农林牧渔",
+         "RPS15": 90.0, "RPS1": 80.0, "delta_rps15_5d": 5.0, "strength_level": "强势"},
+        {"industry_code": "801015.SI", "industry_name": "渔业", "parent_industry": "农林牧渔",
+         "RPS15": 30.0, "RPS1": 20.0, "delta_rps15_5d": -3.0, "strength_level": "弱势"},
+        {"industry_code": "801081.SI", "industry_name": "半导体", "parent_industry": "电子",
+         "RPS15": 85.0, "RPS1": 75.0, "delta_rps15_5d": 10.0, "strength_level": "观察"},
+        {"industry_code": "801082.SI", "industry_name": "元件", "parent_industry": "电子",
+         "RPS15": 10.0, "RPS1": 5.0, "delta_rps15_5d": -8.0, "strength_level": "中性"},
+    ])
+
+
+def test_cross_industry_direction_aggregates_by_parent():
+    result = cross_industry_direction(_make_snapshot_df())
+    assert len(result) == 2
+    by_name = {r["parent_industry"]: r for r in result}
+    assert "农林牧渔" in by_name and "电子" in by_name
+    nongye = by_name["农林牧渔"]
+    assert nongye["industry_count"] == 2
+    # median of 90/30 = 60
+    assert nongye["median_rps15"] == 60.0
+    # median of 5/-3 = 1.0
+    assert nongye["median_delta_rps15_5d"] == 1.0
+    # active: 强势 -> 1 of 2
+    assert nongye["active_count"] == 1
+    assert nongye["active_ratio"] == 0.5
+    # representative = 最高 RPS15 的二级行业
+    assert nongye["representative_industry"] == "种植业"
+
+
+def test_cross_industry_direction_sorted_by_median():
+    result = cross_industry_direction(_make_snapshot_df())
+    # 电子 median (85+10)/2 = 47.5，农林牧渔 median 60 -> 农林牧渔 在前
+    medians = [r["median_rps15"] for r in result]
+    assert medians == sorted(medians, reverse=True)
+
+
+def test_cross_industry_direction_empty():
+    assert cross_industry_direction(pd.DataFrame()) == []
+    assert cross_industry_direction(pd.DataFrame({"a": [1]})) == []
+
+
+def test_cross_industry_direction_missing_optional_cols():
+    df = _make_snapshot_df().drop(columns=["RPS1", "delta_rps15_5d", "strength_level"])
+    result = cross_industry_direction(df)
+    assert len(result) == 2
+    assert all(r["median_rps1"] is None for r in result)
+    assert all(r["median_delta_rps15_5d"] is None for r in result)
+    assert all(r["active_count"] == 0 for r in result)
+
+
+def test_industry_direction_state():
+    assert _industry_direction_state(70.0, 0.6) == "强势上行"
+    assert _industry_direction_state(70.0, 0.2) == "加速"
+    assert _industry_direction_state(50.0, 0.5) == "横盘"
+    assert _industry_direction_state(30.0, 0.5) == "弱势下行"
+    assert _industry_direction_state(None, 0.5) == "—"

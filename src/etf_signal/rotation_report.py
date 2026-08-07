@@ -123,10 +123,10 @@ def render_rotation_report(
 
     parts = [
         "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>",
-        f"<title>① A股全市场 ETF 轮动 · {date_str}</title>",
+        f"<title>① A股全市场 ETF轮动 · {date_str}</title>",
         f"<style>{CSS}</style></head><body><div class='container'>",
-        "<h1>① A股全市场 ETF 轮动</h1>",
-        f"<div class='subtitle'>报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · Layer① 只回答三个问题：大类资产往哪动 · 哪些 ETF 趋势活跃 · 我的主题 ETF 表现如何</div>",
+        "<h1>① A股全市场 ETF轮动</h1>",
+        f"<div class='subtitle'>大类资产 → 趋势ETF → 我的主题ETF · 报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str}</div>",
     ]
 
     # ══════════════════ ① 全市场大类资产往哪里动 ══════════════════

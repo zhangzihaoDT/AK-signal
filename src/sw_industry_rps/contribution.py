@@ -128,6 +128,7 @@ def compute_drilldown(
     industry_hist: pd.DataFrame,
     stock_data_dir: Path | None = None,
     window: int = 10,
+    offline: bool = False,
 ) -> DrilldownResult:
     lgr = logging.getLogger("sw_industry_rps.contribution")
     # legulegu 成分股仅提供 近1/近5日涨幅 列：请求窗口列不存在时回退到最近可用列，
@@ -217,7 +218,11 @@ def compute_drilldown(
                 save_stock_cache(cache_df, symbol, cache_date, window, source="legulegu")
                 continue
 
-        # 回退：多源获取（em → sina → tx + 节流 + 退避），成功后落盘
+        # 回退：多源获取（em → sina → tx + 节流 + 退避），成功后落盘。
+        # offline 模式下禁止联网：跳过网络回退，缓存/legulegu 命中不了即记为未覆盖。
+        if offline:
+            fetch_failures += 1
+            continue
         df = fetch_cn_daily(symbol, start_str, end_str)
         if df is None or df.empty:
             fetch_failures += 1
