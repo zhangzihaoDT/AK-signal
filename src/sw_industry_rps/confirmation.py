@@ -324,13 +324,17 @@ def _confirmation_breadth(
     n_total: int,
     max_rps15: float | None,
 ) -> tuple[str, str]:
-    """确认广度（与 Selection classify_confirmation_breadth 口径一致）。"""
+    """确认广度（与 Selection classify_confirmation_breadth 口径一致）。
+
+    v0.9.2 Theme 层 taxonomy：状态只用 BROAD_CONFIRMED / NARROW_CONFIRMED /
+    UNCONFIRMED（无 WATCH）；「接近观察门」作为 Evidence 描述进入 label。
+    """
     if confirmed:
         broad = n_total > 0 and n_observe >= max(1, int(round(n_total * CONF_BROAD_FRACTION)))
         return ("BROAD_CONFIRMED", "广泛确认") if broad else ("NARROW_CONFIRMED", "窄幅确认")
     if max_rps15 is not None and max_rps15 >= CONF_WATCH_PROXIMITY:
-        return ("WATCH", "接近确认")
-    return ("UNCONFIRMED", "无支撑")
+        return ("UNCONFIRMED", "未确认 · 接近观察门")
+    return ("UNCONFIRMED", "未确认")
 
 
 def _confirmation_params() -> tuple[float, float]:

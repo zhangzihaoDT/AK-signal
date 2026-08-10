@@ -114,25 +114,57 @@ def _compare_layer2(replayed: pd.DataFrame, formal: dict[str, Any]) -> dict[str,
         result["note"] = "formal confirmation missing"
         return result
 
-    rp = replayed.set_index("entity_code")
-    conf_idx = conf.set_index("industry_code")
-    for code, row in rp.iterrows():
-        if code not in conf_idx.index:
+    # 同一行业可跨主题注册（如 801084.SI 属 china_auto_global 与 ai_infrastructure），
+    # 用 (entity_code, theme) 复合键匹配；旧数据缺 theme 列时退化为单键。
+    composite = "theme" in replayed.columns and "theme" in conf.columns
+    if composite:
+        rp = replayed.set_index(["entity_code", "theme"])
+        conf_idx = conf.set_index(["industry_code", "theme"])
+    else:
+        rp = replayed.set_index("entity_code")
+        conf_idx = conf.set_index("industry_code")
+    for key, row in rp.iterrows():
+        if composite:
+            code, theme = key
+        else:
+            code, theme = key, ""
+        if code not in conf_idx.index.get_level_values(0):
             result["mismatched"] += 1
             continue
-        exp = conf_idx.at[code, "strength_level"]
+        if composite:
+            try:
+                exp = conf_idx.at[(code, theme), "strength_level"]
+                exp_rps = conf_idx.at[(code, theme), "RPS15"]
+            except KeyError:
+                # 该行业只挂单一主题（replay 侧 theme 为聚合来源）→ 退化单键
+                sub = conf_idx.xs(code)
+                if len(sub) == 1:
+                    exp = sub.iloc[0]["strength_level"]
+                    exp_rps = sub.iloc[0]["RPS15"]
+                else:
+                    result["mismatched"] += 1
+                    if len(result["mismatch_examples"]) < 10:
+                        result["mismatch_examples"].append({
+                            "code": code, "theme": theme,
+                            "confirmation_status": (row.get("confirmation_status", ""), None),
+                            "rps15": (row.get("rps15"), None),
+                        })
+                    continue
+        else:
+            exp = conf_idx.at[code, "strength_level"]
+            exp_rps = conf_idx.at[code, "RPS15"]
         act = row.get("confirmation_status", "")
         ok_state = (str(act) == str(exp))
-        ok_rps = _compare_float(row.get("rps15"), conf_idx.at[code, "RPS15"])
+        ok_rps = _compare_float(row.get("rps15"), exp_rps)
         if ok_state and ok_rps:
             result["matched"] += 1
         else:
             result["mismatched"] += 1
             if len(result["mismatch_examples"]) < 10:
                 result["mismatch_examples"].append({
-                    "code": code,
+                    "code": code, "theme": theme,
                     "confirmation_status": (act, exp),
-                    "rps15": (row.get("rps15"), conf_idx.at[code, "RPS15"]),
+                    "rps15": (row.get("rps15"), exp_rps),
                 })
     return result
 

@@ -32,6 +32,13 @@ class ThemeIndustry:
 
 
 @dataclass(frozen=True)
+class ThemeTier:
+    key: str
+    label: str
+    universe_tiers: tuple[str, ...]  # 对应 stock_universe.yaml 的 tier key
+
+
+@dataclass(frozen=True)
 class Theme:
     key: str
     label: str
@@ -40,9 +47,19 @@ class Theme:
     objective: str
     industries: tuple[ThemeIndustry, ...]
     etf_keywords: tuple[str, ...]
+    tiers: tuple[ThemeTier, ...] = ()
 
     def industry_codes(self) -> list[str]:
         return [ind.code for ind in self.industries]
+
+    def tier_keys(self) -> list[str]:
+        return [t.key for t in self.tiers]
+
+    def tier(self, tier_key: str) -> ThemeTier | None:
+        for t in self.tiers:
+            if t.key == tier_key:
+                return t
+        return None
 
 
 @dataclass(frozen=True)
@@ -106,6 +123,14 @@ def load_buckets(path: Path | None = None) -> list[Bucket]:
                 objective=str(tcfg.get("objective", "")),
                 industries=industries,
                 etf_keywords=tuple(str(k).lower() for k in (tcfg.get("etf_keywords") or [])),
+                tiers=tuple(
+                    ThemeTier(
+                        key=str(tk),
+                        label=str(tv.get("label", tk)),
+                        universe_tiers=tuple(str(u) for u in (tv.get("universe_tiers") or [])),
+                    )
+                    for tk, tv in (tcfg.get("tiers") or {}).items()
+                ),
             ))
         out.append(Bucket(
             key=str(bkey),

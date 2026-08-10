@@ -28,7 +28,7 @@ class TestSchema:
         assert len(a) == 16
 
     def test_rule_version(self):
-        assert schema.RULE_VERSION == "v0.7.0"
+        assert schema.RULE_VERSION == "v0.8.0"
 
 
 class TestParityFloat:
@@ -101,7 +101,7 @@ class TestCheckParity:
             {"layer": "1", "entity_type": "etf", "entity_code": "512480",
              "rps15": 90.0, "trend_state": "BUY_CANDIDATE", "selection_status": "", "recommended_action": "",
              "rule_version": "v0.6.1", "config_hash": "abc"},
-            {"layer": "2", "entity_type": "industry", "entity_code": "801161.SI",
+            {"layer": "2", "entity_type": "industry", "entity_code": "801161.SI", "theme": "high_cashflow",
              "rps15": 61.0, "confirmation_status": "中性", "selection_status": "", "recommended_action": "",
              "rule_version": "v0.6.1", "config_hash": "abc"},
             {"layer": "3", "entity_type": "stock", "entity_code": "600900",
@@ -113,7 +113,8 @@ class TestCheckParity:
         return {
             "rotation": pd.DataFrame([{"fund_code": "512480", "rps15": 90.005}]),
             "account_candidates": pd.DataFrame([{"fund_code": "512480", "trend_state": "BUY_CANDIDATE"}]),
-            "confirmation": pd.DataFrame([{"industry_code": "801161.SI", "RPS15": 61.01, "strength_level": "中性"}]),
+            "confirmation": pd.DataFrame([{"industry_code": "801161.SI", "theme": "high_cashflow",
+                                           "RPS15": 61.01, "strength_level": "中性"}]),
             "selection": {
                 "layer3": {
                     "action": {"level": "BUY"},
@@ -165,7 +166,7 @@ class TestSingleDateReplayIntegration:
         df = engine.replay_single_date("20260803", out_dir=None)
         assert not df.empty
         assert df["signal_origin"].iloc[0] == "replayed"
-        assert df["rule_version"].iloc[0] == "v0.7.0"
+        assert df["rule_version"].iloc[0] == "v0.8.0"
         r = parity.check_parity("20260803", df)
         assert r["ok"] is True, r
         assert r["layers"]["layer1"]["matched"] > 1000
@@ -217,7 +218,7 @@ class TestRangeReplayIntegration:
 
         r = rng[rng["trade_date"] == "20260803"].reset_index(drop=True)
         s = single.reset_index(drop=True)
-        assert len(r) == len(s) == 1302
+        assert len(r) == len(s) == 1333
 
         def _key(df):
             return df.set_index(["layer", "entity_type", "entity_code"])

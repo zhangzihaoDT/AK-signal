@@ -23,6 +23,11 @@ import pandas as pd
 
 from . import confirmation as conf
 from . import drive_labels as _dl
+from .tier_confirmation import (
+    TIER_STATE_CONFIRMED, TIER_STATE_LEGACY_OBSERVE, TIER_STATE_STRONG,
+    TIER_STATE_UNAVAILABLE, TIER_STATE_UNCONFIRMED, TIER_STATE_WATCH,
+    TIER_WATCH_REASON_LABELS,
+)
 
 
 STRENGTH_TAG = {
@@ -125,7 +130,7 @@ def render_theme_summary(confirmation_df: pd.DataFrame) -> str:
         n_observe = int((tdf["RPS15"] >= 80).sum())
         state_tag = {
             "BROAD_CONFIRMED": "tag-strong", "NARROW_CONFIRMED": "tag-observe",
-            "WATCH": "tag-neutral", "UNCONFIRMED": "tag-weak",
+            "UNCONFIRMED": "tag-weak", "UNAVAILABLE": "tag-none",
         }.get(state, "tag-none")
         parts.append("<div style='margin:18px 0'>")
         parts.append(
@@ -169,7 +174,7 @@ def _theme_judgment(
 ) -> str:
     """生成主题级人话判断（非重复计数）。
 
-    基于确认状态 + 最强支撑行业 + 最接近确认行业生成一句结论。
+    基于确认状态 + 最强支撑行业 + 最接近观察门的行业（SW Evidence 语境）生成一句结论。
     """
     if state in ("BROAD_CONFIRMED", "NARROW_CONFIRMED"):
         if n_observe >= 1 and top is not None and not _isna(top.get("RPS15")):
@@ -181,15 +186,13 @@ def _theme_judgment(
                 return (f"{name} 已确认支撑，{c.get('industry_name','')} 距观察门还差 "
                         f"{_num(gap)}")
             return f"{name} 已确认支撑，行业证据充分"
-    if state == "WATCH":
-        if top is not None and not _isna(top.get("RPS15")):
-            name = str(top.get("industry_name", ""))
-            gap = max(0.0, 80.0 - float(top.get("RPS15") or 0))
-            return f"最强 {name} 接近观察门，差 {_num(gap)}，仍需走强确认"
-    # UNCONFIRMED
+    # UNCONFIRMED（含「未确认 · 接近观察门」：接近与否由结论体现，不新增状态）
     if top is not None and not _isna(top.get("RPS15")):
         name = str(top.get("industry_name", ""))
         rps = _num(top.get("RPS15"))
+        if rps.replace(".", "").isdigit() and float(top.get("RPS15")) >= 70:
+            gap = max(0.0, 80.0 - float(top.get("RPS15") or 0))
+            return f"未确认 · 最强 {name}（{rps}）接近观察门，差 {_num(gap)}，仍需走强确认"
         return f"焦点行业均未进入观察区，最强 {name}（{rps}），尚未形成行业共振"
     return "焦点行业无有效数据"
 
@@ -225,11 +228,11 @@ def render_theme_table(
         n_observe = int((tdf["RPS15"] >= 80).sum())
         state_label = {
             "BROAD_CONFIRMED": "广泛确认", "NARROW_CONFIRMED": "窄幅确认",
-            "WATCH": "接近确认", "UNCONFIRMED": "未确认",
+            "UNCONFIRMED": "未确认", "UNAVAILABLE": "数据不可用",
         }.get(state, state)
         state_tag = {
             "BROAD_CONFIRMED": "tag-strong", "NARROW_CONFIRMED": "tag-observe",
-            "WATCH": "tag-neutral", "UNCONFIRMED": "tag-weak",
+            "UNCONFIRMED": "tag-weak", "UNAVAILABLE": "tag-none",
         }.get(state, "tag-none")
 
         # 支撑：仅当有确认行业（≥观察门）时显示最强支撑行业；未确认显示 —
@@ -276,6 +279,284 @@ def _isna(v: Any) -> bool:
         return pd.isna(v)
     except (TypeError, ValueError):
         return True
+
+
+def _tier_state_label(r: dict[str, Any]) -> tuple[str, str]:
+    """Tier 状态标签：返回 (标签, CSS class)。
+
+    v0.9.2 taxonomy：state 只表达观察单元状态，WATCH 的 why 由 reason_code 补充：
+      - STRONG           强势
+      - CONFIRMED        已确认
+      - WATCH + reason   观察 · <reason>（接近确认 / breadth不足 / 趋势启动 / 单点驱动）
+      - UNCONFIRMED      未确认
+      - UNAVAILABLE      数据不可用
+    """
+    from . import tier_confirmation as _tc
+    state = str(r.get("confirmation_state", TIER_STATE_UNCONFIRMED))
+    data_status = str(r.get("data_status", "") or "")
+    if state == TIER_STATE_UNAVAILABLE or data_status == "unavailable":
+        return "数据不可用", "tag-none"
+    if state == TIER_STATE_STRONG:
+        return "强势", "tag-strong"
+    if state == TIER_STATE_CONFIRMED or state == TIER_STATE_LEGACY_OBSERVE:
+        return "已确认", "tag-observe"
+    if state == TIER_STATE_WATCH:
+        reason_code = str(r.get("reason_code", "") or "")
+        why = TIER_WATCH_REASON_LABELS.get(reason_code, "")
+        return (f"观察 · {why}" if why else "观察"), "tag-neutral"
+    return "未确认", "tag-weak"
+
+
+def _tier_driver_txt(r: dict[str, Any]) -> str:
+    """Tier 驱动文本：龙头（贡献度）；单标的 Tier 标「单标的」。
+
+    仅 STRONG/CONFIRMED/WATCH 状态展示驱动；UNCONFIRMED/UNAVAILABLE 显示 —，
+    避免把「跌得最多的龙头」误读为趋势驱动。
+    """
+    state = str(r.get("confirmation_state", TIER_STATE_UNCONFIRMED))
+    data_status = str(r.get("data_status", "") or "")
+    if data_status == "unavailable" or state in (TIER_STATE_UNCONFIRMED, TIER_STATE_UNAVAILABLE):
+        return "—"
+    leader = str(r.get("leader_name", "") or "")
+    if not leader:
+        return "—"
+    contrib = r.get("leader_contribution")
+    n_total = int(r.get("n_total", 0) or 0)
+    if n_total == 1:
+        return f"{escape(leader)} · 单标的"
+    if contrib is not None and not pd.isna(contrib):
+        return f"{escape(leader)} · {_pct(contrib)}"
+    return f"{escape(leader)}"
+
+
+def render_theme_tier_block(
+    tier_df: pd.DataFrame,
+    theme_key: str,
+    confirmation_df: pd.DataFrame | None = None,
+) -> str:
+    """③ 某主题的 Tier basket 区块：头部状态 + Tier 表
+    （Tier/状态/Strength/上涨比例/Trend中位/强趋势/驱动）+ 判断 + 申万交叉证据。
+
+    统一框架（v0.9.1）：所有配置了 tiers 的主题（AI/汽车/高现金流）同构渲染。
+    申万行业是 Evidence（非 Gate）。
+    """
+    df = tier_df[tier_df["theme"] == theme_key].copy() if "theme" in tier_df.columns else tier_df.copy()
+    if df.empty:
+        return ""
+
+    from . import tier_confirmation as _tc
+    agg = _tc.theme_confirmation_from_tiers(df.to_dict("records"))
+    state_lbl = str(agg.get("confirmation_state", TIER_STATE_UNCONFIRMED))
+    tag = {"BROAD_CONFIRMED": "tag-strong", "CONFIRMED": "tag-strong",
+           "NARROW_CONFIRMED": "tag-observe",
+           "UNCONFIRMED": "tag-weak", "UNAVAILABLE": "tag-none"}.get(state_lbl, "tag-none")
+    n_obs = int(agg.get("n_observe_tiers", 0) or 0)
+    n_watch = int(agg.get("n_watch_tiers", 0) or 0)
+    n_tiers = int(agg.get("n_tiers", 0) or 0)
+
+    parts: list[str] = []
+    # 头部状态行：主题名｜状态 · N/M Tier（label 从 themes config 取，避免依赖 parquet 列）。
+    # Theme 层不使用 WATCH：未确认但有观察 Tier 时，badge 补充「N 个 Tier 进入观察」。
+    from src.common import themes as _themes
+    theme_label = _themes.theme_label(theme_key)
+    badge = f"{n_obs}/{n_tiers} Tier"
+    if state_lbl == TIER_STATE_UNCONFIRMED and n_watch:
+        badge = f"{badge} · {n_watch} 个 Tier 进入观察"
+    parts.append(
+        f"<h3>{escape(theme_label)}<span class='tag {tag}' style='margin-left:8px'>{escape(state_lbl)}"
+        f"</span><span class='badge'>{escape(badge)}</span></h3>")
+
+    # Tier 表：Tier/状态/Strength/上涨比例/Trend中位/强趋势/驱动
+    parts.append("<table><thead><tr><th>Tier</th><th>状态</th>"
+                 "<th class='num'>Strength</th><th class='num'>上涨比例</th>"
+                 "<th class='num'>Trend 中位</th><th class='num'>强趋势</th>"
+                 "<th>驱动</th></tr></thead><tbody>")
+
+    for _, r in df.iterrows():
+        tier_label = str(r.get("tier_label", r.get("tier", "")))
+        strength = r.get("tier_strength")
+        advance = r.get("advance_ratio")
+        med_trend = r.get("median_trend_score")
+        n_strong = int(r.get("n_strong_trend", 0) or 0)
+        n_data = int(r.get("n_with_data", 0) or 0)
+        n_total = int(r.get("n_total", 0) or 0)
+
+        s_label, s_tag = _tier_state_label(dict(r))
+        strength_txt = _num(strength)
+        if strength is not None:
+            v = float(strength)
+            style = "background:#174A7C;color:#FFF;font-weight:600" if v >= 70 \
+                else "background:#D79A36;color:#FFF;font-weight:600" if v >= 55 else ""
+            strength_txt = f"<span style='{style}'>{_num(strength)}</span>"
+
+        advance_txt = "—"
+        if advance is not None and not (isinstance(advance, float) and pd.isna(advance)):
+            advance_txt = f"{float(advance) * 100:.0f}%"
+        driver_txt = _tier_driver_txt(dict(r))
+
+        # 强趋势 = n_strong/n_total（unavailable 显示 —）
+        strong_txt = "—" if n_data == 0 else f"{n_strong}/{n_total}"
+
+        parts.append(
+            f"<tr><td style='font-weight:600'>{escape(tier_label)}</td>"
+            f"<td><span class='tag {s_tag}'>{escape(s_label)}</span></td>"
+            f"<td class='num'>{strength_txt}</td>"
+            f"<td class='num'>{advance_txt}</td>"
+            f"<td class='num'>{_num(med_trend)}</td>"
+            f"<td class='num'>{strong_txt}</td>"
+            f"<td>{driver_txt}</td></tr>")
+
+    parts.append("</tbody></table>")
+
+    # 判断：主题链结构的人话结论
+    parts.append(f"<div class='verdict'><b>判断：</b>{_theme_tier_verdict(df.to_dict('records'), agg)}</div>")
+
+    # 申万交叉证据（Evidence，非 Gate）
+    parts.append(f"<p class='answer-note'><b>申万交叉证据：</b>{_sw_cross_evidence(confirmation_df, theme_key)}</p>")
+    return "\n".join(parts)
+
+
+def _theme_tier_verdict(tier_rows: list[dict[str, Any]], agg: dict[str, Any]) -> str:
+    """主题判断：按 Tier 状态生成一句结论。
+
+    已确认链 / 早期走强链 / 尚未跟随，综合为「局部 vs 产业链共振」。
+    """
+    strong = [r.get("tier_label", r.get("tier", "")) for r in tier_rows
+              if r.get("confirmation_state") in (TIER_STATE_STRONG, TIER_STATE_CONFIRMED)
+              and r.get("data_status") != "unavailable"]
+    watch = [r.get("tier_label", r.get("tier", "")) for r in tier_rows
+             if r.get("confirmation_state") == TIER_STATE_WATCH and r.get("data_status") != "unavailable"]
+    unconf = [r.get("tier_label", r.get("tier", "")) for r in tier_rows
+              if r.get("confirmation_state") == TIER_STATE_UNCONFIRMED and r.get("data_status") != "unavailable"]
+
+    parts: list[str] = []
+    if strong:
+        parts.append(f"当前仅 {escape('、'.join(strong))} 形成确认")
+        if watch:
+            parts.append(f"{escape('、'.join(watch))} 出现早期走强迹象")
+        if unconf:
+            parts.append("其余环节尚未跟随")
+        parts.append("属于局部而非整体共振")
+    elif watch:
+        parts.append(f"{escape('、'.join(watch))} 出现早期走强迹象，尚未形成正式确认")
+        if unconf:
+            parts.append("其余环节尚未跟随")
+    else:
+        parts.append("各 Tier 均未进入观察区，尚无整体共振")
+    return "，".join(parts) + "。"
+
+
+def _sw_cross_evidence(confirmation_df: pd.DataFrame | None, theme_key: str) -> str:
+    """申万交叉证据：该主题焦点行业进入观察区数量 + 最强行业 RPS15。
+
+    Observation 展示，不参与确认。
+    """
+    if confirmation_df is None or confirmation_df.empty or "theme" not in confirmation_df.columns:
+        return "数据缺失"
+    sub = confirmation_df[confirmation_df["theme"] == theme_key]
+    if sub.empty:
+        return "无焦点行业数据"
+    n_total = len(sub)
+    n_observe = int(sub["strength_level"].astype(str).isin(["观察", "强势"]).sum())
+    rps = pd.to_numeric(sub["RPS15"], errors="coerce")
+    top = sub.loc[rps.idxmax()] if not rps.isna().all() else None
+    top_txt = f"最强 {top.get('industry_name','')} RPS15={_num(top.get('RPS15'))}" if top is not None else "无 RPS"
+    level = "偏强" if n_observe >= max(1, int(round(n_total * 0.5))) else ("中性" if n_observe >= 1 else "偏弱")
+    return f"{level} · {n_observe}/{n_total} 相关行业进入观察区，{top_txt}。"
+
+
+def _industry_theme_state(tdf: pd.DataFrame) -> tuple[str, str, bool]:
+    """行业 Evidence 主题的状态标签（Theme 层，v0.9.2 不用 WATCH）。
+
+    返回 (state, 支撑数, near_threshold)：
+      - BROAD_CONFIRMED / NARROW_CONFIRMED  有行业进入观察区
+      - UNCONFIRMED                         无行业进入观察区
+      - near_threshold                      未确认但最强行业已接近观察门（进 verdict 文本，不进 state）
+    """
+    n_total = len(tdf)
+    n_observe = int((tdf["RPS15"] >= 80).sum())
+    max_rps = float(pd.to_numeric(tdf["RPS15"], errors="coerce").max()) if n_total else None
+    near = max_rps is not None and max_rps >= conf.CONF_WATCH_PROXIMITY
+    if n_observe >= 1:
+        broad = n_observe >= max(1, int(round(n_total * conf.CONF_BROAD_FRACTION)))
+        return ("BROAD_CONFIRMED" if broad else "NARROW_CONFIRMED"), f"{n_observe}/{n_total}", near
+    return "UNCONFIRMED", f"{n_observe}/{n_total}", near
+
+
+def render_industry_theme_block(
+    confirmation_df: pd.DataFrame,
+    theme_key: str,
+    structure_df: pd.DataFrame | None = None,
+) -> str:
+    """③ 无 Tier 配置主题（如高现金流资产）的行业确认区块。
+
+    头部状态 + 最强行业（RPS15 + 距观察阈值）+ 结论。
+    """
+    if confirmation_df is None or confirmation_df.empty or "theme" not in confirmation_df.columns:
+        return ""
+    tdf = confirmation_df[confirmation_df["theme"] == theme_key].copy()
+    if tdf.empty:
+        return ""
+    theme_label = str(tdf.iloc[0].get("theme_label", theme_key) or theme_key)
+    state, sup, near = _industry_theme_state(tdf)
+    tag = {"BROAD_CONFIRMED": "tag-strong", "NARROW_CONFIRMED": "tag-observe",
+           "UNCONFIRMED": "tag-weak"}.get(state, "tag-none")
+    state_lbl = {"BROAD_CONFIRMED": "广泛确认", "NARROW_CONFIRMED": "窄幅确认",
+                 "UNCONFIRMED": "未确认"}.get(state, state)
+
+    parts: list[str] = []
+    parts.append(
+        f"<h3>{escape(theme_label)}<span class='tag {tag}' style='margin-left:8px'>{escape(state_lbl)}"
+        f"</span><span class='badge'>{sup} 行业</span></h3>")
+
+    rps = pd.to_numeric(tdf["RPS15"], errors="coerce")
+    if not rps.isna().all():
+        top = tdf.loc[rps.idxmax()]
+        top_name = str(top.get("industry_name", ""))
+        top_rps = float(top["RPS15"])
+        gap = max(0.0, 80.0 - top_rps)
+        if state in ("BROAD_CONFIRMED", "NARROW_CONFIRMED"):
+            verdict = f"最强 {top_name} RPS15={_num(top_rps)}，已形成行业确认。"
+        elif near:
+            # Theme 层 state 不用 WATCH：接近观察门作为 Evidence 描述进入结论
+            verdict = f"未确认 · {top_name} RPS15={_num(top_rps)} 接近观察门（距阈值 {_num(gap)}）。"
+        else:
+            verdict = f"最强：{top_name} RPS15={_num(top_rps)}，距观察阈值 {_num(gap)}；尚无行业进入观察区。"
+        parts.append(f"<div class='verdict'>{escape(verdict)}</div>")
+    else:
+        parts.append("<div class='verdict'>无有效行业数据</div>")
+    return "\n".join(parts)
+
+
+def render_theme_support(
+    tier_df: pd.DataFrame | None,
+    confirmation_df: pd.DataFrame | None,
+    structure_df: pd.DataFrame | None = None,
+) -> str:
+    """③ 我的主题获得哪些支撑？— 统一入口（v0.9.1）。
+
+    统一框架：所有配置了 tiers 的主题都走「Theme → Tier basket → 个股趋势 →
+    Theme confirmation → 申万行业 Evidence」，逐主题渲染 Tier 区块。
+    申万行业对全部主题都是 Evidence（非 Gate）。
+    """
+    from src.common import themes as themes_cfg
+    parts: list[str] = []
+
+    if tier_df is not None and not tier_df.empty and "theme" in tier_df.columns:
+        for theme_key in sorted(tier_df["theme"].astype(str).unique()):
+            block = render_theme_tier_block(tier_df, theme_key, confirmation_df)
+            if block:
+                parts.append(block)
+    elif confirmation_df is not None and not confirmation_df.empty and "theme" in confirmation_df.columns:
+        # 无 tier 产物时降级：逐主题渲染行业证据区块（不阻塞报告）
+        for theme_key in sorted(confirmation_df["theme"].astype(str).unique()):
+            block = render_industry_theme_block(confirmation_df, theme_key, structure_df)
+            if block:
+                parts.append(block)
+
+    if not parts:
+        return "<p>主题确认尚未生成——运行 <code>confirm</code> 后可见主题支撑详情。</p>"
+    return "\n".join(parts)
 
 
 def _rps_color(val: Any) -> str:

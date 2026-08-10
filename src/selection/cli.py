@@ -265,6 +265,23 @@ def cmd_run(args: argparse.Namespace) -> None:
     else:
         logger.warning("Layer② confirmation 为空（trade_date=%s）— 方向门控将不通过", sw_td or "latest")
 
+    # ── 输入：Layer ② Tier 确认（v0.9.1，配置了 tiers 的主题统一 Gate）──
+    tier_confirmation_df = pd.DataFrame()
+    try:
+        from src.sw_industry_rps import tier_confirmation as _tc
+        tier_td = requested_td if use_exact else (sw_td or "")
+        if tier_td:
+            tier_confirmation_df = _tc.load_tier_confirmation(tier_td)
+        if tier_confirmation_df.empty and sw_td:
+            tier_confirmation_df = _tc.load_tier_confirmation(sw_td)
+        if not tier_confirmation_df.empty:
+            logger.info("Layer② tier confirmation: %d tiers (trade_date=%s)",
+                        len(tier_confirmation_df), tier_td)
+        else:
+            logger.warning("Layer② tier confirmation 为空 — 配置了 tiers 的主题确认回退行业 Gate")
+    except Exception as e:
+        logger.warning("tier confirmation load failed (fallback to industry gate): %s", e)
+
     # ── 对齐判定 ────────────────────────────────────────────────────
     if use_exact:
         # 精确模式：各层均按 requested_td 字面加载，etf_td 固定为 requested
@@ -306,7 +323,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         stock_items = trend_inputs.stock_items(universe_items)
         etf_items = [it for it in universe_items if not trend_inputs.is_stock_item(it)]
 
-        # ── 输入：个股趋势（读取预计算产物 selection_inputs，不联网） ──
+        # ── 输入：个股趋势（读取预计算产物 stock_metrics，不联网） ──
         # Layer③ 只消费已落盘的 stock_metrics_{trade_date}.parquet；
         # 缺少输入时不自动重试，按 missing 局部降级（不阻塞整体）。
         allow_online = getattr(args, "allow_online_fetch", False)
@@ -320,7 +337,7 @@ def cmd_run(args: argparse.Namespace) -> None:
                 stock_metrics_df, metrics_td = trend_inputs.load_stock_metrics(sel_date), sel_date
                 online_fetches = 1
             else:
-                logger.warning("stock trend inputs missing for %s — 全部个股标记 unavailable（run `make select-inputs` 或 `--allow-online-fetch`）",
+                logger.warning("stock trend inputs missing for %s — 全部个股标记 unavailable（run `make stock-metrics` 或 `--allow-online-fetch`）",
                                sel_date)
         if metrics_td and metrics_td != sel_date:
             lag = _business_days_between(metrics_td, sel_date)
@@ -372,6 +389,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         confirmation_df=confirmation_df,
         universe_items=universe_items,
         trend_df=trend_df,
+        tier_confirmation_df=tier_confirmation_df,
     )
 
     # ── 推荐结构（Recommendation Builder：纯排版，不制造新事实） ────
@@ -418,16 +436,18 @@ def cmd_run(args: argparse.Namespace) -> None:
     logger.info("candidates html: %s", html_path)
 
 
-def cmd_inputs(args: argparse.Namespace) -> None:
-    """构建个股趋势输入产物 outputs/selection_inputs/stock_metrics_{date}.parquet。
+def cmd_stock_metrics(args: argparse.Namespace) -> None:
+    """构建个股趋势指标产物 outputs/stock_metrics/stock_metrics_{date}.parquet。
 
+    属于 Observation 层（Market Observation → Stock / Tier）：
+    Layer② Tier 确认 与 Layer③ Selection 共同消费此产物。
     默认离线（读缓存，确定性）；--allow-online-fetch 用于手工补数。
     """
     from src.trend_engine import inputs as trend_inputs
 
     logger = build_logger(args.log_level)
     logger.info("=" * 60)
-    logger.info("LAYER ③ INPUTS: 个股趋势输入产物构建")
+    logger.info("STOCK METRICS: 个股趋势指标构建（Observation）")
     logger.info("=" * 60)
 
     requested_td = getattr(args, "date", "") or ""
@@ -501,7 +521,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--strict", action="store_true",
                        help="严格模式：asset pool 存在未注册 theme 时中止发布（默认告警+标记 degraded 继续）")
     p_run.add_argument("--log-level", default="INFO")
-    p_inputs = sub.add_parser("inputs", help="构建个股趋势输入产物 selection_inputs/stock_metrics_{date}.parquet")
+    p_inputs = sub.add_parser("stock-metrics", help="构建个股趋势指标产物 stock_metrics/stock_metrics_{date}.parquet（Observation 层）")
     p_inputs.add_argument("--date", default="", help="目标 trade_date YYYYMMDD（默认最新 Layer① rotation 的 trade_date）")
     p_inputs.add_argument("--allow-online-fetch", action="store_true",
                           help="允许在线补数（默认仅用缓存）")
@@ -516,8 +536,8 @@ def main() -> None:
     command = getattr(args, "command", None)
     if command == "run":
         cmd_run(args)
-    elif command == "inputs":
-        cmd_inputs(args)
+    elif command == "stock-metrics":
+        cmd_stock_metrics(args)
     elif command == "universe":
         cmd_universe(args)
     else:

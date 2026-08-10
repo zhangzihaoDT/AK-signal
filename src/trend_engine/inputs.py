@@ -1,10 +1,11 @@
 """
-个股趋势产物构建 — Layer ③ 的离线输入（selection_inputs）。
+个股趋势指标产物 — Observation 层（stock-metrics）。
 
 职责：
   把 trend_engine 对 universe 股票池的批量趋势计算，沉淀为统一的
-  outputs/selection_inputs/stock_metrics_{trade_date}.parquet，
-  让 Layer ③ 只消费已落盘的指标，不再感知新浪 / 东财 / AKShare / 缓存机制。
+  outputs/stock_metrics/stock_metrics_{trade_date}.parquet，
+  供 Layer② Tier 确认（统一 Tier basket）与 Layer③ Selection 共同消费，
+  不再感知新浪 / 东财 / AKShare / 缓存机制。
 
 设计约定（v0.4.3）：
   - 只有股票资产进入此产物；ETF 趋势一律复用 Layer① rotation（Layer ③ 不重复抓取）。
@@ -22,7 +23,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from src.common.paths import selection_inputs_dir
+from src.common.paths import stock_metrics_dir
 from src.trend_engine.engine import compute_trends
 
 logger = logging.getLogger("trend_engine.inputs")
@@ -32,6 +33,11 @@ STOCK_TIERS = {
     "leader", "high_beta", "equipment_upstream",
     "computing_chip", "optical_interconnect", "server_network",
     "semiconductor_equipment", "semiconductor_components",
+    "liquid_cooling", "high_speed_interconnect", "server_power",
+    "oem_global", "battery_global", "global_ev_components", "global_auto_components",
+    "adas_lidar",
+    "hydro_nuclear", "telecom_operator", "toll_road", "port_operator",
+    "cyclical_power_watch",
 }
 
 # 统一产物 schema（Layer③ 消费契约；asset_id 与 symbol 同值，symbol 供 selection 匹配）
@@ -53,11 +59,11 @@ def stock_items(items: Sequence[Any]) -> list[Any]:
 
 
 def stock_metrics_path(trade_date: str) -> Path:
-    return selection_inputs_dir() / f"stock_metrics_{trade_date}.parquet"
+    return stock_metrics_dir() / f"stock_metrics_{trade_date}.parquet"
 
 
 def latest_stock_metrics_trade_date() -> str | None:
-    d = selection_inputs_dir()
+    d = stock_metrics_dir()
     if not d.exists():
         return None
     dates: list[str] = []
@@ -196,7 +202,7 @@ def build_stock_metrics(
     persist: bool = True,
     log_level: str = "INFO",
 ) -> pd.DataFrame:
-    """构建 outputs/selection_inputs/stock_metrics_{trade_date}.parquet（可内存计算不落盘）。
+    """构建 outputs/stock_metrics/stock_metrics_{trade_date}.parquet（可内存计算不落盘）。
 
     Args:
         items: universe 资产列表（内部只处理股票 tier）

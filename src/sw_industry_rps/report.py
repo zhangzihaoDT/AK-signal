@@ -195,16 +195,16 @@ def _direction_table(rows: list[dict[str, Any]]) -> str:
     return "<table><thead><tr>" + ths + "</tr></thead><tbody>" + "\n".join(body) + "</tbody></table>"
 
 
-def _direction_summary_sentence(top5: list[dict[str, Any]]) -> str:
-    """一句话产业方向总结：与下方 Top5 表严格一一对应（按表内位置）。
+def _direction_summary_sentence(top_rows: list[dict[str, Any]]) -> str:
+    """一句话产业方向总结：与下方 Top10 表严格一一对应（按表内位置）。
 
-    核心 = 表前 3 名；正在快速增强 = 表第 4-5 名（RPS15 仍在增强）。
+    核心 = 表前 3 名；正在快速增强 = 表第 4-10 名（RPS15 仍在增强）。
     弱势方向不表述（日报原则：告诉用户值得关注什么，而非完整描述市场）。
     """
-    if not top5:
+    if not top_rows:
         return ""
-    core = [str(r.get("parent_industry")) for r in top5[:3]]
-    rising = [str(r.get("parent_industry")) for r in top5[3:5]]
+    core = [str(r.get("parent_industry")) for r in top_rows[:3]]
+    rising = [str(r.get("parent_industry")) for r in top_rows[3:10]]
     parts = []
     if core:
         parts.append(f"当前趋势核心集中在 <b>{escape('、'.join(core))}</b>")
@@ -214,7 +214,7 @@ def _direction_summary_sentence(top5: list[dict[str, Any]]) -> str:
 
 
 def render_q1_direction(snapshot: pd.DataFrame) -> str:
-    """① 行业轮动往哪里动：一句话 + Top5 强方向表（精简日报）。
+    """① 行业轮动往哪里动：一句话 + Top10 强方向表（精简日报）。
 
     不展示 Bottom3 / 31 行全表（保留在 parquet）。
     """
@@ -229,15 +229,15 @@ def render_q1_direction(snapshot: pd.DataFrame) -> str:
     parts: list[str] = []
 
     strong = [r for r in rows if r.get("direction_state") in ("强势上行", "加速")]
-    # 若强势方向不足 5，补齐 RPS15 最高的其他方向
-    if len(strong) < 5:
+    # 若强势方向不足 10，补齐 RPS15 最高的其他方向
+    if len(strong) < 10:
         strong_keys = {r.get("parent_industry") for r in strong}
         rest = [r for r in rows if r.get("parent_industry") not in strong_keys]
         rest = sorted(rest, key=lambda r: r.get("median_rps15") or 0, reverse=True)
         strong = strong + rest
-    top5 = strong[:5]
-    parts.append(f"<div class='judgment'>{_direction_summary_sentence(top5)}</div>")
-    parts.append(_direction_table(top5))
+    top_rows = strong[:10]
+    parts.append(f"<div class='judgment'>{_direction_summary_sentence(top_rows)}</div>")
+    parts.append(_direction_table(top_rows))
     return "\n".join(parts)
 
 
@@ -642,6 +642,7 @@ def build_html(
     structure_df: pd.DataFrame | None = None,
     confirmation_df: pd.DataFrame | None = None,
     confirmation_available: bool = False,
+    tier_df: pd.DataFrame | None = None,
 ) -> tuple[Path, Path]:
     suffix = provisional_suffix
     csv_path = reports_dir / f"sw_industry_rps_{report_date}{suffix}.csv"
@@ -674,10 +675,10 @@ def build_html(
     parts.append('</div>')
 
     # ── 第三问 ──
-    parts.append('<div class="section"><h2>③ 我的主题获得哪些行业支撑？</h2>')
-    if confirmation_available and confirmation_df is not None and not confirmation_df.empty:
+    parts.append('<div class="section"><h2>③ 我的主题获得哪些支撑？</h2>')
+    if tier_df is not None or (confirmation_available and confirmation_df is not None):
         from . import confirmation_sections as _cs
-        parts.append(_cs.render_theme_table(confirmation_df, structure_df))
+        parts.append(_cs.render_theme_support(tier_df, confirmation_df, structure_df))
     else:
         parts.append("<p>主题确认尚未生成——运行 <code>confirm</code> 后可见主题支撑详情。</p>")
     parts.append('</div>')

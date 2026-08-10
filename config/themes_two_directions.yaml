@@ -48,6 +48,30 @@ buckets:
           - {code: "801084.SI", name: "光学光电子", relevance: related}
           - {code: "801078.SI", name: "自动化设备", relevance: related}
           - {code: "801085.SI", name: "消费电子", relevance: related}
+        # Tier-level confirmation（v0.9.1）：主题确认由申万行业 Gate 升级为 Tier basket Gate。
+        #   每个 Tier 是主题内的一篮子个股（成分股归属复用 stock_universe.yaml ai_infrastructure tiers，
+        #   不重复维护股票清单）；universe_tiers 列出该 Tier 对应的 universe tier key。
+        #   Tier 自算：Tier Strength（加权复合分）/ 上涨比例 / Trend Score 中位数 /
+        #   强趋势股票数量 / 龙头贡献度。申万行业保留为 Evidence，不再是确认 Gate。
+        tiers:
+          optical:
+            label: "光模块 / 光连接"
+            universe_tiers: ["optical_interconnect"]
+          server_network:
+            label: "服务器与网络"
+            universe_tiers: ["server_network"]
+          pcb_core:
+            label: "PCB / 核心器件"
+            universe_tiers: ["semiconductor_components"]
+          high_speed_interconnect:
+            label: "高速互连 / 铜缆"
+            universe_tiers: ["high_speed_interconnect"]
+          server_power:
+            label: "服务器电源"
+            universe_tiers: ["server_power"]
+          thermal:
+            label: "液冷 / 散热"
+            universe_tiers: ["liquid_cooling"]
         etf_keywords:
           - "人工智能"
           - "ai"
@@ -65,6 +89,45 @@ buckets:
           - "存储"
           - "光模块"
 
+      china_auto_global:
+        label: "中国汽车全球化"
+        signal_model: equity_theme
+        maturity: LIVE
+        objective: "中国汽车产业链全球化（整车/电池/电动化零部件/激光雷达/供应链）"
+        industries:
+          - {code: "801095.SI", name: "乘用车", relevance: core}
+          - {code: "801096.SI", name: "商用车", relevance: core}
+          - {code: "801093.SI", name: "汽车零部件", relevance: core}
+          - {code: "801737.SI", name: "电池", relevance: related}
+          - {code: "801084.SI", name: "光学光电子", relevance: related}
+        # Tier-level confirmation（v0.9.1）：汽车主题同 AI，走 Theme → Tier basket → 个股趋势
+        #   每个 Tier 是主题内的一篮子个股（成分股归属复用 stock_universe.yaml 对应 tiers，
+        #   不重复维护股票清单）；申万行业保留为 Evidence，不再是确认 Gate。
+        tiers:
+          oem_global:
+            label: "整车全球化"
+            universe_tiers: ["oem_global"]
+          battery_global:
+            label: "电池全球化"
+            universe_tiers: ["battery_global"]
+          global_ev_components:
+            label: "电动化核心零部件"
+            universe_tiers: ["global_ev_components"]
+          global_auto_components:
+            label: "全球汽车供应链"
+            universe_tiers: ["global_auto_components"]
+          adas_lidar:
+            label: "ADAS 车载激光雷达"
+            universe_tiers: ["adas_lidar"]
+        etf_keywords:
+          - "汽车"
+          - "新能源车"
+          - "智能驾驶"
+          - "自动驾驶"
+          - "汽车零部件"
+          - "电池"
+          - "锂电"
+
   quality:
     label: "质量"
     objective: "高现金流防守"
@@ -81,6 +144,25 @@ buckets:
           - {code: "801179.SI", name: "铁路公路", relevance: core}
           - {code: "801992.SI", name: "航运港口", relevance: core}
           - {code: "801163.SI", name: "燃气Ⅱ", relevance: related}
+        # Tier-level confirmation（v0.9.1）：高现金流同 AI，走 Theme → Tier basket → 个股趋势
+        #   每个 Tier 是主题内的一篮子个股（成分股归属复用 stock_universe.yaml 对应 tiers，
+        #   不重复维护股票清单）；申万行业保留为 Evidence，不再是确认 Gate。
+        tiers:
+          hydro_nuclear:
+            label: "水电 / 核电"
+            universe_tiers: ["hydro_nuclear"]
+          telecom_operator:
+            label: "运营商"
+            universe_tiers: ["telecom_operator"]
+          toll_road:
+            label: "收费公路"
+            universe_tiers: ["toll_road"]
+          port_operator:
+            label: "港口"
+            universe_tiers: ["port_operator"]
+          cyclical_power_watch:
+            label: "周期电力观察"
+            universe_tiers: ["cyclical_power_watch"]
         etf_keywords:
           - "电力"
           - "绿电"

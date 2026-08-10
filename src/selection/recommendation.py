@@ -147,6 +147,7 @@ def _why_block(theme_obj: dict[str, Any]) -> dict[str, Any]:
     why: dict[str, Any] = {
         "confirmed": theme_obj.get("confirmed", False),
         "n_observe": m.get("n_observe", 0),
+        "n_watch": m.get("n_watch", 0),
         "n_total": m.get("n_total", 0),
         "n_strong": m.get("n_strong", 0),
         "observing_industries": theme_obj.get("observing_industries", []),
@@ -157,6 +158,7 @@ def _why_block(theme_obj: dict[str, Any]) -> dict[str, Any]:
         "strongest_industry_rps15": m.get("strongest_industry_rps15"),
         "etf_median_rps15": m.get("etf_median_rps15"),
         "confirm_evidence": theme_obj.get("confirm_evidence", {}),
+        "confirmation_reason": theme_obj.get("confirmation_reason", ""),
     }
     if not theme_obj.get("confirmed", False):
         # 未确认：给出「还差多少」的距离口径（行业真实确认门 vs ETF 自身强势门槛分开）

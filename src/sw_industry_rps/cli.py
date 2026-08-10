@@ -903,6 +903,12 @@ def cmd_report(args: argparse.Namespace) -> None:
     if _conf_path.exists():
         confirmation_df = pd.read_parquet(_conf_path)
         confirmation_available = not confirmation_df.empty
+    tier_df = pd.DataFrame()
+    try:
+        from . import tier_confirmation as tc
+        tier_df = tc.load_tier_confirmation(date_str, processed_dir)
+    except Exception as e:
+        logger.warning("tier confirmation load failed: %s", e)
 
     csv_path, html_path = report.build_html(
         snapshot=snapshot, metrics=report_metrics,
@@ -914,6 +920,7 @@ def cmd_report(args: argparse.Namespace) -> None:
         structure_df=structure_df,
         confirmation_df=confirmation_df,
         confirmation_available=confirmation_available,
+        tier_df=tier_df,
     )
 
     # Verify HTML was produced
@@ -1305,6 +1312,37 @@ def cmd_confirm(args: argparse.Namespace) -> None:
     out_path = processed_dir / f"confirmation_{date_str}.parquet"
     final_df.to_parquet(out_path, index=False)
     logger.info("confirmation detail saved: %d industries -> %s", len(final_df), out_path)
+
+    # 4. Tier-level confirmation（v0.9.1）：配置了 tiers 的主题由申万行业 Gate 升级为 Tier basket Gate
+    #    Tier 确认消费个股趋势产物（stock_metrics_{trade_date}.parquet，run-day 中由
+    #    stock-metrics 提前构建）；缺个股数据 → Tier 全部 unavailable（不阻塞报告发布）。
+    from src.trend_engine import inputs as trend_inputs
+    stock_metrics = trend_inputs.load_stock_metrics(date_str)
+    if stock_metrics.empty:
+        # 兜底：尝试最近一份 stock_metrics（可能滞后，标注 data_status=stale）
+        latest_md = trend_inputs.latest_stock_metrics_trade_date()
+        if latest_md:
+            stock_metrics = trend_inputs.load_stock_metrics(latest_md)
+            tier_data_status = "stale"
+            logger.info("tier confirmation uses latest stock_metrics %s (stale)", latest_md)
+        else:
+            tier_data_status = "unavailable"
+            logger.warning("no stock_metrics for %s — tier confirmation will be unavailable", date_str)
+    else:
+        tier_data_status = data_status
+
+    tc_build = None
+    try:
+        from . import tier_confirmation as tc
+        tc_build = tc.build_tier_confirmation_parquet(
+            trade_date=date_str,
+            stock_metrics=stock_metrics,
+            data_status=tier_data_status,
+            source="stock_metrics" if not stock_metrics.empty else "missing",
+        )
+        logger.info("tier confirmation published: %s", tc_build)
+    except Exception as e:
+        logger.warning("tier confirmation failed (non-blocking): %s", e)
 
     # 注：独立 confirmation HTML 已并入主报告第三问（report 消费本 parquet）。
     # 此处只落盘事实 parquet，不再单独生成 confirmation 页面。

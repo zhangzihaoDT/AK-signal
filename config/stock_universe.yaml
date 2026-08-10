@@ -1,4 +1,4 @@
-# AKsignal Layer ③ — 两方向分层资产池（v0.4.3）
+# AKsignal Layer ③ — 分层资产池（v0.4.3 / v0.9.1 重构）
 #
 # 结构：theme（市场方向） → tier（标的层级） → assets
 #
@@ -6,21 +6,29 @@
 # 本文件不重复维护 bucket，只维护每个主题的固定资产池。
 #  theme 不在 themes_two_directions.yaml → bucket 为空，仅作展示，不参与确认门控。
 #
-# 当前范围（两方向）：
-#   方向一  AI 基础设施（长期增长）
-#   方向二  高现金流资产（电力 / 三大运营商 / 公用事业，稳定现金流资产）
+# 当前主题池：
+#   ai_infrastructure   AI 基础设施（长期增长，Tier basket 确认）
+#   high_cashflow       高现金流资产（水电/核电 · 运营商 · 收费公路 · 港口 + 周期电力观察）
+#   china_auto_global   中国汽车全球化（观察主题：整车/电池/电动化零部件/全球供应链）
 #
 # tier 层级语义：
 #   theme_etf           主题 ETF（对应 theme 的首要表达）
 #   sub_industry_etf    细分行业 ETF
-#   computing_chip      算力芯片（中芯/海光/寒武纪）
-#   optical_interconnect 光模块（中际旭创/新易盛/天孚通信）
-#   server_network      服务器与网络（工业富联/中兴通讯）
-#   semiconductor_equipment 半导体设备（北方华创/中微/拓荆）
-#   semiconductor_components 核心器件（澜起/韦尔/沪电）
-#   leader              行业龙头
-#   high_beta           高弹性标的
-#   equipment_upstream  设备与上游
+#   optical_interconnect 光模块/光连接（中际旭创/新易盛/天孚通信…）
+#   server_network      服务器与网络（工业富联）
+#   semiconductor_components PCB/核心器件（沪电/胜宏/生益…）
+#   high_speed_interconnect 高速互连/铜缆（立讯/沃尔核材/兆龙/鼎通）
+#   server_power        服务器电源（麦格米特/欧陆通）
+#   liquid_cooling      液冷/散热（英维克）
+#   oem_global          整车全球化（比亚迪/上汽/长城）
+#   battery_global      电池全球化（宁德/亿纬）
+#   global_ev_components 电动化核心零部件（三花/拓普/科达利/伯特利）
+#   global_auto_components 全球汽车供应链（福耀/科博达/均胜）
+#   hydro_nuclear       水电/核电（长江电力/华能水电/国投电力/中国核电/中国广核）
+#   telecom_operator    运营商（中国移动/中国电信/中国联通）
+#   toll_road           收费公路（宁沪高速/粤高速A/招商公路）
+#   port_operator       港口（上港集团/招商港口/青岛港）
+#   cyclical_power_watch 周期电力观察（华能国际，火电周期，不占核心）
 #
 # sw_industry: 关联的申万二级行业代码（用于注入 Layer ② 行业确认信号）
 #   属于该主题 industries → 注入 strength_level / 驱动分类
@@ -43,35 +51,44 @@ themes:
           - {symbol: "512760", name: "芯片ETF国泰", market: CN, sw_industry: "801081.SI", note: "芯片"}
           - {symbol: "515050", name: "通信ETF华夏", market: CN, sw_industry: "801102.SI", note: "通信"}
           - {symbol: "516510", name: "云计算ETF易方达", market: CN, sw_industry: "801101.SI", note: "云计算"}
-      - key: computing_chip
-        label: "算力芯片"
-        assets:
-          - {symbol: "688981", name: "中芯国际", market: CN, sw_industry: "801081.SI", note: "晶圆代工"}
-          - {symbol: "688041", name: "海光信息", market: CN, sw_industry: "801081.SI", note: "CPU/DCU"}
-          - {symbol: "688256", name: "寒武纪", market: CN, sw_industry: "801081.SI", note: "AI GPU"}
       - key: optical_interconnect
-        label: "光模块"
+        label: "光模块 / 光连接"
         assets:
           - {symbol: "300308", name: "中际旭创", market: CN, sw_industry: "801102.SI", note: "800G 光模块"}
           - {symbol: "300502", name: "新易盛", market: CN, sw_industry: "801102.SI", note: "高速光模块"}
-          - {symbol: "300394", name: "天孚通信", market: CN, sw_industry: "801102.SI", note: "光器件"}
+          - {symbol: "300394", name: "天孚通信", market: CN, sw_industry: "801102.SI", note: "光器件 / 光引擎"}
+          - {symbol: "603083", name: "剑桥科技", market: CN, sw_industry: "801102.SI", note: "数据中心光通信"}
+          - {symbol: "300548", name: "长芯博创", market: CN, sw_industry: "801102.SI", note: "光模块 / 光器件"}
+          - {symbol: "300570", name: "太辰光", market: CN, sw_industry: "801102.SI", note: "光连接 / 光纤连接"}
       - key: server_network
         label: "服务器与网络"
         assets:
-          - {symbol: "601138", name: "工业富联", market: CN, sw_industry: "801102.SI", note: "AI服务器"}
-          - {symbol: "000063", name: "中兴通讯", market: CN, sw_industry: "801102.SI", note: "通信设备"}
-      - key: semiconductor_equipment
-        label: "半导体设备"
-        assets:
-          - {symbol: "002371", name: "北方华创", market: CN, sw_industry: "801081.SI", note: "半导体设备"}
-          - {symbol: "688012", name: "中微公司", market: CN, sw_industry: "801081.SI", note: "刻蚀设备"}
-          - {symbol: "688072", name: "拓荆科技", market: CN, sw_industry: "801081.SI", note: "薄膜沉积"}
+          - {symbol: "601138", name: "工业富联", market: CN, sw_industry: "801102.SI", note: "AI服务器代工 / 交换机"}
       - key: semiconductor_components
-        label: "核心器件"
+        label: "PCB / 核心器件"
         assets:
-          - {symbol: "688008", name: "澜起科技", market: CN, sw_industry: "801081.SI", note: "内存接口"}
-          - {symbol: "603501", name: "韦尔股份", market: CN, sw_industry: "801081.SI", note: "CIS"}
-          - {symbol: "002463", name: "沪电股份", market: CN, sw_industry: "801102.SI", note: "高速PCB"}
+          - {symbol: "002463", name: "沪电股份", market: CN, sw_industry: "801102.SI", note: "AI服务器 / 高速交换机PCB"}
+          - {symbol: "300476", name: "胜宏科技", market: CN, sw_industry: "801083.SI", note: "AI服务器 / GPU 高阶PCB"}
+          - {symbol: "600183", name: "生益科技", market: CN, sw_industry: "801083.SI", note: "高速 CCL 覆铜板"}
+          - {symbol: "603228", name: "景旺电子", market: CN, sw_industry: "801083.SI", note: "AI服务器高阶PCB"}
+          - {symbol: "002916", name: "深南电路", market: CN, sw_industry: "801083.SI", note: "服务器 / 交换机PCB"}
+          - {symbol: "688008", name: "澜起科技", market: CN, sw_industry: "801081.SI", note: "内存接口 / 内存子系统"}
+      - key: high_speed_interconnect
+        label: "高速互连 / 铜缆"
+        assets:
+          - {symbol: "002475", name: "立讯精密", market: CN, sw_industry: "801085.SI", note: "高速铜互连"}
+          - {symbol: "002130", name: "沃尔核材", market: CN, sw_industry: "801082.SI", note: "高速铜缆 / DAC"}
+          - {symbol: "300913", name: "兆龙互连", market: CN, sw_industry: "801102.SI", note: "数据中心高速互连"}
+          - {symbol: "688668", name: "鼎通科技", market: CN, sw_industry: "801102.SI", note: "高速连接器"}
+      - key: server_power
+        label: "服务器电源"
+        assets:
+          - {symbol: "002851", name: "麦格米特", market: CN, sw_industry: "801733.SI", note: "AI Server PSU"}
+          - {symbol: "300870", name: "欧陆通", market: CN, sw_industry: "801733.SI", note: "高功率服务器电源"}
+      - key: liquid_cooling
+        label: "液冷 / 散热"
+        assets:
+          - {symbol: "002837", name: "英维克", market: CN, sw_industry: "801072.SI", note: "AI 数据中心液冷"}
 
   high_cashflow:
     label: "高现金流资产"
@@ -85,17 +102,67 @@ themes:
           - {symbol: "563010", name: "电信ETF易方达", market: CN, sw_industry: "801223.SI", note: "电信"}
           - {symbol: "159301", name: "公用事业ETF华夏", market: CN, sw_industry: "801179.SI", note: "公用事业"}
           - {symbol: "159666", name: "交通运输ETF华夏", market: CN, sw_industry: "801179.SI", note: "交运"}
-      - key: leader
-        label: "行业龙头"
+      - key: hydro_nuclear
+        label: "水电 / 核电"
         assets:
           - {symbol: "600900", name: "长江电力", market: CN, sw_industry: "801161.SI", note: "水电龙头"}
+          - {symbol: "600025", name: "华能水电", market: CN, sw_industry: "801161.SI", note: "水电"}
+          - {symbol: "600886", name: "国投电力", market: CN, sw_industry: "801161.SI", note: "水电/火电/核电"}
           - {symbol: "601985", name: "中国核电", market: CN, sw_industry: "801161.SI", note: "核电运营"}
           - {symbol: "003816", name: "中国广核", market: CN, sw_industry: "801161.SI", note: "核电运营"}
-          - {symbol: "600011", name: "华能国际", market: CN, sw_industry: "801161.SI", note: "火电龙头"}
+      - key: telecom_operator
+        label: "运营商"
+        assets:
           - {symbol: "600941", name: "中国移动", market: CN, sw_industry: "801223.SI", note: "运营商龙头"}
           - {symbol: "601728", name: "中国电信", market: CN, sw_industry: "801223.SI", note: "运营商"}
           - {symbol: "600050", name: "中国联通", market: CN, sw_industry: "801223.SI", note: "运营商"}
+      - key: toll_road
+        label: "收费公路"
+        assets:
           - {symbol: "600377", name: "宁沪高速", market: CN, sw_industry: "801179.SI", note: "高速公路"}
           - {symbol: "000429", name: "粤高速A", market: CN, sw_industry: "801179.SI", note: "高速公路"}
+          - {symbol: "001965", name: "招商公路", market: CN, sw_industry: "801179.SI", note: "高速公路"}
+      - key: port_operator
+        label: "港口"
+        assets:
           - {symbol: "600018", name: "上港集团", market: CN, sw_industry: "801992.SI", note: "港口龙头"}
           - {symbol: "001872", name: "招商港口", market: CN, sw_industry: "801992.SI", note: "港口运营"}
+          - {symbol: "601298", name: "青岛港", market: CN, sw_industry: "801992.SI", note: "港口运营"}
+      - key: cyclical_power_watch
+        label: "周期电力观察"
+        assets:
+          - {symbol: "600011", name: "华能国际", market: CN, sw_industry: "801161.SI", note: "火电龙头（周期观察）"}
+
+  china_auto_global:
+    label: "中国汽车全球化"
+    tiers:
+      - key: oem_global
+        label: "整车全球化"
+        assets:
+          - {symbol: "002594", name: "比亚迪", market: CN, sw_industry: "801095.SI", note: "新能源整车全球化"}
+          - {symbol: "600104", name: "上汽集团", market: CN, sw_industry: "801095.SI", note: "整车出口"}
+          - {symbol: "601633", name: "长城汽车", market: CN, sw_industry: "801095.SI", note: "整车出口 / 海外产能"}
+      - key: battery_global
+        label: "电池全球化"
+        assets:
+          - {symbol: "300750", name: "宁德时代", market: CN, sw_industry: "801737.SI", note: "动力/储能电池 · 境外收入30%+"}
+          - {symbol: "300014", name: "亿纬锂能", market: CN, sw_industry: "801737.SI", note: "动力/储能电池 · 锂原电池出口国内第一"}
+      - key: global_ev_components
+        label: "电动化核心零部件"
+        assets:
+          - {symbol: "002050", name: "三花智控", market: CN, sw_industry: "801093.SI", note: "汽车热管理 · 制冷部件"}
+          - {symbol: "601689", name: "拓普集团", market: CN, sw_industry: "801093.SI", note: "汽车底盘/减震 · 海外配套"}
+          - {symbol: "002850", name: "科达利", market: CN, sw_industry: "801737.SI", note: "动力电池结构件 · 欧洲基地"}
+          - {symbol: "603596", name: "伯特利", market: CN, sw_industry: "801093.SI", note: "制动系统 · 轻量化"}
+      - key: global_auto_components
+        label: "全球汽车供应链"
+        assets:
+          - {symbol: "600660", name: "福耀玻璃", market: CN, sw_industry: "801712.SI", note: "汽车玻璃全球龙头"}
+          - {symbol: "603786", name: "科博达", market: CN, sw_industry: "801093.SI", note: "汽车电子 · 控制器"}
+          - {symbol: "600699", name: "均胜电子", market: CN, sw_industry: "801093.SI", note: "汽车安全/电子 · 海外占比高"}
+      - key: adas_lidar
+        label: "ADAS 车载激光雷达"
+        assets:
+          - {symbol: "02510", name: "禾赛", market: HK, note: "车载激光雷达"}
+          - {symbol: "2498", name: "速腾聚创", market: HK, note: "车载激光雷达"}
+          - {symbol: "603297", name: "永新光学", market: CN, sw_industry: "801084.SI", note: "车载激光雷达光学"}

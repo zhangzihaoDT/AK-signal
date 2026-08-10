@@ -117,6 +117,19 @@ TIER_ROLE_MAP = {
     "server_network": "LEADER",
     "semiconductor_equipment": "UPSTREAM",
     "semiconductor_components": "LEADER",
+    "liquid_cooling": "UPSTREAM",
+    "high_speed_interconnect": "LEADER",
+    "server_power": "UPSTREAM",
+    "oem_global": "LEADER",
+    "battery_global": "LEADER",
+    "global_ev_components": "LEADER",
+    "global_auto_components": "LEADER",
+    "adas_lidar": "LEADER",
+    "hydro_nuclear": "LEADER",
+    "telecom_operator": "LEADER",
+    "toll_road": "LEADER",
+    "port_operator": "LEADER",
+    "cyclical_power_watch": "WATCH",
 }
 
 
@@ -207,19 +220,22 @@ def classify_confirmation_breadth(
 ) -> tuple[str, str]:
     """确认广度分类：区分「多数子行业共同走强」与「少数子行业拉动」。
 
+    v0.9.2 Theme 层 taxonomy：状态只用 BROAD_CONFIRMED / NARROW_CONFIRMED /
+    UNCONFIRMED（无 WATCH）；「接近观察门」作为 Evidence 描述进入 label，
+    不再作为独立状态。
+
     Returns:
         (state, label)
         BROAD_CONFIRMED  多数焦点行业进入观察区（≥ broad_fraction）
         NARROW_CONFIRMED 已确认但仅少数行业拉动（窄幅确认）
-        WATCH            未确认但最强行业接近门槛
-        UNCONFIRMED      无支撑
+        UNCONFIRMED      无支撑（最强行业接近门槛时 label 标注「接近观察门」）
     """
     if confirmed:
         broad = n_total > 0 and n_observe >= max(1, int(round(n_total * broad_fraction)))
         return ("BROAD_CONFIRMED", "广泛确认") if broad else ("NARROW_CONFIRMED", "窄幅确认")
     if max_rps15 is not None and max_rps15 >= watch_proximity:
-        return ("WATCH", "接近确认")
-    return ("UNCONFIRMED", "无支撑")
+        return ("UNCONFIRMED", "未确认 · 接近观察门")
+    return ("UNCONFIRMED", "未确认")
 
 
 def _confirm_evidence(sub: pd.DataFrame, confirmed: bool) -> dict[str, Any]:
@@ -239,8 +255,14 @@ def _confirm_evidence(sub: pd.DataFrame, confirmed: bool) -> dict[str, Any]:
 def evaluate_themes(
     confirmation_df: pd.DataFrame,
     rotation_df: pd.DataFrame,
+    tier_confirmation_df: pd.DataFrame | None = None,
 ) -> dict[str, dict[str, Any]]:
     """按 theme 聚合 Layer② confirmation，判定每个主题是否确认。
+
+    v0.9.1：配置了 tiers 的主题（AI / 中国汽车全球化 / 高现金流）确认 Gate 统一升级为
+    Tier basket —— 消费 tier_confirmation parquet 的 Tier 确认状态；申万行业降级为
+    Evidence（仍展示，不再单独决定主题 confirmed）。未配置 tiers 的主题（如未来新主题）
+    维持原行业 Gate（向后兼容）。
 
     Returns:
         {theme_key: {label, bucket, bucket_label, confirmed, n_strong, n_observe,
@@ -249,6 +271,15 @@ def evaluate_themes(
     """
     buckets = themes_cfg.load_buckets()
     themes = {th.key: th for b in buckets for th in b.themes}
+    # tier 确认索引：theme_key → 聚合结果
+    tier_index: dict[str, dict[str, Any]] = {}
+    if tier_confirmation_df is not None and not tier_confirmation_df.empty and "theme" in tier_confirmation_df.columns:
+        from src.sw_industry_rps import tier_confirmation as _tc
+        for theme_key in {str(t) for t in tier_confirmation_df["theme"].dropna().unique()}:
+            sub = tier_confirmation_df[tier_confirmation_df["theme"] == theme_key]
+            if not sub.empty:
+                tier_index[theme_key] = _tc.theme_confirmation_from_tiers(sub.to_dict("records"))
+
     out: dict[str, dict[str, Any]] = {}
     for key, th in themes.items():
         sub = confirmation_df[confirmation_df["industry_code"].isin(th.industry_codes())] \
@@ -259,7 +290,46 @@ def evaluate_themes(
             "bucket_label": next(b.label for b in buckets if key in [t.key for t in b.themes]),
             "industries": th.industry_codes(),
         }
-        if sub.empty:
+        # ── Tier Gate（v0.9.0/v0.9.1）：主题配置了 tiers 且 tier 确认可用 → 用 Tier 判定 confirmed ──
+        tier_gate_used = False
+        tier_meta: dict[str, Any] = {}
+        if th.tiers and key in tier_index:
+            tm = tier_index[key]
+            tier_meta = tm
+            tier_gate_used = True
+            confirmed = bool(tm.get("confirmed", False))
+            n_observe = int(tm.get("n_observe_tiers", 0))
+            n_watch = int(tm.get("n_watch_tiers", 0) or 0)
+            n_strong = int(tm.get("n_strong_tiers", 0))
+            n_total = int(tm.get("n_tiers", 0))
+            max_rps = None
+            evidence = {"industry": "", "rps15": None}
+            breadth_state = str(tm.get("confirmation_state", "UNCONFIRMED"))
+            breadth_label = {"BROAD_CONFIRMED": "广泛确认", "CONFIRMED": "确认",
+                             "NARROW_CONFIRMED": "窄幅确认",
+                             "UNCONFIRMED": "未确认", "UNAVAILABLE": "数据不可用"}.get(
+                                 breadth_state, breadth_state)
+            reason = f"{tm.get('reason', '')}（Tier Gate）"
+            observing_industries: list[dict[str, Any]] = []
+            entry.update({
+                "confirmed": confirmed,
+                "n_strong": n_strong,
+                "n_observe": n_observe,
+                "n_watch": n_watch,
+                "n_total": n_total,
+                "median_rps15": tm.get("tier_strength_median"),
+                "strongest_industry_rps15": max_rps,
+                "median_participation": None,
+                "median_hhi": None,
+                "median_top3_share": None,
+                "confirmation_state": breadth_state,
+                "confirmation_breadth": breadth_label,
+                "confirm_evidence": evidence,
+                "observing_industries": observing_industries,
+                "reason": reason,
+                "tier_gate": tier_meta,
+            })
+        elif sub.empty:
             entry.update({"confirmed": False, "n_strong": 0, "n_observe": 0, "n_total": 0,
                           "median_rps15": None, "reason": "无确认数据"})
         else:
@@ -875,12 +945,15 @@ def build_candidates(
     confirmation_df: pd.DataFrame,
     universe_items: list[Any],
     trend_df: pd.DataFrame,
+    tier_confirmation_df: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """构建 Layer ③ 候选资产对象（结构化 dict，可直接落 JSON）。
 
     v0.4.3 输出结构：buckets[].themes[]，每个 theme 含 ETF 候选 / 个股观察池 / 表达决策。
+    v0.9.1：配置了 tiers 的主题（AI / 汽车 / 高现金流）确认 Gate 升级为 Tier basket
+    （消费 tier_confirmation parquet）。
     """
-    theme_metas = evaluate_themes(confirmation_df, rotation_df)
+    theme_metas = evaluate_themes(confirmation_df, rotation_df, tier_confirmation_df)
     direction = evaluate_direction(theme_metas)
     buckets_cfg = themes_cfg.load_buckets()
 
@@ -961,10 +1034,11 @@ def build_candidates(
                 "confirmation_breadth": meta.get("confirmation_breadth", ""),
                 "confirm_evidence": meta.get("confirm_evidence", {}),
                 "observing_industries": meta.get("observing_industries", []),
+                "tier_gate": meta.get("tier_gate", {}),
                 "metrics": {k: _fmt_metric(k, v) for k, v in meta.items()
                             if k not in ("label", "bucket", "bucket_label", "industries", "confirmed", "reason",
                                          "confirmation_state", "confirmation_breadth", "confirm_evidence",
-                                         "observing_industries")},
+                                         "observing_industries", "tier_gate")},
                 "expression": expr["expression"],
                 "expression_label": expr["expression_label"],
                 "expression_reason": expr["expression_reason"],

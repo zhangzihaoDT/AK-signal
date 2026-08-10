@@ -10,7 +10,7 @@ Replay Engine — 单日期历史信号重放（v0.5.0 核心）。
 设计约束（S0）：
   - 输入显式（trade_date 由调用方给定，不做「最新日期」推断）
   - 严格 as-of：行情截断到 trade_date，避免 look-ahead
-  - 不写 daily pipeline 的正式产物（个股趋势内存计算，不覆盖 selection_inputs）
+  - 不写 daily pipeline 的正式产物（个股趋势内存计算，不覆盖 stock_metrics）
   - 每条记录带 rule_version / config_hash / signal_origin=replayed
 """
 

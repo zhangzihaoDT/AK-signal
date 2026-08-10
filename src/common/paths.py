@@ -99,9 +99,9 @@ def etf_signal_output_dir() -> Path:
     return outputs_dir() / "etf_signal"
 
 
-def selection_inputs_dir() -> Path:
-    """Layer③ 离线输入产物（预计算的个股趋势指标 parquet）。"""
-    return outputs_dir() / "selection_inputs"
+def stock_metrics_dir() -> Path:
+    """个股趋势指标 Observation 产物（Layer② Tier 确认 / Layer③ Selection 共同消费）。"""
+    return outputs_dir() / "stock_metrics"
 
 
 def docs_dir() -> Path:

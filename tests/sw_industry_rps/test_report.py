@@ -136,7 +136,7 @@ def test_build_html_creates_files(sample_snapshot, tmp_reports_dir):
     assert "种植业" in html_content
     assert "① 行业轮动往哪里动" in html_content
     assert "② 哪些行业值得关注" in html_content
-    assert "③ 我的主题获得哪些行业支撑" in html_content
+    assert "③ 我的主题获得哪些支撑" in html_content
 
 
 def test_build_csv(sample_snapshot):

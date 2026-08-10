@@ -1,13 +1,15 @@
 """v0.4.3 两方向 — Layer ② 行业确认按 bucket/theme 分层"""
 from __future__ import annotations
 
+from typing import cast
+
 import pandas as pd
 import pytest
 
 from src.sw_industry_rps import confirmation
 
 
-def _focus_df():
+def _focus_df() -> pd.DataFrame:
     return pd.DataFrame([
         # core / ai_infrastructure
         {"industry_code": "801081.SI", "industry_name": "半导体", "relevance": "core",
@@ -36,7 +38,7 @@ class TestMultiThemeConfirmation:
         codes = {f["code"] for f in confirmation.FOCUS_INDUSTRIES}
         assert {"801081.SI", "801161.SI", "801223.SI", "801179.SI"} <= codes
         themes = {f["theme"] for f in confirmation.FOCUS_INDUSTRIES}
-        assert themes == {"ai_infrastructure", "high_cashflow"}
+        assert {"ai_infrastructure", "high_cashflow", "china_auto_global"} <= themes
 
     def test_focus_snapshot_adds_bucket_columns(self, monkeypatch):
         fd = _focus_df()
@@ -64,7 +66,7 @@ class TestMultiThemeConfirmation:
     def test_classify_divergence_per_theme(self):
         fd = _focus_df()
         for theme_key in ("ai_infrastructure", "high_cashflow"):
-            tdf = fd[fd["theme"] == theme_key]
+            tdf = cast(pd.DataFrame, fd[fd["theme"] == theme_key])
             d = confirmation.classify_divergence(tdf, 50.0)
             assert d["status"] in ("行业支持", "中性", "行业背离", "无数据")
 
@@ -103,7 +105,7 @@ class TestRotationState:
         fd = _focus_df()
         out = confirmation.add_rotation_state_column(fd)
         assert "rotation_state" in out.columns
-        assert out["rotation_state"].notna().all()
+        assert bool(out["rotation_state"].notna().all())
 
     def test_theme_heat_aggregation(self):
         fd = confirmation.add_rotation_state_column(_focus_df())

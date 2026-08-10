@@ -97,6 +97,11 @@ def validate_indicators(cfg: dict[str, Any]) -> None:
     _num_in_range(conf.get("observe_threshold"), 0, 100, "confirmation.observe_threshold")
     _num_in_range(conf.get("broad_fraction"), 0, 1, "confirmation.broad_fraction")
     _num_in_range(conf.get("watch_proximity"), 0, 100, "confirmation.watch_proximity")
+    tc = _require(cfg, "tier_confirmation", "must define tier_confirmation thresholds")
+    _num_in_range(tc.get("tier_gate_strong"), 0, 100, "tier_confirmation.tier_gate_strong")
+    _num_in_range(tc.get("tier_gate_observe"), 0, 100, "tier_confirmation.tier_gate_observe")
+    _num_in_range(tc.get("broad_fraction"), 0, 1, "tier_confirmation.broad_fraction")
+    _num_in_range(tc.get("strong_trend_min"), 0, 100, "tier_confirmation.strong_trend_min")
 
 
 def validate_etf_selection(cfg: dict[str, Any]) -> None:

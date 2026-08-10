@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-RULE_VERSION = "v0.7.0"
+RULE_VERSION = "v0.8.0"
 
 
 @dataclass(frozen=True)
@@ -35,6 +35,10 @@ class IndicatorSpec:
     confirmation_neutral_threshold: float
     confirmation_broad_fraction: float
     confirmation_watch_proximity: float
+    tier_gate_strong: float
+    tier_gate_observe: float
+    tier_broad_fraction: float
+    tier_strong_trend_min: float
 
     @property
     def rps_windows(self) -> tuple[int, int, int]:

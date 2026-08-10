@@ -51,7 +51,7 @@ class TestBuildStockMetrics:
 
     def test_build_offline_normalizes_and_persists(self, monkeypatch, tmp_path):
         monkeypatch.setattr(inputs, "compute_trends", lambda *a, **k: self._fake_trend_df())
-        monkeypatch.setattr(inputs, "selection_inputs_dir", lambda: tmp_path)
+        monkeypatch.setattr(inputs, "stock_metrics_dir", lambda: tmp_path)
         items = [_item("000001", "leader"), _item("600000", "leader"),
                  _item("600001", "leader"), _item("512480", "theme_etf")]
 
@@ -98,7 +98,7 @@ class TestBuildStockMetrics:
 
     def test_etf_only_universe_yields_empty(self, monkeypatch, tmp_path):
         monkeypatch.setattr(inputs, "compute_trends", lambda *a, **k: pd.DataFrame())
-        monkeypatch.setattr(inputs, "selection_inputs_dir", lambda: tmp_path)
+        monkeypatch.setattr(inputs, "stock_metrics_dir", lambda: tmp_path)
         df = inputs.build_stock_metrics([_item("512480", "theme_etf")],
                                         trade_date="20260803", offline=True)
         assert df.empty
@@ -106,7 +106,7 @@ class TestBuildStockMetrics:
 
 class TestLoadHelpers:
     def test_latest_and_load(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(inputs, "selection_inputs_dir", lambda: tmp_path)
+        monkeypatch.setattr(inputs, "stock_metrics_dir", lambda: tmp_path)
         (tmp_path / "stock_metrics_20260731.parquet").write_bytes(b"x")
         (tmp_path / "stock_metrics_20260803.parquet").write_bytes(b"x")
         assert inputs.latest_stock_metrics_trade_date() == "20260803"

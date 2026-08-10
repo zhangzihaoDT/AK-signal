@@ -30,8 +30,9 @@ from src.common.paths import outputs_dir
 from src.research.replay import engine as replay_engine
 from src.research.signals import schema as sch
 
-# 汇总主键（用于去重）
-PRIMARY_KEY = ["trade_date", "layer", "entity_type", "entity_code"]
+# 汇总主键（用于去重）：v0.9.1 起同一行业/资产可跨主题注册（如 801084.SI 属
+# china_auto_global 与 ai_infrastructure），theme 是实体的区分维度，须并入主键。
+PRIMARY_KEY = ["trade_date", "layer", "entity_type", "entity_code", "theme"]
 
 
 def build_logger(level: str = "INFO") -> logging.Logger:

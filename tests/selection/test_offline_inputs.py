@@ -42,13 +42,13 @@ class TestEnsureStockTrendDf:
 class TestLoadStockMetricsInput:
     def test_missing_input_returns_empty(self, monkeypatch, tmp_path):
         from src.trend_engine import inputs as trend_inputs
-        monkeypatch.setattr(trend_inputs, "selection_inputs_dir", lambda: tmp_path)
+        monkeypatch.setattr(trend_inputs, "stock_metrics_dir", lambda: tmp_path)
         df, td = _load_stock_metrics_input("20260803", use_exact=True, requested_td="20260803")
         assert df.empty and td is None
 
     def test_exact_mode_only_matching_date(self, monkeypatch, tmp_path):
         from src.trend_engine import inputs as trend_inputs
-        monkeypatch.setattr(trend_inputs, "selection_inputs_dir", lambda: tmp_path)
+        monkeypatch.setattr(trend_inputs, "stock_metrics_dir", lambda: tmp_path)
         path = tmp_path / "stock_metrics_20260731.parquet"
         pd.DataFrame([{"symbol": "000001"}]).to_parquet(path)
         df, td = _load_stock_metrics_input("20260803", use_exact=True, requested_td="20260803")

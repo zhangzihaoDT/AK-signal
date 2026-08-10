@@ -9,7 +9,8 @@ SRC_MAIN = src/main.py
 	etf-retry-uncovered \
 	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-confirm sw-rps-report \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown sw-rps-structure \
-	select select-inputs select-inputs-online select-offline \
+	select select-offline \
+	stock-metrics stock-metrics-online \
 	replay-single replay-parity replay-range event-study \
 	backtest-trades backtest-sensitivity backtest-matrix backtest-portfolio backtest-construction \
 	test install clean
@@ -31,9 +32,9 @@ run-day: ## 每日全流程：Observation 自动联网构建（ETF/行业/个股
 	$(MAKE) etf-calculate
 	$(MAKE) sw-rps-calculate
 	$(MAKE) etf-pipeline
-	$(MAKE) sw-rps-confirm     # 先落 confirmation parquet（第三问消费）
-	$(MAKE) sw-rps-report      # 再生成报告（消费 confirmation + structure）
-	$(MAKE) select-inputs-online   # Observation 构建：个股行情自动增量更新（不依赖手工补数）
+	$(MAKE) stock-metrics-online  # Observation 构建：个股行情先建（Tier 确认消费，不依赖手工补数）
+	$(MAKE) sw-rps-confirm     # 落 confirmation + tier_confirmation parquet（第三问消费）
+	$(MAKE) sw-rps-report      # 再生成报告（消费 confirmation + tier + structure）
 	$(MAKE) select                 # Decision 消费：离线、确定性
 	$(MAKE) run-day-check
 
@@ -43,9 +44,9 @@ run-day-offline: ## 离线重放/CI：只读已落盘 Observation，不联网抓
 	$(MAKE) etf-calculate
 	$(MAKE) sw-rps-calculate
 	$(MAKE) etf-pipeline
-	$(MAKE) sw-rps-confirm     # 先落 confirmation parquet（第三问消费）
-	$(MAKE) sw-rps-report      # 再生成报告（消费 confirmation + structure）
-	$(MAKE) select-inputs          # 离线：仅用缓存，缺失/过期由 stale 降级兜底
+	$(MAKE) stock-metrics          # 离线：仅用缓存，缺失/过期由 stale 降级兜底
+	$(MAKE) sw-rps-confirm     # 落 confirmation + tier_confirmation parquet（第三问消费）
+	$(MAKE) sw-rps-report      # 再生成报告（消费 confirmation + tier + structure）
 	$(MAKE) select
 	$(MAKE) run-day-check
 
@@ -127,13 +128,13 @@ sw-rps-confirm: ## [Layer ②] 主题确认（Theme Confirmation：行业证据�
 sw-rps-structure: ## [Layer ②] Enrichment 行业内部结构（offline 读缓存生成，soft-fail；--allow-online-fetch 做 Cache Refresh）
 	$(PYTHON) $(SRC_MAIN) industry structure
 
-# ── Layer ③ 交易标的筛选（selection 内部调用 trend_engine） ──────
+# ── Layer ②/③ 个股趋势指标（Observation 层：Market Observation → Stock / Tier） ──
 
-select-inputs: ## 构建个股趋势输入产物（离线读缓存，确定性；--allow-online-fetch 可手工补数）
-	$(PYTHON) $(SRC_MAIN) select inputs
+stock-metrics: ## 构建个股趋势指标产物（Observation 层，离线读缓存确定性；--allow-online-fetch 可手工补数）
+	$(PYTHON) $(SRC_MAIN) select stock-metrics
 
-select-inputs-online: ## 个股行情在线补数（手工刷新 raw 缓存；run-day 离线不抓个股）
-	$(PYTHON) $(SRC_MAIN) select inputs --allow-online-fetch
+stock-metrics-online: ## 个股行情在线补数（手工刷新 raw 缓存；run-day 离线不抓个股）
+	$(PYTHON) $(SRC_MAIN) select stock-metrics --allow-online-fetch
 
 select: ## Layer ③ 交易标的筛选（读 Layer①/② + 预计算个股趋势 → 候选对象 JSON + HTML；run-day 默认流程亦含，默认禁止联网）
 	$(PYTHON) $(SRC_MAIN) select run

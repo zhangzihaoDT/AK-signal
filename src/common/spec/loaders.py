@@ -41,6 +41,7 @@ def load_indicator_spec() -> IndicatorSpec:
     gates, conf = cfg["signal_gates"], cfg["confirmation"]
     dq = cfg.get("data_quality", {})
     etf = gates["etf"]
+    tc = cfg.get("tier_confirmation", {})
     return IndicatorSpec(
         rps_short_window=int(rps["short_window"]),
         rps_medium_window=int(rps["medium_window"]),
@@ -57,6 +58,10 @@ def load_indicator_spec() -> IndicatorSpec:
         confirmation_neutral_threshold=float(conf["neutral_threshold"]),
         confirmation_broad_fraction=float(conf["broad_fraction"]),
         confirmation_watch_proximity=float(conf["watch_proximity"]),
+        tier_gate_strong=float(tc["tier_gate_strong"]),
+        tier_gate_observe=float(tc["tier_gate_observe"]),
+        tier_broad_fraction=float(tc["broad_fraction"]),
+        tier_strong_trend_min=float(tc["strong_trend_min"]),
     )
 
 

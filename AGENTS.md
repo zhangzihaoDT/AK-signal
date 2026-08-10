@@ -39,6 +39,12 @@
   - **日报精简「一句话 + 一张表」×3（v0.8.4）**：Layer② 日报收敛为「① 一句话+Top5 产业方向表 · ② 一句话+单张行业表（行业/阶段/RPS15/RPS5/驱动）· ③ 每主题一行表（主题/状态/支撑/最接近确认/判断）」，一个屏幕读完核心。**直接从日报删除**（非折叠）：31 个一级全表、20日轮动矩阵、6 组状态变化、全 124 行业表、Theme Confirmation 四段完整证据、HHI/Top1/Top3 结构明细、ETF-行业对照、市场宽度卡——全部保留在 `metrics/structure/confirmation` parquet + CSV，研究/审计/调试时读取。第二问阶段统一定义：趋势=RPS15≥80 · 启动=RPS15<80 且 RPS5≥80（按 RPS5 排）· 退潮=高 RPS15 短期明显回落；structure（Enrichment，可选）未跑时驱动列整列隐藏，meta 提示「结构穿透：未完成（Enrichment，可选）」而非红色异常。第三问支撑列仅在有确认行业时显示，未确认主题支撑显示 —。
   - **Structure 定位 Core/Enrichment 分离（v0.8.4）**：Layer② 分两层——**Core Facts**（RPS / rotation / theme confirmation）必须每日稳定生成，决定报告能否发布；**Enrichment**（industry structure / drive pattern）尽力生成、可降级，决定报告解释得有多好。run-day 在 calculate 与 report 之间插入 **offline-only Structure（soft-fail）**：缓存够 → 生成 `sw_industry_structure_{date}.parquet` 驱动列出现；缓存不够 → 记 unavailable/insufficient，日报照常发布。**绝不因 Structure 缺数据在 run-day 自动联网**；联网补数走独立入口 `industry structure --allow-online-fetch`（Structure Cache Refresh / Enrichment，可手动/定时/收盘后跑，非主链路）。`compute_drilldown` 新增 `offline` 参数：offline 时跳过 `fetch_cn_daily` 网络回退，仅用缓存 + legulegu 成分股涨幅列。
   - **收尾修正（v0.8.4）**：① 第一问一句话按**表内位置**生成（核心=表前3，正在快速增强=表第4-5名），与 Top5 表严格一一对应，杜绝「下面为什么没有 XX」的疑惑；③ 第三问「判断」列从重复计数（「1 个进入观察区」）改造成**人话判断**（`_theme_judgment`：已确认→「X 已确认支撑，Y 距观察门还差 N」；接近→「最强 X 接近观察门，差 N」；未确认→「焦点行业均未进入观察区，最强 X，尚未形成行业共振」）。
+  - **统一 Tier Gate 确认（v0.9.1/v0.9.2）**：三个主题（AI 基础设施 / 中国汽车全球化 / 高现金流资产）确认从「申万行业 Gate」统一升级为 **Theme → Tier basket → 个股趋势 → Theme confirmation → 申万行业 Evidence**。`config/themes_two_directions.yaml` 每主题下新增 `tiers` 定义段（每个 Tier 的 `universe_tiers` 映射 stock_universe.yaml 成分股归属，不重复维护股票清单）；`indicators.yaml` 新增 `tier_confirmation` 阈值（tier_gate_strong=70 / tier_gate_observe=55 / broad_fraction=0.5 / strong_trend_min=70）。每个 Tier 自算：**Tier Strength**（加权复合分 0.5×median(trend_score)+0.3×上涨比例+0.2×强趋势占比，0-100 非横截面 RPS）/ 上涨比例 / Trend Score 中位数 / 强趋势股票数量 / 龙头贡献度。产物 `data/processed/sw_industry/tier_confirmation_{date}.parquet`（含 trade_date/run_date/generated_at/data_status/source 元数据，全部配置了 tiers 的主题统一落此文件，兼容旧命名 `ai_tier_confirmation` 读取），主报告第三问改为「每主题独立区块」（头部状态 + Tier 表（Tier/状态/Strength/上涨比例/Trend中位/强趋势/驱动）+ 判断 + 申万交叉证据）。**申万行业保留为 Evidence，不再是主题确认 Gate**；Layer③ `evaluate_themes` 对配置了 tiers 的主题统一改用 Tier 门控（主题确认 = ≥1 个 Tier 进入确认门，BROAD = ≥broad_fraction），无 tiers 配置的主题（如未来新主题）维持原行业 Gate。run-day 顺序调整：`stock-metrics(-online)` 提前到 `sw-rps-confirm` 之前（Tier 确认消费个股趋势产物）；个股数据缺失时 Tier 确认降级 unavailable、主题回退行业 Gate，不阻塞发布。rule_version v0.7.0→v0.8.0。
+  - **状态 taxonomy（v0.9.2）**：分层状态机，`WATCH` 不再承担「接近确认」语义：
+    - **Tier 层**（观察单元）：`STRONG 强势 / CONFIRMED 已确认 / WATCH 观察 / UNCONFIRMED 未确认 / UNAVAILABLE 数据不可用`。WATCH 只表示「值得观察但尚未满足确认条件」，**为什么观察由 `reason_code` 表达**（`near_threshold 接近确认 / breadth_insufficient breadth不足 / trend_emerging 趋势启动 / single_name_only 单点驱动`），展示层组合成「观察 · breadth不足」等，不把业务含义塞进 state。
+    - **Theme 层**（投资主题确认广度）：`BROAD_CONFIRMED / CONFIRMED / NARROW_CONFIRMED / UNCONFIRMED / UNAVAILABLE`，**不使用 WATCH**——即使多个 Tier 处于观察，Theme 仍是 `UNCONFIRMED`，报告以「未确认 · N 个 Tier 进入观察」呈现；观察中 Tier 数（`n_watch_tiers`）单独输出供展示。
+    - **申万行业**：只作 Evidence（展示「最接近观察门」等描述），不再决定 Theme status。
+    - **Selection 个股/ETF 的 WATCH**（`STOCK_STATE_WATCH`、`STRONG_WATCH`）是候选资格状态，与确认状态体系不同标尺，保持不变。
 - **Layer ③**：候选对象 JSON 结构升级为 `layer3.buckets[].themes[]`（含 confirmed/expression/core_etf/sub_industry_etf/stock_watchlist/stock_candidates）。
 - 主题资产池：`config/stock_universe.yaml` 保持 theme → tier → assets；bucket 归属由 `config/themes_two_directions.yaml` 推导，不在两个配置重复维护。
 - **跨主题资产语义**：同一资产可在多个 theme 注册（如 通信ETF 同时属 ai_infrastructure 与 high_cashflow）。
@@ -50,9 +56,9 @@
 
 ## 每日运行（run-day）
 
-- **唯一入口**：`make run-day`（etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline → sw-rps-report → sw-rps-confirm → **select-inputs-online** → **select** → **run-day-check**）
+- **唯一入口**：`make run-day`（etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline → **stock-metrics-online** → sw-rps-confirm → sw-rps-report → **select** → **run-day-check**）——v0.9.1 起个股行情构建提前到 sw-rps-confirm 之前（Tier 确认消费个股趋势产物）
 - **run-day 默认含 Layer ③**：selection 是 run-day 默认流程的固定环节；`make select` / `make select-offline` 保留为独立执行入口
-- **离线的是决策，不是每日数据生产**：run-day 的 Observation 构建（ETF/行业/**个股行情**）默认允许联网更新（`select-inputs-online` 自动增量抓取，不依赖手工补数）；Selection（Decision）阶段禁止联网。`make run-day-offline` 用于 CI/重放（个股仅读缓存，stale 降级兜底）；严格历史重放用 `research replay`
+- **离线的是决策，不是每日数据生产**：run-day 的 Observation 构建（ETF/行业/**个股行情**）默认允许联网更新（`stock-metrics-online` 自动增量抓取，不依赖手工补数）；Selection（Decision）阶段禁止联网。`make run-day-offline` 用于 CI/重放（个股仅读缓存，stale 降级兜底）；严格历史重放用 `research replay`
 - **末端 Final Validation**（`make run-day-check` → `python src/main.py final-check`）：汇总 Layer①/②/③ 产物与 run 警告，输出最终结果
   - 成功：`Run completed successfully` + `trade_date / status / action / warnings`
   - 失败（产物缺失等）：`Run completed with errors` + errors 明细，退出码 1
@@ -98,23 +104,23 @@
 - **确认机制显式化**：主题 confirmed = 任一焦点行业进入确认状态（`strength_level ∈ stock_selection.theme_confirm_states`，默认观察/强势）。为避免「20% 行业转强为何整主题确认」的误读，每主题输出 `confirmation_state`（BROAD_CONFIRMED / NARROW_CONFIRMED / WATCH / UNCONFIRMED）+ `confirm_evidence`（依据行业及 RPS15）+ `confirmation_breadth`（广泛/窄幅确认）+ `observing_industries`（进入观察区行业明细）；广度阈值（broad_fraction=0.5 / watch_proximity=70）在 config/indicators.yaml。**NARROW_CONFIRMED 语义**：主题仍开放整个资产池（存在性判定，不做子主题拆解），但表达决策显式标注「仅 X/N 行业支撑，宜观察」并压低表达强度（见 docs/STRATEGY_SPEC.md §7.1）
 - **个股准入与主题门控（Policy）**：`stock_selection` 参数在 config/strategies.yaml（qualified_score=70 / allowed_trend_states=[S,A] / theme_confirm_states=[观察,强势]）；`indicators.yaml` 只保留生成 strength_level 的 observe_threshold（Observation）——策略可调整「哪些状态算确认」，但不能改阈值定义
 - ETF 候选动态从 Layer① rotation 全市场按 `themes_two_directions.yaml` 主题关键词选（趋势门控 + 流动性 + 评分 + 去重）；`etf_pool` 为全部关键词命中池（含未达趋势门/流动性不足/同类去重落选，供「⑤ 观察」展示未入选原因）
-- **个股趋势读取预计算产物**：`outputs/selection_inputs/stock_metrics_{trade_date}.parquet`（统一 schema：asset_id/trade_date/close/return_5d/return_20d/trend_score/score_trend/watch_level/action/risk_flags/volatility_20d/drawdown_20d/source/data_status/source_trade_date/lag_days）
+- **个股趋势读取预计算产物**：`outputs/stock_metrics/stock_metrics_{trade_date}.parquet`（统一 schema：asset_id/trade_date/close/return_5d/return_20d/trend_score/score_trend/watch_level/action/risk_flags/volatility_20d/drawdown_20d/source/data_status/source_trade_date/lag_days）
 - **Selection 默认禁止联网（v0.4.3）**：Layer③ 是纯消费/纯决策层，只读 Layer① ETF rotation + Layer② confirmation + 预计算个股趋势；缺个股输入不自动重试，按 `data_status=missing / selection_status=unavailable / reason=stock_trend_input_missing` 局部降级，不阻塞整体
-- **个股行情由 run-day 自动更新**：`make run-day` 的 `select-inputs-online` 自动增量抓取个股行情（Observation 构建，不依赖手工补数）；`make run-day-offline` 或 `select inputs` 仅读缓存。曾出现个股缓存停更（如长江电力 08-03→08-05 下跌被旧数据判成 100 分），stale 降级兜底后需重跑 run-day 自动补数
+- **个股行情由 run-day 自动更新**：`make run-day` 的 `stock-metrics-online` 自动增量抓取个股行情（Observation 构建，不依赖手工补数）；`make run-day-offline` 或 `stock-metrics` 仅读缓存。曾出现个股缓存停更（如长江电力 08-03→08-05 下跌被旧数据判成 100 分），stale 降级兜底后需重跑 run-day 自动补数
 - **stale 降级（Policy）**：`data_status=stale` 时个股不给出 RECOMMENDED/QUALIFIED，降为 WATCH 并标记 `reason_codes=["stale_data"]`、reason「数据滞后 N 天，信号降级」——分数（事实原值）保留但推荐被抑制
 - **覆盖率报告**：selection JSON/HTML 带 `coverage`（etf_reused / stock_inputs_loaded / selection_coverage / selection_coverage_pct / degraded_assets / online_fetches）
-- **在线补数仅显式**：`select run --allow-online-fetch` 或 `select inputs --allow-online-fetch`（轻量重试：初试+1 次、缓存优先、无缓存记 missing）；run-day 始终离线
+- **在线补数仅显式**：`select run --allow-online-fetch` 或 `stock-metrics --allow-online-fetch`（轻量重试：初试+1 次、缓存优先、无缓存记 missing）；run-day 始终离线
 - 个股趋势按 `as_of_date = trade_date` 截断，避免使用目标日期之后的盘中/最新数据（look-ahead）
 - 分层资产池：`config/stock_universe.yaml`（theme → tier → assets，bucket 由 themes_two_directions.yaml 推导），已废弃扁平 `stock_pool.csv`
 - **Parity 兼容**：replay 读引擎内存输出（结构未变）；parity `_selection_entity_map` 兼容新（recommendation/watchlist/monitoring）与旧（core_etf/stock_watchlist）两种 JSON 结构
 - 命令：
   ```bash
-  make select-inputs   # 构建个股趋势输入产物（离线读缓存，确定性）
+  make stock-metrics   # 构建个股趋势指标产物（Observation 层，离线读缓存，确定性）
   make select          # 构建交易候选（读 Layer①/② + 预计算个股趋势，默认禁止联网）
   make select-offline  # 强制离线
   python src/main.py select run --date 20260731   # 按目标 trade_date 精确回放
   python src/main.py select run --allow-online-fetch  # 手工在线补数
-  python src/main.py select inputs --allow-online-fetch  # 手工补数并落盘产物
+  python src/main.py select stock-metrics --allow-online-fetch  # 手工补数并落盘产物
   python src/main.py select universe   # 查看分层池
   ```
 
@@ -125,9 +131,9 @@ make run-day          # 每日全流程
 make etf-pipeline     # 仅 ETF 发现链路
 make sw-rps-run-day   # SW-RPS 全流程：update(含probe)→calculate→report→confirm
 make sw-rps-structure # [Layer ②] Enrichment 行业内部结构（offline 读缓存 soft-fail；--allow-online-fetch 做 Cache Refresh）
-make select-inputs    # 构建个股趋势输入（离线读缓存）
-make select-inputs-online  # 个股行情在线补数（run-day 离线不抓个股）
-make select           # Layer ③ 交易候选（读预计算趋势，默认禁止联网）
+make stock-metrics     # 构建个股趋势指标产物（Observation 层，离线读缓存）
+make stock-metrics-online  # 个股行情在线补数（run-day 离线不抓个股）
+make select            # Layer ③ 交易候选（读预计算趋势，默认禁止联网）
 make replay-single    # v0.5 单日期历史信号重放（DATE=YYYYMMDD）
 make replay-parity    # v0.5 重放 + 与正式产物一致性校验
 make replay-range     # v0.5 区间重放（START/END=YYYYMMDD, LAYERS=123|12）
@@ -144,10 +150,11 @@ make test             # 全部测试
 - ETF：`outputs/etf_signal/etf_rotation_{date}.html`（Layer ① 标题「① A股全市场 ETF轮动」，认知路径「大类资产 → 趋势ETF → 我的主题ETF」，替换原 funnel_report）+ `candidate_cards_{date}.json`
 - ETF 轮动数据：`data/etf_signal/daily/rotation_{trade_date}.parquet`（全市场横截面 RPS15/20/60 + 5日排名变动，含 trade_date/run_date/data_status/source 元数据）
 - 账户候选：`data/etf_signal/signals/account_candidates_{trade_date}.parquet`（趋势池 ∩ 账户池，含元数据列）
-- SW-RPS 主报告（Layer ② 日报精简，v0.8.4）：`outputs/sw_industry_rps/sw_industry_rps_{date}.html`（+ `_latest.html` 指向最新，标题「② A股全市场 行业轮动」，认知路径「产业方向 → 趋势行业 → 我的主题支撑」）——「一句话 + 一张表」×3：① 一句话+Top5 产业方向表 · ② 一句话+单张行业表（行业/阶段/RPS15/RPS5/驱动）· ③ 每主题一行表（主题/状态/支撑/最接近确认/判断）。完整证据（矩阵/状态变化/124全表/确认四段/结构明细）保留在 parquet+CSV，不进日报。
-- Layer ② 主题确认事实：`data/processed/sw_industry/confirmation_{trade_date}.parquet`（仅焦点行业主题确认事实，含 data_status/source/coverage/generated_at；v0.7.1 起含 RPS1/Δ5RPS15/rotation_state；由主报告第三问消费渲染）
+- SW-RPS 主报告（Layer ② 日报精简，v0.8.4）：`outputs/sw_industry_rps/sw_industry_rps_{date}.html`（+ `_latest.html` 指向最新，标题「② A股全市场 行业轮动」，认知路径「产业方向 → 趋势行业 → 我的主题支撑」）——「一句话 + 一张表」×3：① 一句话+Top10 产业方向表 · ② 一句话+单张行业表（行业/阶段/RPS15/RPS5/驱动）· ③ 每主题独立区块（v0.9.1：全部主题 = 头部状态 + Tier 表 + 判断 + 申万交叉证据；无 Tier 主题回退 = 头部状态 + 最强行业）。完整证据（矩阵/状态变化/124全表/确认四段/结构明细）保留在 parquet+CSV，不进日报。
+- Layer ② 主题确认事实：`data/processed/sw_industry/confirmation_{trade_date}.parquet`（仅焦点行业主题确认事实，含 data_status/source/coverage/generated_at；v0.7.1 起含 RPS1/Δ5RPS15/rotation_state；v0.9.1 起为各主题的 Evidence，不再是 Gate；由主报告第三问消费渲染）
+- Layer ② 统一 Tier basket 确认：`data/processed/sw_industry/tier_confirmation_{trade_date}.parquet`（v0.9.1，三个主题确认 Gate 事实：每 Tier 的 Tier Strength/上涨比例/Trend Score 中位/强趋势数/龙头贡献度 + trade_date/run_date/generated_at/data_status/source 元数据；兼容旧命名 `ai_tier_confirmation` 读取）
 - Layer ② 行业内部结构产物（Enrichment）：`data/processed/sw_industry/sw_industry_structure_{trade_date}.parquet`（范围 = 趋势行业 ∪ 主题焦点行业，每行含 participation_rate/hhi/top1_share/top3_share/driver_mode/结构字段 + `structure_status` = available/insufficient/failed/not_in_scope 可审计，不静默空值）——独立于 confirmation，避免把非焦点行业混入「主题确认事实」；第二问驱动模式只消费此产物。run-day offline soft-fail 生成，联网补数走 `industry structure --allow-online-fetch`
-- Layer ③ 个股趋势输入：`outputs/selection_inputs/stock_metrics_{trade_date}.parquet`（预计算趋势指标，Selection 只读此产物）
+- Layer ③ 个股趋势指标：`outputs/stock_metrics/stock_metrics_{trade_date}.parquet`（预计算趋势指标，Observation 层产物，Layer② Tier 确认 与 Layer③ Selection 共同消费）
 - Layer ③ 交易候选：`outputs/selection/tradable_candidates_{date}.json`（结构化推荐对象，`role: recommendation`，`layer3.buckets[].themes[]` 每主题 5 块：today/why/recommendation/rationale/watchlist）+ `.html`（标题「③ 今日投资建议」，认知路径「策略判断 → ETF/个股选择 → 今日行动」）
 
 ## v0.5 Research（src/research/）

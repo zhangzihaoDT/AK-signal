@@ -271,7 +271,10 @@ class TestConfirmationBreadth:
         from src.selection.selection import classify_confirmation_breadth
         assert classify_confirmation_breadth(True, 3, 5, 90.0)[0] == "BROAD_CONFIRMED"
         assert classify_confirmation_breadth(True, 1, 5, 82.0)[0] == "NARROW_CONFIRMED"
-        assert classify_confirmation_breadth(False, 0, 5, 75.0)[0] == "WATCH"
+        # v0.9.2：Theme 层无 WATCH——接近观察门仍是 UNCONFIRMED，label 标注「未确认 · 接近观察门」
+        state, label = classify_confirmation_breadth(False, 0, 5, 75.0)
+        assert state == "UNCONFIRMED"
+        assert "接近观察门" in label
         assert classify_confirmation_breadth(False, 0, 5, 50.0)[0] == "UNCONFIRMED"
 
     def test_evidence_picks_observing_industry(self):
