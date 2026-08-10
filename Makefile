@@ -7,7 +7,7 @@ SRC_MAIN = src/main.py
 	etf-bootstrap etf-bootstrap-core etf-update etf-calculate \
 	etf-classify etf-layer1 etf-watchlist etf-account etf-account-blacklist etf-card etf-pipeline \
 	etf-retry-uncovered \
-	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-report sw-rps-confirm \
+	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-confirm sw-rps-report \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown sw-rps-structure \
 	select select-inputs select-inputs-online select-offline \
 	replay-single replay-parity replay-range event-study \
@@ -31,8 +31,8 @@ run-day: ## 每日全流程：Observation 自动联网构建（ETF/行业/个股
 	$(MAKE) etf-calculate
 	$(MAKE) sw-rps-calculate
 	$(MAKE) etf-pipeline
-	$(MAKE) sw-rps-report
-	$(MAKE) sw-rps-confirm
+	$(MAKE) sw-rps-confirm     # 先落 confirmation parquet（第三问消费）
+	$(MAKE) sw-rps-report      # 再生成报告（消费 confirmation + structure）
 	$(MAKE) select-inputs-online   # Observation 构建：个股行情自动增量更新（不依赖手工补数）
 	$(MAKE) select                 # Decision 消费：离线、确定性
 	$(MAKE) run-day-check
@@ -43,8 +43,8 @@ run-day-offline: ## 离线重放/CI：只读已落盘 Observation，不联网抓
 	$(MAKE) etf-calculate
 	$(MAKE) sw-rps-calculate
 	$(MAKE) etf-pipeline
-	$(MAKE) sw-rps-report
-	$(MAKE) sw-rps-confirm
+	$(MAKE) sw-rps-confirm     # 先落 confirmation parquet（第三问消费）
+	$(MAKE) sw-rps-report      # 再生成报告（消费 confirmation + structure）
 	$(MAKE) select-inputs          # 离线：仅用缓存，缺失/过期由 stale 降级兜底
 	$(MAKE) select
 	$(MAKE) run-day-check
@@ -91,11 +91,11 @@ etf-pipeline: ## 完整发现链路：watchlist → account → card → JSON+CS
 # 结构：confirm 是 calculate 的下游，复用 calculate 产出的 RPS/指标，
 #       不维护第二套指标计算逻辑。
 
-sw-rps-run-day: ## SW-RPS 全流程：update→calculate→structure(offline enrichment,soft-fail)→report
+sw-rps-run-day: ## SW-RPS 全流程：update→calculate→confirm→structure(offline enrichment,soft-fail)→report
 	$(MAKE) sw-rps-update      # 1. 获取行情（内置 freshness probe）
 	$(MAKE) sw-rps-calculate   # 2. 计算全量申万二级 RPS
-	$(MAKE) sw-rps-report      # 3. report 前置 offline structure enrichment（soft-fail），再生成报告
-	$(MAKE) sw-rps-confirm     # 4. Layer ② 行业群确认（下游复用指标）
+	$(MAKE) sw-rps-confirm     # 3. Layer ② 主题确认（落 confirmation parquet，下游 report 第三问消费）
+	$(MAKE) sw-rps-report      # 4. report 前置 offline structure enrichment（soft-fail），再生成报告（消费 confirmation）
 
 sw-rps-run-day-provisional: ## SW-RPS 全流程（允许 provisional 数据）
 	$(PYTHON) $(SRC_MAIN) industry run-day --allow-provisional
