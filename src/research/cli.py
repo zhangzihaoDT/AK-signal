@@ -27,7 +27,13 @@ def main() -> None:
         es_main()
         return
 
-    print("research subcommands: replay (single|parity|range), event-study")
+    if sub in ("basket", "baskets"):
+        from src.research.baskets.cli import main as basket_main
+        sys.argv = [sys.argv[0], *argv[1:]]
+        basket_main()
+        return
+
+    print("research subcommands: replay (single|parity|range), event-study, basket run")
     sys.exit(2)
 
 

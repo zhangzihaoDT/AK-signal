@@ -1,0 +1,34 @@
+# Research Layer 主题篮子配置。
+# 标的清单复用 stock_universe.yaml；本文件只定义研究篮子、权重与排除规则。
+version: "0.1.0"
+
+baskets:
+  scania_china_watch:
+    label: "斯堪尼亚中国观察组"
+    source: {type: observation_group, key: scania_china_watch}
+    weighting: {method: group_equal, rebalance: buy_and_hold}
+    benchmark: sh000300
+
+  china_auto_global_ex_oem:
+    label: "中国汽车全球化（剔除 OEM）"
+    source:
+      type: theme
+      key: china_auto_global
+      exclude_groups: [oem_global]
+    weighting: {method: group_equal, rebalance: buy_and_hold}
+    benchmark: sh000300
+
+  ai_capex:
+    label: "AI Capex（AI 基础设施股票代理）"
+    source:
+      type: theme
+      key: ai_infrastructure
+      include_groups:
+        - optical_interconnect
+        - server_network
+        - semiconductor_components
+        - high_speed_interconnect
+        - server_power
+        - liquid_cooling
+    weighting: {method: group_equal, rebalance: buy_and_hold}
+    benchmark: sh000300
