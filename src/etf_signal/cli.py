@@ -332,6 +332,22 @@ def _load_etf_raw(raw_dir: Path, code: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def _has_request_bar(df: pd.DataFrame, request_date: date_type) -> bool:
+    """判断 raw 中是否真实存在 target 交易日的 K 线。
+
+    不能仅比较 max(date) >= target：盘中 spot 会提前合并当日（> target）的
+    未收盘 K 线，导致 max(date) 已越过 target，但 target 当日完整 K 线仍缺失
+    （如盘中运行 target=上一完整交易日，而该日 bar 从未从历史源补回）。
+    """
+    if df.empty or "date" not in df.columns:
+        return False
+    try:
+        dates = pd.to_datetime(df["date"]).dt.date
+        return bool((dates == request_date).any())
+    except Exception:
+        return False
+
+
 def _load_all_raw(master: pd.DataFrame) -> pd.DataFrame:
     """合并全市场原始日行情。"""
     raw_dir = etf_signal_raw_dir()
@@ -418,19 +434,17 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
                 len(codes), spot_covered, max(0, len(codes) - spot_covered))
 
     data_source.reset_em_circuit_breakers()
-    success = spot_covered
+    success = 0
+    history_covered = 0
     backfill_count = 0
     skipped_backfill = 0
 
     for code in codes:
         cs = str(code)
-        if cs in spot_codes and spot_date is not None and spot_date >= request_date:
-            continue  # already covered by spot
 
         # reload to get latest (spot may have added data)
         df = _load_etf_raw(raw_dir, code)
-        last_date = df["date"].max().date() if not df.empty and "date" in df.columns else None
-        if last_date is not None and last_date >= request_date:
+        if _has_request_bar(df, request_date):
             success += 1
             continue
 
@@ -439,13 +453,22 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
             skipped_backfill += 1
             continue
 
-        inc_start = (last_date + timedelta(days=1)).strftime("%Y%m%d") if last_date else "20200101"
+        # 增量窗口：以 request_date 为终点，从 request_date 前最近已有 bar 的次日起补齐。
+        # 盘中运行时 spot 可能已合并当日（> target）bar，因此不能以 max(date)+1 作起点，
+        # 否则 target 当日 bar 缺口（如昨日完整交易日）会被跳过。
+        if not df.empty and "date" in df.columns:
+            prior = [d for d in pd.to_datetime(df["date"]).dt.date.values if d <= request_date]
+            last_prior = max(prior) if prior else None
+            inc_start = (last_prior + timedelta(days=1)).strftime("%Y%m%d") if last_prior else "20200101"
+        else:
+            inc_start = "20200101"
         try:
             df_new = data_source.fetch_etf_hist(cs, start_date=inc_start, end_date=explicit_target)
             if not df_new.empty:
                 combined = _merge_incremental(df, df_new)
                 _save_etf_raw(combined, raw_dir, code)
                 success += 1
+                history_covered += 1
         except Exception as e:
             logger.warning("update failed for %s: %s", cs, e)
 
@@ -458,7 +481,7 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
 
     target_ready = success == len(codes)
     logger.info("update: %d/%d covered, ready=%s  (spot=%d, history=%d, backfill_skipped=%d)",
-                success, len(codes), target_ready, spot_covered, success - spot_covered, skipped_backfill)
+                success, len(codes), target_ready, spot_covered, history_covered, skipped_backfill)
     if backfill_count:
         logger.info("backfill: %d attempted, %d skipped (limit=%d)", backfill_count, skipped_backfill, data_source.EM_BACKFILL_LIMIT)
     data_source.log_fetch_summary()

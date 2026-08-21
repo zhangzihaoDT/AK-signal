@@ -134,9 +134,11 @@ def is_kcb(code: str) -> bool:
 
 
 def is_sina_viable(code: str) -> bool:
-    """新浪 ETF 历史接口是否可能覆盖该代码。"""
-    if is_kcb(code):
-        return False
+    """新浪 ETF 历史接口是否可能覆盖该代码。
+
+    实测新浪已覆盖科创板（588/589）及较新的 52/53/56 代码，不再按代码段
+    一刀切排除；未覆盖的代码由 _fetch_hist_sina 优雅返回空 DataFrame。
+    """
     return True
 
 
@@ -607,10 +609,10 @@ def _fetch_hist_sina(fund_code: str, start_date: str, end_date: str) -> pd.DataF
     """新浪基金历史日行情（备用源）。
 
     新浪接口需要交易所前缀：
-      sh = SSE（上交所，代码 51/56 开头）
-      sz = SZSE（深交所，代码 15/16/18/58 开头）
+      sh = SSE（上交所，代码 5 开头：51/52/53/56/58，含科创板 ETF）
+      sz = SZSE（深交所，代码 15/16/18 开头）
     """
-    prefix = "sh" if fund_code.startswith(("51", "56")) else "sz"
+    prefix = "sh" if fund_code.startswith(("5", "6")) else "sz"
     symbol = f"{prefix}{fund_code}"
 
     try:
