@@ -10,7 +10,7 @@ from pathlib import Path
 from src.common.paths import outputs_dir
 from .calculator import calculate_basket
 from .config import load_baskets
-from .report import compare_report, save_result
+from .report import compare_report, cross_basket_overlap, save_result
 
 
 def _out_dir() -> Path:
@@ -38,6 +38,15 @@ def cmd_run(args: argparse.Namespace) -> int:
         quarterly_path = compare_report(
             results, _out_dir(), filename="basket_quarterly_compare.html", nav_field="quarterly_nav")
         print(f"quarterly report: {quarterly_path}")
+        overlap = cross_basket_overlap(results)
+        if not overlap.empty:
+            print("cross-basket overlap (common constituents):")
+            for _, row in overlap.iterrows():
+                print(
+                    f"  {row['symbol']} {row['name']}: {row['basket_a']}"
+                    f" (stage={row['evidence_stage_a'] or '—'}, contrib={row['contribution_pct_a']})"
+                    f" ∩ {row['basket_b']} (stage={row['evidence_stage_b'] or '—'}, contrib={row['contribution_pct_b']})"
+                )
     return 0 if results else 1
 
 

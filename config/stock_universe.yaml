@@ -33,7 +33,15 @@
 # 独立观察组（不进入 Layer ③ 主题确认与交易候选）：
 #   observation_groups.scania_china_watch
 #     电驱 / 传动 / 热管理 / 智能底盘
+#   observation_groups.auto_tier1_ai_infra    汽车热管理供应链 → AI 数据中心液冷 / Capex 外溢
+#   observation_groups.auto_tier1_embodied    汽车供应链 → Physical AI 执行器 / 丝杠 / 轴承 / 控制器
 #   未单独上市的法士特、汉德体系以 focus_entities 保留；listed_assets 只放可直接跟踪的上市代表。
+#
+# evidence_stage 固定枚举（只表达商业化推进阶段，不混入收入/产能维度）：
+#   VALIDATION / DESIGN_WIN / ORDER / SMALL_BATCH / MASS_PRODUCTION
+# 收入与产能为正交字段（可为空 = 无/未确认）：
+#   revenue_evidence  NONE / CONFIRMED
+#   capacity_stage    NONE / PLANNING / BUILDING / RAMPING
 #
 # sw_industry: 关联的申万二级行业代码（用于注入 Layer ② 行业确认信号）
 #   属于该主题 industries → 注入 strength_level / 驱动分类
@@ -203,3 +211,35 @@ observation_groups:
         listed_assets:
           - {symbol: "603596", name: "伯特利", market: CN, sw_industry: "801093.SI", note: "制动系统与智能底盘"}
           - {symbol: "002703", name: "浙江世宝", market: CN, sw_industry: "801093.SI", note: "转向系统与智能底盘"}
+
+  auto_tier1_ai_infra:
+    label: "汽车热管理供应链 → AI 数据中心（液冷 / Capex）观察组"
+    status: WATCH
+    objective: "观察汽车热管理供应链向 AI 数据中心液冷与 Capex 的技术迁移与收入兑现：热管理技术平移 + 服务器液冷订单"
+    groups:
+      cooling_transfer:
+        label: "热管理 → 数据中心液冷"
+        listed_assets:
+          - {symbol: "000887", name: "中鼎股份", market: CN, sw_industry: "801093.SI", evidence_stage: "ORDER", note: "AI液冷：液冷整机柜/CDU/微通道冷板/快插/管路 · 订单约3,800万"}
+          - {symbol: "601689", name: "拓普集团", market: CN, sw_industry: "801093.SI", evidence_stage: "ORDER", note: "AI液冷（首批订单15亿为液冷服务器+储能+机器人等新行业合计，非全为AI液冷）"}
+          - {symbol: "002126", name: "银轮股份", market: CN, sw_industry: "801093.SI", evidence_stage: "VALIDATION", note: "AI液冷：数据中心换热/液冷验证阶段"}
+          - {symbol: "002536", name: "飞龙股份", market: CN, sw_industry: "801093.SI", evidence_stage: "MASS_PRODUCTION", revenue_evidence: "CONFIRMED", note: "服务器液冷：与HP/英维克/台达/施耐德/维谛/联想等合作 · 部分客户项目已量产"}
+          - {symbol: "002050", name: "三花智控", market: CN, sw_industry: "801116.SI", evidence_stage: "MASS_PRODUCTION", revenue_evidence: "CONFIRMED", note: "数据中心液冷热管理零部件 · 阀/泵/换热器/控制器 · 已形成收入并与头部集成商合作"}
+
+  auto_tier1_embodied:
+    label: "汽车供应链 → Physical AI（执行器 / 丝杠 / 轴承 / 控制器）观察组"
+    status: WATCH
+    objective: "观察汽车供应链制造、执行与控制能力向具身智能核心部件的技术迁移与收入兑现"
+    groups:
+      execution_hardware:
+        label: "执行硬件（丝杠 / 关节 / 执行器 / 轴承）"
+        focus_entities: ["SKF（斯凯孚）"]
+        listed_assets:
+          - {symbol: "603009", name: "北特科技", market: CN, sw_industry: "801093.SI", evidence_stage: "SMALL_BATCH", capacity_stage: "BUILDING", note: "行星滚柱丝杠 · 人形机器人线性执行 · 产能建设中"}
+          - {symbol: "601689", name: "拓普集团", market: CN, sw_industry: "801093.SI", evidence_stage: "SMALL_BATCH", revenue_evidence: "CONFIRMED", note: "机器人执行器 · 2025年收入1,359万元（保守按小批量，未定稳定量产）"}
+          - {symbol: "002126", name: "银轮股份", market: CN, sw_industry: "801093.SI", evidence_stage: "SMALL_BATCH", revenue_evidence: "CONFIRMED", note: "旋转/线性关节 · 灵巧手 · 热管理模组 · 部分产品小批量并形成收入"}
+      control_stack:
+        label: "控制与电子（大脑 / 控制器 / 域控）"
+        focus_entities: ["丸旭", "同驭汽车"]
+        listed_assets:
+          - {symbol: "600699", name: "均胜电子", market: CN, sw_industry: "801093.SI", evidence_stage: "MASS_PRODUCTION", revenue_evidence: "CONFIRMED", note: "Physical AI中央控制器 / 全域控制器 · 已向头部机器人客户规模化量产供货"}

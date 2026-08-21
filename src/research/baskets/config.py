@@ -70,6 +70,10 @@ def expand_constituents(basket: dict[str, Any], universe_path: Path | None = Non
                 "symbol": symbol,
                 "name": str(asset.get("name", symbol)),
                 "market": str(asset.get("market", "CN")).upper(),
+                "evidence_stage": str(asset.get("evidence_stage", "")),
+                "capacity_stage": str(asset.get("capacity_stage", "")),
+                "revenue_evidence": str(asset.get("revenue_evidence", "")),
+                "note": str(asset.get("note", "")),
             })
     if not out:
         raise ValueError(f"basket has no constituents: {basket['key']}")

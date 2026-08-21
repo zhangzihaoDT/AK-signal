@@ -1,0 +1,36 @@
+# Research Basket Stage-Change 日志。
+# 用途：记录每次 evidence-driven stage update，作为未来 stage-upgrade event study
+#       （升级前后 20/60/120D 超额收益，回答「市场什么时候开始给产业兑现定价」）的数据源。
+#
+# 记录纪律（Schema v1，见 docs/RESEARCH_BASKETS.md）：
+#   - 每次在 config/stock_universe.yaml 修改 listed_assets 的
+#     evidence_stage / revenue_evidence / capacity_stage 时，必须在下方 entries 追加一条记录，
+#     不得覆盖或回填旧记录（config 与 log 一致性由 tests 守护）。
+#   - evidence_stage 只走枚举 VALIDATION / DESIGN_WIN / ORDER / SMALL_BATCH / MASS_PRODUCTION；
+#     收入走 revenue_evidence（NONE / CONFIRMED），产能走 capacity_stage
+#     （NONE / PLANNING / BUILDING / RAMPING），维度互不混入。
+#
+# 字段约定：
+#   date      变更生效日期 YYYY-MM-DD
+#   basket    observation group key（auto_tier1_ai_infra / auto_tier1_embodied / …）
+#   symbol    证券代码
+#   asset     证券名称
+#   field     变更字段，默认 evidence_stage
+#   from      旧值（首次确立/基因值为 null）
+#   to        新值
+#   evidence  披露证据（一句话：来源 / 金额 / 日期）
+version: "1.0.0"
+genesis_date: "2026-08-21"
+genesis:
+  auto_tier1_ai_infra:
+    - {symbol: "000887", asset: "中鼎股份", evidence_stage: "ORDER", revenue_evidence: null, capacity_stage: null}
+    - {symbol: "601689", asset: "拓普集团", evidence_stage: "ORDER", revenue_evidence: null, capacity_stage: null}
+    - {symbol: "002126", asset: "银轮股份", evidence_stage: "VALIDATION", revenue_evidence: null, capacity_stage: null}
+    - {symbol: "002536", asset: "飞龙股份", evidence_stage: "MASS_PRODUCTION", revenue_evidence: "CONFIRMED", capacity_stage: null}
+    - {symbol: "002050", asset: "三花智控", evidence_stage: "MASS_PRODUCTION", revenue_evidence: "CONFIRMED", capacity_stage: null}
+  auto_tier1_embodied:
+    - {symbol: "603009", asset: "北特科技", evidence_stage: "SMALL_BATCH", revenue_evidence: null, capacity_stage: "BUILDING"}
+    - {symbol: "601689", asset: "拓普集团", evidence_stage: "SMALL_BATCH", revenue_evidence: "CONFIRMED", capacity_stage: null}
+    - {symbol: "002126", asset: "银轮股份", evidence_stage: "SMALL_BATCH", revenue_evidence: "CONFIRMED", capacity_stage: null}
+    - {symbol: "600699", asset: "均胜电子", evidence_stage: "MASS_PRODUCTION", revenue_evidence: "CONFIRMED", capacity_stage: null}
+entries: []

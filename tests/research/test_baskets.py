@@ -44,6 +44,134 @@ def test_basket_config_and_constituents_are_explicit():
     assert basket_config_hash(baskets["ai_capex"])
 
 
+def test_expand_constituents_propagates_evidence_stage(tmp_path):
+    universe = tmp_path / "universe.yaml"
+    universe.write_text("""
+observation_groups:
+  demo:
+    groups:
+      g1:
+        label: "G1"
+        listed_assets:
+          - {symbol: "A", name: "A公司", market: CN, evidence_stage: "ORDER"}
+          - {symbol: "B", name: "B公司", market: CN, evidence_stage: "SMALL_BATCH", capacity_stage: "BUILDING"}
+          - {symbol: "C", name: "C公司", market: CN}
+""", encoding="utf-8")
+    basket = {"key": "demo", "source": {"type": "observation_group", "key": "demo"}}
+    assets = expand_constituents(basket, universe_path=universe)
+    by_symbol = {a["symbol"]: a for a in assets}
+    assert by_symbol["A"]["evidence_stage"] == "ORDER"
+    assert by_symbol["B"]["evidence_stage"] == "SMALL_BATCH"
+    assert by_symbol["B"]["capacity_stage"] == "BUILDING"
+    assert by_symbol["B"]["revenue_evidence"] == ""
+    assert by_symbol["C"]["evidence_stage"] == ""
+
+
+_EVIDENCE_STAGES = {"VALIDATION", "DESIGN_WIN", "ORDER", "SMALL_BATCH", "MASS_PRODUCTION"}
+_REVENUE_EVIDENCE = {"NONE", "CONFIRMED", ""}
+_CAPACITY_STAGES = {"NONE", "PLANNING", "BUILDING", "RAMPING", ""}
+
+
+def test_evidence_stage_follows_canonical_enum():
+    """三个正交字段必须是固定枚举：evidence_stage 只表商业化阶段，收入/产能维度独立。"""
+    baskets = load_baskets()
+    bad: list[str] = []
+    for key in ("auto_tier1_ai_infra", "auto_tier1_embodied"):
+        for asset in expand_constituents(baskets[key]):
+            if asset["evidence_stage"] not in _EVIDENCE_STAGES:
+                bad.append(f"{key}/{asset['symbol']} evidence_stage={asset['evidence_stage']!r}")
+            if asset["revenue_evidence"] not in _REVENUE_EVIDENCE:
+                bad.append(f"{key}/{asset['symbol']} revenue_evidence={asset['revenue_evidence']!r}")
+            if asset["capacity_stage"] not in _CAPACITY_STAGES:
+                bad.append(f"{key}/{asset['symbol']} capacity_stage={asset['capacity_stage']!r}")
+    assert not bad, bad
+
+
+def test_cross_basket_overlap_detects_common_constituent():
+    from src.research.baskets.report import cross_basket_overlap
+
+    results = [
+        {"basket": {"key": "b1"}, "constituents": pd.DataFrame([
+            {"group": "a", "symbol": "X", "name": "X公司", "evidence_stage": "ORDER"},
+            {"group": "a", "symbol": "Y", "name": "Y公司", "evidence_stage": "REVENUE"},
+        ]), "contributions": pd.DataFrame([
+            {"symbol": "X", "contribution_pct_points": 2.0},
+            {"symbol": "Y", "contribution_pct_points": 1.0},
+        ])},
+        {"basket": {"key": "b2"}, "constituents": pd.DataFrame([
+            {"group": "b", "symbol": "X", "name": "X公司", "evidence_stage": "REVENUE"},
+            {"group": "b", "symbol": "Z", "name": "Z公司", "evidence_stage": "ORDER"},
+        ]), "contributions": pd.DataFrame([
+            {"symbol": "X", "contribution_pct_points": 3.0},
+            {"symbol": "Z", "contribution_pct_points": 0.5},
+        ])},
+    ]
+    overlap = cross_basket_overlap(results)
+    assert list(overlap["symbol"]) == ["X"]
+    assert overlap.iloc[0]["basket_a"] == "b1"
+    assert overlap.iloc[0]["basket_b"] == "b2"
+    assert overlap.iloc[0]["evidence_stage_a"] == "ORDER"
+    assert overlap.iloc[0]["evidence_stage_b"] == "REVENUE"
+    assert overlap.iloc[0]["contribution_pct_a"] == 2.0
+    assert overlap.iloc[0]["contribution_pct_b"] == 3.0
+
+
+def test_stage_log_matches_current_config():
+    """genesis 快照必须等于当前 config 阶段（每次 evidence-driven update 都要同步 log）。"""
+    from src.research.baskets.stage_log import config_matches_log
+
+    ok, diffs = config_matches_log()
+    assert ok, "\n".join(diffs)
+
+
+def test_stage_log_apply_entries_and_chain_guard():
+    from src.research.baskets.stage_log import apply_stage_log
+
+    log = {
+        "genesis": {"b": [{"symbol": "X", "evidence_stage": "ORDER"}]},
+        "entries": [
+            {"date": "2026-09-01", "basket": "b", "symbol": "X",
+             "field": "evidence_stage", "from": "ORDER", "to": "SMALL_BATCH", "evidence": "…"},
+        ],
+    }
+    state = apply_stage_log(log)
+    assert state[("b", "X")]["evidence_stage"] == "SMALL_BATCH"
+
+    bad = {
+        "genesis": {"b": [{"symbol": "X", "evidence_stage": "ORDER"}]},
+        "entries": [
+            {"date": "2026-09-01", "basket": "b", "symbol": "X",
+             "field": "evidence_stage", "from": "VALIDATION", "to": "SMALL_BATCH", "evidence": "…"},
+        ],
+    }
+    try:
+        apply_stage_log(bad)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected chain mismatch error")
+
+
+def test_stage_log_detects_config_drift(tmp_path):
+    import yaml
+
+    from src.common.paths import stock_universe_path
+    from src.research.baskets.config import load_baskets
+    from src.research.baskets.stage_log import config_matches_log
+
+    baskets = load_baskets()
+    universe = tmp_path / "universe.yaml"
+    raw = yaml.safe_load(stock_universe_path().read_text())
+    for asset in raw["observation_groups"]["auto_tier1_embodied"]["groups"]["execution_hardware"]["listed_assets"]:
+        if asset["symbol"] == "603009":
+            asset["evidence_stage"] = "MASS_PRODUCTION"  # 改了 config 但没追加 log → 应报 drift
+    universe.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+
+    ok, diffs = config_matches_log(baskets, universe_path=universe)
+    assert not ok
+    assert any("603009" in d and "evidence_stage" in d for d in diffs)
+
+
 def test_rolling_metrics_and_contributions():
     benchmark = pd.DataFrame({"date": ["2025-01-01", "2025-01-02", "2025-01-03"], "close": [100, 100, 100]})
     nav = build_nav(_prices(), benchmark, group_order=["a", "b"])

@@ -1,6 +1,12 @@
 # Research Layer 主题篮子配置。
 # 标的清单复用 stock_universe.yaml；本文件只定义研究篮子、权重与排除规则。
-version: "0.1.0"
+#
+# Schema v1（2026-08 稳定基线）：
+#   observation_groups 下每个 listed_assets 携带三个正交字段——
+#   evidence_stage（商业化阶段枚举）/ revenue_evidence（收入确认）/ capacity_stage（产能阶段）。
+# 更新纪律：只做 evidence-driven stage update（记录变更日期 + 披露证据），
+#   不再随主题叙事修改字段语义或新增复合值。
+version: "1.0.0"
 
 baskets:
   scania_china_watch:
@@ -30,5 +36,17 @@ baskets:
         - high_speed_interconnect
         - server_power
         - liquid_cooling
+    weighting: {method: group_equal, rebalance: buy_and_hold}
+    benchmark: sh000300
+
+  auto_tier1_ai_infra:
+    label: "汽车热管理供应链 → AI 数据中心（液冷 / Capex）"
+    source: {type: observation_group, key: auto_tier1_ai_infra}
+    weighting: {method: group_equal, rebalance: buy_and_hold}
+    benchmark: sh000300
+
+  auto_tier1_embodied:
+    label: "汽车供应链 → Physical AI（执行器 / 丝杠 / 轴承 / 控制器）"
+    source: {type: observation_group, key: auto_tier1_embodied}
     weighting: {method: group_equal, rebalance: buy_and_hold}
     benchmark: sh000300
