@@ -1711,6 +1711,92 @@ def _finalize_retry_status(code: str, existing: pd.DataFrame,
 
 
 # ---------------------------------------------------------------------------
+# Data-source preflight & gap backfill（保护机制）
+# ---------------------------------------------------------------------------
+
+# 每前缀组抽样一只代表，覆盖深市/沪市宽基/新代码/科创板等 routing 分支
+_PREFLIGHT_PREFIX_GROUPS = ["159", "510", "511", "520", "530", "560", "588", "589"]
+
+
+def _preflight_sample_codes(master: pd.DataFrame) -> list[str]:
+    groups: dict[str, list[str]] = {}
+    for code in master["fund_code"].astype(str):
+        groups.setdefault(code[:3], []).append(code)
+    picked: list[str] = []
+    for prefix in _PREFLIGHT_PREFIX_GROUPS:
+        if prefix in groups:
+            picked.append(groups[prefix][0])
+    return picked
+
+
+def cmd_preflight(args: argparse.Namespace) -> None:
+    """数据源抽样探测：30 秒内判断缺口是否 routing / viability 层问题。
+
+    输出：symbol → exchange → sina symbol → viable → latest bar → source。
+    """
+    logger = build_logger(args.log_level)
+    master_dir = etf_signal_master_dir()
+    master = etf_master.load_master(master_dir)
+    if master.empty:
+        logger.error("no ETF master — run bootstrap first")
+        return
+
+    explicit_raw = getattr(args, "codes", "") or ""
+    explicit = [c.strip() for c in explicit_raw.split(",") if c.strip()] if isinstance(explicit_raw, str) else []
+    codes = explicit or _preflight_sample_codes(master)
+    if not codes:
+        logger.error("no sample codes derived from master")
+        return
+
+    start_date = getattr(args, "start_date", "") or (datetime.now() - timedelta(days=60)).strftime("%Y%m%d")
+    data_source.clear_fetch_stats()
+
+    print(f"{'code':<8} {'exchange':<9} {'sina_symbol':<10} {'viable':<8} {'source':<7} {'rows':<6} {'latest_bar':<12} nav_latest")
+    print("-" * 80)
+    for code in codes:
+        exchange = data_source.sina_exchange(code)
+        symbol = data_source.sina_symbol(code)
+        viable = data_source.is_sina_viable(code)
+        df = data_source.fetch_etf_hist(code, start_date=start_date)
+        if df is not None and not df.empty:
+            latest = df["date"].max().date()
+            rows = len(df)
+        else:
+            latest, rows = None, 0
+        info = data_source.get_fetch_stats().get(code, {})
+        source = info.get("source", "none")
+        nav_latest, _ = data_source.fetch_nav_latest(code)
+        print(f"{code:<8} {exchange:<9} {symbol:<10} {str(viable):<8} {source:<7} {rows:<6} {str(latest):<12} {nav_latest}")
+
+    logger.info("preflight done — 若 latest_bar 大面积落后 target 而 nav_latest 正常，多为 routing/viability 层问题")
+
+
+def cmd_backfill(args: argparse.Namespace) -> None:
+    """目标日缺口回填：分类 + checkpoint/resume + 耗时统计。"""
+    logger = build_logger(args.log_level)
+    from . import backfill
+
+    target = getattr(args, "target_date", "") or _default_target_date()
+    master = etf_master.load_master(etf_signal_master_dir())
+    if master.empty:
+        logger.error("no ETF master — run bootstrap first")
+        return
+
+    report = backfill.run_backfill(
+        raw_dir=etf_signal_raw_dir(),
+        master=master,
+        target=target,
+        resume=not getattr(args, "no_resume", False),
+        attempts=getattr(args, "attempts", 3),
+        retryable_only=getattr(args, "retryable_only", False),
+        log=logger.info,
+    )
+    if report.failed:
+        logger.warning("backfill 有 %d 只未补上，请查看 checkpoint：data/etf_signal/backfill/backfill_%s.json",
+                       report.failed, target)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1782,6 +1868,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_retry.add_argument("--interval", type=float, default=2.0, help="单只请求间隔秒数")
     p_retry.add_argument("--log-level", default="INFO")
 
+    p_preflight = sub.add_parser("preflight", help="数据源抽样探测：routing/viability/最新bar（30 秒判断是否 routing 层问题）")
+    p_preflight.add_argument("--codes", default="", help="逗号分隔抽样代码（默认按前缀组自动取代表）")
+    p_preflight.add_argument("--start-date", default="", help="探测起始日 YYYYMMDD（默认近 60 天）")
+    p_preflight.add_argument("--log-level", default="INFO")
+
+    p_backfill = sub.add_parser("backfill", help="目标日缺口回填：分类 + checkpoint/resume + 耗时统计")
+    p_backfill.add_argument("--target-date", default="", help="目标日期 YYYYMMDD")
+    p_backfill.add_argument("--no-resume", action="store_true", help="忽略 checkpoint，重新处理全部缺口")
+    p_backfill.add_argument("--retryable-only", action="store_true", help="只重试可恢复类别（SOURCE_STALE/RATE_LIMITED），跳过结构性失败")
+    p_backfill.add_argument("--attempts", type=int, default=3, help="每只最大请求次数")
+    p_backfill.add_argument("--log-level", default="INFO")
+
     return p
 
 
@@ -1804,6 +1902,8 @@ def main() -> None:
         "backtest": cmd_backtest,
         "run-day": cmd_run_day,
         "retry-uncovered": cmd_retry_uncovered,
+        "preflight": cmd_preflight,
+        "backfill": cmd_backfill,
     }
     fn = dispatch.get(args.command)
     if fn:

@@ -24,6 +24,12 @@ help: ## 显示帮助信息
 etf-retry-uncovered: ## 专项重试未覆盖 ETF（分批+熔断器重置）
 	$(PYTHON) $(SRC_MAIN) etf retry-uncovered
 
+etf-preflight: ## [保护] 数据源抽样探测：routing/viability/最新bar（30 秒判断是否 routing 层问题）
+	$(PYTHON) $(SRC_MAIN) etf preflight
+
+etf-backfill: ## [保护] 目标日缺口回填：分类 + checkpoint/resume + 耗时统计
+	$(PYTHON) $(SRC_MAIN) etf backfill
+
 # ── 每日市场扫描（唯一入口） ──────────────────────────────────────
 
 run-day: ## 每日全流程：Observation 自动联网构建（ETF/行业/个股）→ Decision 离线消费 → Final Validation

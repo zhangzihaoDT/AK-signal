@@ -133,6 +133,27 @@ def is_kcb(code: str) -> bool:
     return code.startswith(("588", "589"))
 
 
+def sina_exchange(code: str) -> str:
+    """新浪接口交易所前缀映射。
+
+    上交所（sh）：代码 5/6 开头——宽基 510/511/512/513/515/516/517/518、
+      行业/主题 512/513/515/516/561/562/563、新代码 520/526/530/560、
+      科创板 588/589。
+    深交所（sz）：代码 1 开头——159/16x/18x。
+
+    通用规则（对未知新前缀同样安全）：5/6 → sh，其余 → sz。
+    映射矩阵由 tests/etf_signal/test_routing.py 锁定，改坏立即失败。
+    """
+    if code.startswith(("5", "6")):
+        return "sh"
+    return "sz"
+
+
+def sina_symbol(code: str) -> str:
+    """新浪接口完整 symbol（如 sh588220）。"""
+    return f"{sina_exchange(code)}{code}"
+
+
 def is_sina_viable(code: str) -> bool:
     """新浪 ETF 历史接口是否可能覆盖该代码。
 
@@ -158,6 +179,8 @@ def log_fetch_summary():
     by_source: dict[str, int] = {}
     by_error: dict[str, int] = {}
     no_source: list[str] = []
+    total_ms = 0
+    n_timed = 0
     for code, info in _fetch_stats.items():
         src = info.get("source", "unknown")
         by_source[src] = by_source.get(src, 0) + 1
@@ -165,9 +188,15 @@ def log_fetch_summary():
             by_error[err] = by_error.get(err, 0) + 1
         if src == "none":
             no_source.append(code)
+        if (ms := info.get("elapsed_ms")) is not None:
+            total_ms += ms
+            n_timed += 1
     logger.info("fetch stats — source breakdown: %s", by_source)
     if by_error:
         logger.info("fetch stats — error breakdown: %s", by_error)
+    if n_timed:
+        logger.info("fetch stats — elapsed: total=%.1fs avg=%.0fms/code",
+                    total_ms / 1000.0, total_ms / max(n_timed, 1))
     if no_source:
         logger.info("fetch stats — no_source (%d): %s", len(no_source), no_source[:10])
 
@@ -491,7 +520,11 @@ def fetch_etf_hist(
     if end_date is None:
         end_date = datetime.now().strftime("%Y%m%d")
 
+    _t_start = time.perf_counter()
     info: dict[str, Any] = {"code": fund_code}
+
+    def _stamp_elapsed(info: dict[str, Any]) -> None:
+        info["elapsed_ms"] = round((time.perf_counter() - _t_start) * 1000)
 
     if is_kcb(fund_code) and not is_sina_viable(fund_code):
         info["fallback_reason"] = "科创板 — 新浪不覆盖"
@@ -538,6 +571,7 @@ def fetch_etf_hist(
 
     if not df_em.empty:
         info["source"] = "em"
+        _stamp_elapsed(info)
         _fetch_stats[fund_code] = info
         logger.debug("hist_em ok: %s (%d rows)", fund_code, len(df_em))
         return df_em
@@ -551,6 +585,7 @@ def fetch_etf_hist(
         if not df.empty:
             info["source"] = "sina"
             info["fallback_reason"] = info.get("fallback_reason", "em_failed")
+            _stamp_elapsed(info)
             _fetch_stats[fund_code] = info
             logger.info("hist_sina fallback ok: %s (%d rows)", fund_code, len(df))
             return df
@@ -563,6 +598,7 @@ def fetch_etf_hist(
         info["fallback_reason"] = "科创板无可用源"
 
     info["source"] = "none"
+    _stamp_elapsed(info)
     _fetch_stats[fund_code] = info
     logger.warning("all hist sources exhausted: %s", fund_code)
     return pd.DataFrame()
@@ -608,12 +644,10 @@ def _fetch_hist_em(
 def _fetch_hist_sina(fund_code: str, start_date: str, end_date: str) -> pd.DataFrame:
     """新浪基金历史日行情（备用源）。
 
-    新浪接口需要交易所前缀：
-      sh = SSE（上交所，代码 5 开头：51/52/53/56/58，含科创板 ETF）
-      sz = SZSE（深交所，代码 15/16/18 开头）
+    新浪接口需要交易所前缀：sh（上交所）/ sz（深交所），
+    由 sina_exchange / sina_symbol 统一映射（见 tests/etf_signal/test_routing.py）。
     """
-    prefix = "sh" if fund_code.startswith(("5", "6")) else "sz"
-    symbol = f"{prefix}{fund_code}"
+    symbol = sina_symbol(fund_code)
 
     try:
         df = ak.fund_etf_hist_sina(symbol=symbol)
@@ -630,6 +664,39 @@ def _fetch_hist_sina(fund_code: str, start_date: str, end_date: str) -> pd.DataF
     except Exception as e:
         logger.debug("fund_etf_hist_sina failed for %s (%s): %s", symbol, fund_code, e)
         return pd.DataFrame()
+
+
+_F10_NAV_URL = "https://api.fund.eastmoney.com/f10/lsjz"
+
+
+def fetch_nav_latest(code: str, timeout: float = 10.0) -> tuple[date | None, float | None]:
+    """查询基金最新净值日期（东财 f10 lsjz，直接 HTTP）。
+
+    K 线接口（push2his）被限流时，此基金净值接口通常仍可用，
+    用于判断缺口分类：
+      - TERMINATED：净值停在很久以前（基金终止 / 净值停发）
+      - SOURCE_STALE：净值已到 target，但日 K 源没跟上
+
+    Returns:
+        (最新净值日期, 最新单位净值)；失败返回 (None, None)。
+    """
+    try:
+        import requests
+
+        resp = requests.get(
+            _F10_NAV_URL,
+            params={"fundCode": code, "pageIndex": 1, "pageSize": 5},
+            headers={"Referer": "https://fundf10.eastmoney.com/"},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        rows = (resp.json().get("Data") or {}).get("LSJZList") or []
+        if not rows:
+            return None, None
+        first = rows[0]
+        return date.fromisoformat(first["FSRQ"]), float(first["DWJZ"])
+    except Exception:
+        return None, None
 
 
 def _normalise_etf_hist(raw: pd.DataFrame, fund_code: str) -> pd.DataFrame:
