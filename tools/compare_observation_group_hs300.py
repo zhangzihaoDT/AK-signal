@@ -32,6 +32,20 @@ COMBO = [
         "group_order": ["optical_interconnect", "server_network", "semiconductor_components",
                         "high_speed_interconnect", "server_power", "liquid_cooling"],
     },
+    {
+        "key": "auto_tier1_ai_infra",
+        "source": "group",
+        "label": "汽车热管理供应链 → AI 数据中心（液冷/Capex）",
+        "color": "#7A4A24",
+        "group_order": ["cooling_transfer"],
+    },
+    {
+        "key": "auto_tier1_embodied",
+        "source": "group",
+        "label": "汽车供应链 → Physical AI（执行硬件/控制栈）",
+        "color": "#6B7C8F",
+        "group_order": ["execution_hardware", "control_stack"],
+    },
 ]
 
 
@@ -60,10 +74,14 @@ def build_composite(prices: pd.DataFrame, combo: dict, index: pd.DatetimeIndex) 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=365)
+    parser.add_argument("--combos", default="",
+                        help="只跑指定 combo key，逗号分隔（默认全部）")
     parser.add_argument("--exclude", action="append", default=[],
                         help="排除组，格式 <combo_key>:<group>（可多次），如 china_auto_global:oem_global")
     parser.add_argument("--out", type=Path, default=Path("outputs/research/watchlist_compare"))
     args = parser.parse_args()
+
+    wanted_combos = {k.strip() for k in args.combos.split(",") if k.strip()}
 
     excluded: dict[str, list[str]] = {}
     for spec in args.exclude:
@@ -72,10 +90,12 @@ def main() -> None:
 
     active_combos = []
     for combo in COMBO:
+        if wanted_combos and combo["key"] not in wanted_combos:
+            continue
         combo = dict(combo)
         removed = excluded.get(combo["key"], [])
         combo["group_order"] = [g for g in combo["group_order"] if g not in removed]
-        if len(combo["group_order"]) < 2:
+        if removed and not combo["group_order"]:
             raise SystemExit(f"exclude too many groups for {combo['key']}: remaining {combo['group_order']}")
         if removed:
             n = len(combo["group_order"])

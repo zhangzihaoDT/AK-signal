@@ -9,8 +9,9 @@ CN 复用 src.common.market_data.fetch_cn_daily（em → sina → tx 多源切�
 HK 用 akshare stock_hk_daily（节流 + 日期过滤）。
 
 产物：
-  data/raw/<source>s/<key>/<market>_<symbol>.csv  每标的日线（date,open,high,low,close,volume）
-  data/raw/<source>s/<key>/<key>_prices.parquet   合并长表（group,label,symbol,name,date,open,high,low,close,volume）
+  data/raw/observation_groups/<key>/<market>_<symbol>.csv  观察组每标的日线（date,open,high,low,close,volume）
+  data/raw/themes/<key>/<market>_<symbol>.csv              主题每标的日线（同结构）
+  data/raw/<source>s/<key>/<key>_prices.parquet            合并长表（group,label,symbol,name,date,open,high,low,close,volume）
 
 focus_entities（未上市实体）不抓取，仅保留在 assets 中已有代码的标的。
 """
@@ -170,7 +171,7 @@ def main() -> None:
     if not rows:
         raise SystemExit("no price rows fetched")
 
-    out_dir = args.out or (root / "data" / "raw" / (args.source + "s") / args.key)
+    out_dir = args.out or (root / "data" / "raw" / ("observation_groups" if args.source == "group" else "themes") / args.key)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     df = pd.DataFrame(rows).sort_values(["symbol", "date"]).reset_index(drop=True)
