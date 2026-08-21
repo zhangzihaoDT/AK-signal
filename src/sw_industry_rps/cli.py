@@ -1204,19 +1204,27 @@ def cmd_confirm(args: argparse.Namespace) -> None:
         logger.error("no metrics data, run calculate first")
         return
 
-    latest_date = metrics_df["trade_date"].max()
+    explicit_date = getattr(args, "date", "") or ""
+    if explicit_date:
+        ts = pd.Timestamp(explicit_date)
+        if ts not in metrics_df["trade_date"].values:
+            logger.error("target date %s not found in metrics", explicit_date)
+            return
+        latest_date = ts
+    else:
+        latest_date = metrics_df["trade_date"].max()
     date_str = latest_date.strftime("%Y%m%d")
     logger.info("confirm date: %s", latest_date.date())
 
     # 1. 重点行业明细 + 群共振 + 市场对照
-    focus_df = confirmation.compute_focus_snapshot(metrics_df)
+    focus_df = confirmation.compute_focus_snapshot(metrics_df, date=date_str)
     if focus_df.empty:
         logger.error("no focus industries found")
         return
     resonance = confirmation.classify_group_resonance(focus_df)
     theme_resonance = confirmation.compute_theme_resonance(focus_df)
     bucket_resonance = confirmation.compute_bucket_resonance(focus_df)
-    market_context = confirmation.compute_market_context(metrics_df)
+    market_context = confirmation.compute_market_context(metrics_df, date=date_str)
     divergence = confirmation.classify_divergence(focus_df, market_context.get("market_median_rps15"))
     # 每主题独立背离（报告按主题展示行业群 vs 全市场）
     divergence_map: dict[str, Any] = {}
@@ -1570,6 +1578,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_confirm = sub.add_parser("confirm", help="[Layer ②] 主题确认（Theme Confirmation：行业证据 + 龙头/广度 + 背离）")
     p_confirm.add_argument("--window", type=int, default=10, help="贡献分析回看窗口（交易日数，默认 10）")
     p_confirm.add_argument("--max-drill", type=int, default=10, help="最多穿透的行业数（默认 10 = 全部重点行业，结构字段全覆盖）")
+    p_confirm.add_argument("--date", default="", help="目标日期 YYYYMMDD（默认 metrics 最新日）")
     p_confirm.add_argument("--log-level", default="INFO")
 
     p_struct = sub.add_parser("structure", help="[Layer ②] Enrichment 行业内部结构（offline 读缓存生成，soft-fail；--allow-online-fetch 做 Cache Refresh）")
