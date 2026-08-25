@@ -390,6 +390,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         universe_items=universe_items,
         trend_df=trend_df,
         tier_confirmation_df=tier_confirmation_df,
+        trade_date=sel_date,
     )
 
     # ── 推荐结构（Recommendation Builder：纯排版，不制造新事实） ────

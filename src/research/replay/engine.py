@@ -195,6 +195,7 @@ def _replay_layer3(
         confirmation_df=confirmation_df,
         universe_items=universe_items,
         trend_df=trend_df,
+        trade_date=trade_date,
     )
     action = (candidates.get("action") or {}).get("level", "WAIT")
 

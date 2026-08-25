@@ -28,7 +28,7 @@ class TestSchema:
         assert len(a) == 16
 
     def test_rule_version(self):
-        assert schema.RULE_VERSION == "v0.8.0"
+        assert schema.RULE_VERSION == "v0.9.0"
 
 
 class TestParityFloat:
@@ -166,7 +166,7 @@ class TestSingleDateReplayIntegration:
         df = engine.replay_single_date("20260803", out_dir=None)
         assert not df.empty
         assert df["signal_origin"].iloc[0] == "replayed"
-        assert df["rule_version"].iloc[0] == "v0.8.0"
+        assert df["rule_version"].iloc[0] == "v0.9.0"
         r = parity.check_parity("20260803", df)
         assert r["ok"] is True, r
         assert r["layers"]["layer1"]["matched"] > 1000

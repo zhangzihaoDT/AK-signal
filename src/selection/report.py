@@ -153,21 +153,37 @@ def _risk_short(a: dict[str, Any]) -> str:
 
 
 def _monitor_conclusion(a: dict[str, Any]) -> str:
-    """监控表当前结论四档：推荐 / 合格 / 观察 / 等待。
+    """监控表当前结论（v0.9.0 四段信号优先）：推荐 / 持有 / 合格 / 观察 / 等待。
 
-    推荐：进入今日候选，且无阻塞（state=RECOMMENDED 且风险门控通过）
-    合格：趋势达标，但被其他门控或主题状态限制（state=QUALIFIED）
-    观察：尚未达标，但走势改善或需要继续跟踪（WATCH 且趋势未明显转弱）
-    等待：明显转弱或存在风险阻塞（WATCH 且 C 级 / 剔除观察 / 数据缺失）
+    推荐：主题确认（state=RECOMMENDED）且信号为 BUY 类（recommended=True）
+    持有：信号 HOLD（趋势成立但历史高位，不追高）
+    合格：信号 BUY 类但主题未确认（state=QUALIFIED，待主题确认）
+    观察：信号 WATCH（CORE×MID 等，暂不买入）；或 WAIT 且未明显转弱
+    等待：数据缺失 / 数据滞后 / 明显转弱 / 风险阻塞
     """
     if a.get("selection_status") == "unavailable":
         return "等待"
+    signal = str(a.get("signal", "") or "")
     state = str(a.get("state", ""))
+    if signal in ("STRONG_BUY", "BUY"):
+        # 主题确认才给推荐；主题未确认 → 合格（待主题确认）
+        return "推荐" if state == "RECOMMENDED" else "合格"
+    if signal == "HOLD":
+        return "持有"
+    if signal == "WATCH":
+        return "观察"
+    if signal == "WAIT":
+        # 保留观察/等待区分：明显转弱/风险阻塞/数据滞后 → 等待；其余（无趋势但未转弱）→ 观察
+        reason = str(a.get("reason", ""))
+        trend = str(a.get("trend_status", ""))
+        if a.get("data_status") == "stale" or reason == "剔除观察" or trend == "C":
+            return "等待"
+        return "观察"
+    # 无信号（历史/降级路径）→ 回退 state 逻辑
     if state == "RECOMMENDED":
         return "推荐"
     if state == "QUALIFIED":
         return "合格"
-    # WATCH：明显转弱（C 级 / 剔除观察）→ 等待，其余 → 观察
     reason = str(a.get("reason", ""))
     trend = str(a.get("trend_status", ""))
     if reason == "剔除观察" or trend == "C":
@@ -218,7 +234,7 @@ def _change_key(a: dict[str, Any]) -> tuple:
     """变化优先排序键：有状态变化 → 推荐状态 → 日变化幅值（降序）。"""
     has_chg = 0 if (a.get("state_change") or "") else 1
     concl = _monitor_conclusion(a)
-    concl_rank = {"推荐": 0, "合格": 1, "观察": 2, "等待": 3}.get(concl, 9)
+    concl_rank = {"推荐": 0, "持有": 1, "合格": 2, "观察": 3, "等待": 4}.get(concl, 9)
     sc = a.get("score_change_1d")
     chg_abs = abs(sc) if sc is not None else -1
     return (has_chg, concl_rank, -chg_abs, str(a.get("name", "")))
@@ -594,7 +610,7 @@ def render_selection_html(
             traj_txt = traj_parts if traj_parts else "—"
             # 风险/阻塞：短码（如 MA20↓ · MACD弱 · RS负），无则 —
             risk_txt = _risk_short(a)
-            # 当前结论：推荐 / 合格 / 观察 / 等待
+            # 当前结论：推荐 / 持有 / 合格 / 观察 / 等待（v0.9.0 信号优先）
             concl = _monitor_conclusion(a)
             # 悬停提示：最近趋势达标 + 完整 reason + 状态
             tip_parts = [f"最近趋势达标 {a.get('last_trend_qualified_date', '—')}",
@@ -619,6 +635,44 @@ def render_selection_html(
             parts.append(f"<h4 style='color:var(--zh-blue);margin:16px 0 6px'>{sub.get('theme_label', '')}"
                          f" <span style='font-size:12px;color:var(--zh-muted)'>({len(theme_assets)} 只)</span></h4>")
             parts += _monitor_table_html(theme_assets)
+    parts.append("</details></div>")
+
+    parts.append("<details><summary>ETF 候选监控（推荐 + 动态观察）</summary>")
+    parts.append("<div class='empty' style='padding:0 0 12px'>范围：当前主题的推荐 ETF 与动态关键词匹配观察 ETF；不纳入全市场 ETF。"
+                 "核心主题 ETF 与细分 ETF 按主题内评分排序，观察项保留未入选原因。</div>")
+    for b in buckets:
+        for sub in b.get("themes", []):
+            etfs = sub.get("etf_monitoring", [])
+            if not etfs:
+                continue
+            parts.append(f"<h4 style='color:var(--zh-blue);margin:16px 0 6px'>{sub.get('theme_label', '')}"
+                         f" <span style='font-size:12px;color:var(--zh-muted)'>({len(etfs)} 只)</span></h4>")
+            parts.append("<table><tr><th>ETF</th><th>来源</th><th class='num'>主题排名</th>"
+                         "<th>龙头/核心</th><th>位置</th><th class='num'>位置分位</th>"
+                         "<th class='num'>RPS15</th><th class='num'>成交额</th><th>信号</th><th>结论</th></tr>")
+            for a in etfs:
+                signal = a.get("signal", "") or "—"
+                if a.get("recommended"):
+                    conclusion = "推荐"
+                elif signal == "HOLD":
+                    conclusion = "持有"
+                elif signal == "WATCH":
+                    conclusion = "观察"
+                else:
+                    conclusion = "等待"
+                source = "推荐" if a.get("monitoring_source") == "recommendation" else "动态观察"
+                position_pct = _num(a.get("position_pct"))
+                position_txt = a.get("position_level", "—") or "—"
+                if position_pct is not None:
+                    position_txt = f"{position_txt}"
+                parts.append(
+                    f"<tr><td><b>{a.get('name', '')}</b><span class='why'> ({a.get('code', '')})</span></td>"
+                    f"<td>{source}</td><td class='num'>{a.get('theme_rank', '—')}</td>"
+                    f"<td>{a.get('leadership_level', '—')}</td><td>{position_txt}</td>"
+                    f"<td class='num'>{position_pct if position_pct is not None else '—'}</td>"
+                    f"<td class='num'>{_num(a.get('rps15'))}</td><td class='num'>{_fmt_liquidity(a.get('liquidity'))}</td>"
+                    f"<td>{signal}</td><td>{conclusion}</td></tr>")
+            parts.append("</table>")
     parts.append("</details></div>")
 
     parts.append(f'<hr><div style="text-align:center;font-size:12px;color:var(--zh-muted);padding:20px 0">AKsignal · Layer ③ 投资建议 · 报告自动生成于 {now_str}</div>')

@@ -31,6 +31,7 @@ from typing import Any
 import pandas as pd
 
 from src.common import themes as themes_cfg
+from src.selection import four_stage
 
 logger = logging.getLogger("selection")
 
@@ -52,17 +53,30 @@ ROLE_LABELS = {
 }
 
 # 趋势门控：允许进入候选的 ETF 状态（来自统一 Strategy Specification config/strategies.yaml etf_selection）
-def _indicator_gates() -> tuple[set[str], set[str], float, float, set[str], set[str]]:
+def _indicator_gates() -> tuple[set[str], set[str], float, set[str], set[str]]:
     from src.common.spec.loaders import load_etf_selection_spec, load_stock_selection_spec
     es = load_etf_selection_spec()
     ss = load_stock_selection_spec()
     return (set(es.allowed_trend_states), set(es.watch_allowed_trend_states),
-            float(es.min_amount), float(ss.qualified_score),
+            float(ss.qualified_score),
             set(ss.allowed_trend_states), set(ss.theme_confirm_states))
 
 
-(ETF_TREND_GATES, ETF_WATCH_GATES, ETF_MIN_AMOUNT,
+(ETF_TREND_GATES, ETF_WATCH_GATES,
  STOCK_QUALIFIED_SCORE, STOCK_ALLOWED_TREND_STATES, THEME_CONFIRM_STATES) = _indicator_gates()
+
+
+def _etf_min_amount() -> float:
+    """ETF 流动性门槛（Policy，config/strategies.yaml etf_selection.min_amount）。
+
+    单一来源：只允许通过 spec loader 读取，禁止模块内硬编码覆盖（曾出现
+    `ETF_MIN_AMOUNT = 50_000_000` 覆盖 config 值的 config drift 缺陷）。
+    """
+    from src.common.spec.loaders import load_etf_selection_spec
+    return float(load_etf_selection_spec().min_amount)
+
+
+ETF_MIN_AMOUNT = _etf_min_amount()
 # 观察池（弱势市场兜底）：额外纳入 WATCH，仅作观察候选，recommended=False
 # 对外暴露的趋势状态标签：OUT_OF_SCOPE 语义易误读为「不属于主题」，实为「未达趋势门」
 ETF_TREND_STATUS_LABELS = {
@@ -76,9 +90,73 @@ ETF_TREND_STATUS_LABELS = {
 STOCK_STATE_WATCH = "WATCH"
 STOCK_STATE_QUALIFIED = "QUALIFIED"
 STOCK_STATE_RECOMMENDED = "RECOMMENDED"
-# 个股趋势合格门槛（来自 config/strategies.yaml stock_selection.qualified_score）
+# 个股趋势合格门槛（来自 config/strategies.yaml stock_selection.trend.qualified_score）
 # 主题确认门槛（Layer③ 门控 = stock_selection.theme_confirm_states；与 Layer② 生成
 # strength_level 的 observe_threshold 无关——那是 Observation，本层只消费状态）
+
+# 四段信号（v0.9.0）：BUY 类 = 可行动推荐；HOLD/WATCH/WAIT = 不推荐
+BUY_SIGNALS = ("STRONG_BUY", "BUY")
+_SIGNAL_ORDER = {"STRONG_BUY": 0, "BUY": 1, "WATCH": 2, "HOLD": 3, "WAIT": 4}
+
+
+def _four_stage_specs():
+    """四段 Policy（lru_cached spec，不重复读盘）。返回 (stock_spec, etf_spec)。"""
+    from src.common.spec.loaders import load_etf_selection_spec, load_stock_selection_spec
+    return load_stock_selection_spec(), load_etf_selection_spec()
+
+
+_STOCK_SPEC, _ETF_SPEC = _four_stage_specs()
+
+
+def _signal_rules_dicts() -> list[dict[str, Any]]:
+    """信号规则（个股与 ETF 共用同一词汇表；share stock_selection.signal_policy）。"""
+    return [asdict(r) for r in _STOCK_SPEC.signal_policy.rules]
+
+
+def _apply_four_stage(
+    cand: AssetCandidate,
+    *,
+    rank: int,
+    trend_level: str,
+    closes: list[float],
+    spec: Any,
+    outperform_bar: float | None = None,
+) -> str:
+    """给候选补齐四段字段（leadership / position / signal），返回 signal。
+
+    纪律落实：
+      - position 只调赔率不产生趋势（trend_level=NOT_QUALIFIED → 必为 fallback WAIT 级）
+      - HIGH → HOLD（不追高）；require_rps_outperform 且趋势指标低于 outperform_bar 时强制 NON_CORE
+    """
+    lv = spec.leadership
+    lvl = four_stage.classify_leadership(rank, lv.leader_rank_max, lv.core_rank_max)
+    if (lv.require_rps_outperform and outperform_bar is not None
+            and cand.trend_metric_value is not None and cand.trend_metric_value < outperform_bar):
+        lvl = "NON_CORE"
+    hp = spec.historical_position
+    pos_level, pos_pct = four_stage.evaluate_position(
+        closes, hp.lookback_days, hp.low_max, hp.mid_max, enabled=hp.enabled)
+    signal = four_stage.match_signal(
+        trend_level, lvl, pos_level, _signal_rules_dicts(), _STOCK_SPEC.signal_policy.fallback_signal)
+    cand.leadership_level = lvl
+    cand.theme_rank = rank
+    cand.position_level = pos_level
+    cand.position_pct = pos_pct
+    cand.position_lookback_days = hp.lookback_days if hp.enabled else 0
+    cand.signal = signal
+    return signal
+
+
+def _signal_reason(cand: AssetCandidate) -> str:
+    """四段信号的人类可读说明（用于 reason/报告展示，不改变事实）。"""
+    if cand.signal in ("", "WAIT"):
+        return ""
+    parts = [cand.signal]
+    if cand.leadership_level:
+        parts.append(cand.leadership_level)
+    if cand.position_level in ("LOW", "MID", "HIGH"):
+        parts.append(cand.position_level)
+    return " · ".join(parts)
 
 
 def _industry_confirm_threshold() -> float:
@@ -91,11 +169,14 @@ INDUSTRY_CONFIRM_RPS15 = _industry_confirm_threshold()
 
 
 def _primary_stock(stock_candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """个股首选：RECOMMENDED 中 strategy_score 最高的一只（分赛道，不跨 ETF 比较）。"""
-    recs = [c for c in stock_candidates if c.get("state") == STOCK_STATE_RECOMMENDED]
+    """个股首选（v0.9.0 四段）：被信号门控为 BUY 类（STRONG_BUY > BUY）的候选中
+    strategy_score 最高的一只（分赛道，不跨 ETF 比较）。"""
+    recs = [c for c in stock_candidates if c.get("recommended") and c.get("signal") in BUY_SIGNALS]
     if not recs:
         return []
-    best = max(recs, key=lambda c: (c.get("strategy_score") if c.get("strategy_score") is not None else -1e9))
+    best = max(recs, key=lambda c: (
+        _SIGNAL_ORDER.get(c.get("signal", ""), 9),
+        -float(c.get("strategy_score")) if c.get("strategy_score") is not None else -1e9))
     return [best]
 
 
@@ -143,8 +224,6 @@ def _clean_trend_status(v: Any) -> str:
     if not s or s.lower() in ("nan", "none"):
         return "UNKNOWN"
     return ETF_TREND_STATUS_LABELS.get(s, s)
-# ETF 流动性门槛（成交额，元）
-ETF_MIN_AMOUNT = 50_000_000
 
 
 @dataclass
@@ -188,6 +267,13 @@ class AssetCandidate:
     # 资产池 tier 归属（universe 原始赛道标签，如 computing_chip/光模块；role 是其聚合归类）
     tier: str = ""
     tier_label: str = ""
+    # 四段信号（v0.9.0）：trend → leadership → position → signal
+    leadership_level: str = ""          # LEADER / CORE / NON_CORE（主题内相对地位）
+    theme_rank: int | None = None       # 主题内可比分排名（1 起）
+    position_level: str = ""            # LOW / MID / HIGH / UNKNOWN（历史价格分位）
+    position_pct: float | None = None   # 3 年价格分位（0-100）
+    position_lookback_days: int = 0     # 分位回看窗口（config historical_position.lookback_days）
+    signal: str = ""                    # STRONG_BUY / BUY / WATCH / HOLD / WAIT
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -236,6 +322,13 @@ def classify_confirmation_breadth(
     if max_rps15 is not None and max_rps15 >= watch_proximity:
         return ("UNCONFIRMED", "未确认 · 接近观察门")
     return ("UNCONFIRMED", "未确认")
+
+
+def _col_series(df: pd.DataFrame, col: str) -> pd.Series:
+    """安全取列（空 DataFrame / 缺列 → 空 Series），容错 focus/confirmation 数据缺失。"""
+    if df is None or df.empty or col not in df.columns:
+        return pd.Series(dtype=float)
+    return df[col].dropna()
 
 
 def _confirm_evidence(sub: pd.DataFrame, confirmed: bool) -> dict[str, Any]:
@@ -311,6 +404,13 @@ def evaluate_themes(
                                  breadth_state, breadth_state)
             reason = f"{tm.get('reason', '')}（Tier Gate）"
             observing_industries: list[dict[str, Any]] = []
+            # 上涨结构（Enrichment，soft-fail）：Tier 判定「确认」，行业结构判定「表达」。
+            # 结构字段（participation/hhi/top3，来自 confirmation 的 drilldown）可用时
+            # 恢复 decide_expression 的区分度；Enrichment 缺失时留 None → expression
+            # 塌缩为 CORE_PLUS_LEADER（与结构未知的语义一致，不伪造结构）。
+            part = _col_series(sub, "participation_rate")
+            hhi = _col_series(sub, "hhi")
+            top3 = _col_series(sub, "top3_share")
             entry.update({
                 "confirmed": confirmed,
                 "n_strong": n_strong,
@@ -319,9 +419,9 @@ def evaluate_themes(
                 "n_total": n_total,
                 "median_rps15": tm.get("tier_strength_median"),
                 "strongest_industry_rps15": max_rps,
-                "median_participation": None,
-                "median_hhi": None,
-                "median_top3_share": None,
+                "median_participation": float(part.median()) if not part.empty else None,
+                "median_hhi": float(hhi.median()) if not hhi.empty else None,
+                "median_top3_share": float(top3.median()) if not top3.empty else None,
                 "confirmation_state": breadth_state,
                 "confirmation_breadth": breadth_label,
                 "confirm_evidence": evidence,
@@ -533,6 +633,7 @@ def theme_etf_pool(
     account_df: pd.DataFrame,
     master_df: pd.DataFrame,
     theme: str,
+    trade_date: str | None = None,
 ) -> list[AssetCandidate]:
     """该主题全部关键词命中的 ETF 池（趋势门控与流动性只标注不硬过滤），供观察池展示。
 
@@ -582,7 +683,7 @@ def theme_etf_pool(
         d = _direction_word(str(r.get("fund_name", "")))
         best_per_dir.setdefault(d, str(r["fund_code"]))
     out: list[AssetCandidate] = []
-    for _, row in etf.sort_values("selection_score", ascending=False).iterrows():
+    for i, (_, row) in enumerate(etf.sort_values("selection_score", ascending=False).iterrows()):
         code = str(row["fund_code"])
         in_gate = str(row.get("trend_state", "")) in ETF_TREND_GATES
         amt_v = pd.to_numeric(row.get("amount"), errors="coerce")
@@ -591,7 +692,7 @@ def theme_etf_pool(
                 (["liquidity_ok"] if liq_ok else ["low_liquidity"])
         if code != best_per_dir.get(_direction_word(str(row.get("fund_name", "")))):
             codes.append("dedup_lost")
-        out.append(AssetCandidate(
+        cand = AssetCandidate(
             code=code,
             name=str(row.get("fund_name", "")),
             role="SUB_INDUSTRY_ETF" if in_gate else "CORE_ETF",
@@ -616,7 +717,19 @@ def theme_etf_pool(
             state=STOCK_STATE_RECOMMENDED if (in_gate and liq_ok) else STOCK_STATE_WATCH,
             selection_score=_round(row.get("selection_score")),
             reason="观察池 ETF（趋势/流动性未全达标）",
-        ))
+        )
+        # 四段信号（观察池同样补 leadership/position/signal；recommended 改由信号门控）
+        signal = _apply_etf_four_stage(
+            cand, rank=i + 1, trend_qualified=in_gate,
+            closes=four_stage.load_etf_close_history(
+                code, trade_date,
+                _ETF_SPEC.historical_position.lookback_days if _ETF_SPEC.historical_position.enabled else None))
+        cand.recommended = bool(in_gate and liq_ok) and signal in BUY_SIGNALS
+        if signal in ("HOLD", "WATCH"):
+            sig_code = f"signal_{signal.lower()}"
+            if sig_code not in cand.reason_codes:
+                cand.reason_codes = cand.reason_codes + [sig_code]
+        out.append(cand)
     return out
 
 
@@ -718,6 +831,7 @@ def select_stock_watchlist(
     theme: str,
     trend_df: pd.DataFrame,
     theme_confirmed: bool = False,
+    trade_date: str | None = None,
 ) -> tuple[list[AssetCandidate], list[AssetCandidate], list[AssetCandidate]]:
     """输出该主题的固定观察池全量（universe 分层池），不按强弱筛选。
 
@@ -726,12 +840,18 @@ def select_stock_watchlist(
     趋势数据缺失（data_status=missing）的标的标记 selection_status=unavailable，
     不进入任何候选（不阻塞整体 Selection）。
 
+    v0.9.0 四段：可用候选先按 score_trend 做主题内排名（theme_rank），再补
+    leadership / position / signal；recommended 由信号门控（主题确认 ∧ BUY 类信号）。
+    trade_date 用于把价格历史截断到目标交易日，避免 look-ahead。
+
     Returns:
         (leaders, high_beta, equipment)
     """
     leaders: list[AssetCandidate] = []
     high_beta: list[AssetCandidate] = []
     equipment: list[AssetCandidate] = []
+    available: list[AssetCandidate] = []
+    available_market: dict[int, str] = {}
 
     for item in universe_items:
         if item.theme != theme:
@@ -796,11 +916,9 @@ def select_stock_watchlist(
         lag = _tv("lag_days")
         if data_status == "stale" and state in (STOCK_STATE_RECOMMENDED, STOCK_STATE_QUALIFIED):
             state = STOCK_STATE_WATCH
-            recommended = False
             reason_codes = ["stale_data"]
             reason_txt = f"数据滞后 {lag or '?'} 天，信号降级" if lag else "数据滞后，信号降级"
         else:
-            recommended = state == STOCK_STATE_RECOMMENDED
             if state == STOCK_STATE_RECOMMENDED:
                 reason_codes = ["trend_qualified", "theme_confirmed"]
             elif state == STOCK_STATE_QUALIFIED:
@@ -824,7 +942,7 @@ def select_stock_watchlist(
             strategy_score=score_trend,  # 个股策略内排序 = 自身趋势分（不跨 ETF 比较）
             reason_codes=reason_codes,
             tradable=True,  # 黑名单机制：未确认不可交易即默认可交易
-            recommended=recommended,
+            recommended=state == STOCK_STATE_RECOMMENDED,
             state=state,
             data_status=data_status,
             selection_status="available",
@@ -838,7 +956,35 @@ def select_stock_watchlist(
             tier=item.tier,
             tier_label=item.tier_label,
         )
-        _append_by_role(cand, role, leaders, high_beta, equipment)
+        available.append(cand)
+        available_market[id(cand)] = item.asset.market
+
+    # ── 主题内排名（theme_rank）→ 四段信号（leadership / position / signal） ──
+    scored = sorted(
+        [c for c in available if c.score_trend is not None],
+        key=lambda c: (c.score_trend or -1e9), reverse=True)
+    rank_of = {id(c): i + 1 for i, c in enumerate(scored)}
+    closes_cache: dict[str, list[float]] = {}
+    for cand in available:
+        rank = rank_of.get(id(cand))
+        trend_level = "QUALIFIED" if cand.state in (STOCK_STATE_QUALIFIED, STOCK_STATE_RECOMMENDED) else "NOT_QUALIFIED"
+        if cand.code not in closes_cache:
+            hp = _STOCK_SPEC.historical_position
+            closes_cache[cand.code] = four_stage.load_stock_close_history(
+                available_market.get(id(cand), "CN"), cand.code, trade_date,
+                hp.lookback_days if hp.enabled else None)
+        signal = _apply_four_stage(
+            cand, rank=rank or 1, trend_level=trend_level,
+            closes=closes_cache[cand.code], spec=_STOCK_SPEC, outperform_bar=_STOCK_SPEC.qualified_score)
+        # 信号门控 recommended：主题确认（state=RECOMMENDED）∧ BUY 类信号
+        cand.recommended = cand.state == STOCK_STATE_RECOMMENDED and signal in BUY_SIGNALS
+        if signal in ("HOLD", "WATCH") and "stale_data" not in cand.reason_codes:
+            sig_code = f"signal_{signal.lower()}"
+            if sig_code not in cand.reason_codes:
+                cand.reason_codes = cand.reason_codes + [sig_code]
+            if cand.reason:
+                cand.reason = f"{cand.reason} · {_signal_reason(cand)}"
+        _append_by_role(cand, cand.role, leaders, high_beta, equipment)
 
     return leaders, high_beta, equipment
 
@@ -946,12 +1092,15 @@ def build_candidates(
     universe_items: list[Any],
     trend_df: pd.DataFrame,
     tier_confirmation_df: pd.DataFrame | None = None,
+    trade_date: str | None = None,
 ) -> dict[str, Any]:
     """构建 Layer ③ 候选资产对象（结构化 dict，可直接落 JSON）。
 
     v0.4.3 输出结构：buckets[].themes[]，每个 theme 含 ETF 候选 / 个股观察池 / 表达决策。
     v0.9.1：配置了 tiers 的主题（AI / 汽车 / 高现金流）确认 Gate 升级为 Tier basket
     （消费 tier_confirmation parquet）。
+    v0.9.0：四段信号（trend→leadership→position→signal）接入 ETF 与个股候选；
+    trade_date 用于把价格历史截断到目标交易日（防 look-ahead）。
     """
     theme_metas = evaluate_themes(confirmation_df, rotation_df, tier_confirmation_df)
     direction = evaluate_direction(theme_metas)
@@ -982,18 +1131,21 @@ def build_candidates(
             sub_industry_etf: list[AssetCandidate] = []
             if not dedup.empty:
                 top = dedup.sort_values("selection_score", ascending=False)
-                # 核心 ETF：主题内评分最高 1 只
+                # 核心 ETF：主题内评分最高 1 只（rank=1 → LEADER）
                 c = top.iloc[0]
-                core_etf.append(_to_etf_candidate(c, "CORE_ETF", bucket_cfg.key, key, "主题评分最高"))
-                # 细分 ETF：其余不同方向各取 1 只（最多 2）
-                for _, r in top.iloc[1:].iterrows():
+                core_etf.append(_to_etf_candidate(
+                    c, "CORE_ETF", bucket_cfg.key, key, "主题评分最高", rank=1, trade_date=trade_date))
+                # 细分 ETF：其余不同方向各取 1 只（最多 2，rank 2..3 → CORE）
+                for i, (_, r) in enumerate(top.iloc[1:].iterrows()):
                     if len(sub_industry_etf) >= 2:
                         break
-                    sub_industry_etf.append(_to_etf_candidate(r, "SUB_INDUSTRY_ETF", bucket_cfg.key, key, "细分方向代表"))
+                    sub_industry_etf.append(_to_etf_candidate(
+                        r, "SUB_INDUSTRY_ETF", bucket_cfg.key, key, "细分方向代表",
+                        rank=i + 2, trade_date=trade_date))
 
             # 个股固定观察池（全量）+ 动态候选（按状态门控后的子集）
             leaders, high_beta, equipment = select_stock_watchlist(
-                universe_items, key, trend_df, theme_confirmed=meta["confirmed"])
+                universe_items, key, trend_df, theme_confirmed=meta["confirmed"], trade_date=trade_date)
             stock_watchlist = {
                 "leaders": [c.to_dict() for c in leaders],
                 "high_beta": [c.to_dict() for c in high_beta],
@@ -1018,7 +1170,7 @@ def build_candidates(
                 return v
 
             # ETF 观察池（全部关键词命中 + 原因标注；core/sub 逻辑不变，仅补全事实）
-            etf_pool = theme_etf_pool(rotation_df, account_df, master_df, key)
+            etf_pool = theme_etf_pool(rotation_df, account_df, master_df, key, trade_date=trade_date)
 
             theme_obj = {
                 "theme": key,
@@ -1194,9 +1346,22 @@ def _collect_recommended_actions(theme_objs: list[dict[str, Any]]) -> list[dict[
     return out
 
 
-def _to_etf_candidate(row: pd.Series, role: str, bucket: str, theme: str, reason: str) -> AssetCandidate:
+def _to_etf_candidate(
+    row: pd.Series,
+    role: str,
+    bucket: str,
+    theme: str,
+    reason: str,
+    *,
+    rank: int | None = None,
+    trade_date: str | None = None,
+) -> AssetCandidate:
+    """ETF 候选（core/sub）：rank 为主题内排名（按 selection_score），据此补四段信号。
+
+    recommended 由信号门控：趋势门达标 ∧ BUY 类信号。
+    """
     in_gate = str(row.get("trend_state", "")) in ETF_TREND_GATES
-    return AssetCandidate(
+    cand = AssetCandidate(
         code=str(row["fund_code"]),
         name=str(row.get("fund_name", "")),
         role=role,
@@ -1223,6 +1388,35 @@ def _to_etf_candidate(row: pd.Series, role: str, bucket: str, theme: str, reason
         selection_score=_round(row.get("selection_score")),
         reason=reason,
     )
+    signal = _apply_etf_four_stage(
+        cand, rank=rank, trend_qualified=in_gate,
+        closes=four_stage.load_etf_close_history(
+            cand.code, trade_date,
+            _ETF_SPEC.historical_position.lookback_days if _ETF_SPEC.historical_position.enabled else None))
+    cand.recommended = in_gate and signal in BUY_SIGNALS
+    if signal in ("HOLD", "WATCH"):
+        sig_code = f"signal_{signal.lower()}"
+        if sig_code not in cand.reason_codes:
+            cand.reason_codes = cand.reason_codes + [sig_code]
+        if cand.reason:
+            cand.reason = f"{cand.reason} · {_signal_reason(cand)}"
+    return cand
+
+
+def _apply_etf_four_stage(
+    cand: AssetCandidate,
+    *,
+    rank: int | None,
+    trend_qualified: bool,
+    closes: list[float],
+) -> str:
+    """ETF 四段：leadership 由主题内 selection_score 排名定（core_rank_max=1→LEADER，
+    satellite_rank_max=3→CORE）；信号复用 stock_selection.signal_policy（ETF 沿用个股思想）。
+    """
+    trend_level = "QUALIFIED" if trend_qualified else "NOT_QUALIFIED"
+    return _apply_four_stage(
+        cand, rank=rank or 1, trend_level=trend_level,
+        closes=closes, spec=_ETF_SPEC, outperform_bar=None)
 
 
 # ── 持久化 ─────────────────────────────────────────────────────────

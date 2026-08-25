@@ -1,19 +1,31 @@
-# v0.6.1 主题级策略规格（Strategy Specification）
+# v0.9.0 主题级策略规格（Strategy Specification）— Layer③ 四段选筹
 #
 # 架构结论：策略规则按主题配置，不共用全局 EntryPolicy / ExitPolicy。
 # 每个策略有稳定 strategy_id（进入历史信号与回测产物的 Provenance）。
 # 算法语义（状态转换如何识别、MA 如何计算等）留在代码；这里只放策略参数。
 #
-# etf_selection：Layer③ ETF 候选的「准入—排序—输出」策略（Policy，非指标定义）。
-#   - 准入：allowed_trend_states（趋势门）+ min_amount（流动性门）
-#   - 排序：ranking.weights（rps15/rps20/amount_score 权重）
-#   - amount_score：固定区间 log 评分（floor→0，reference→cap，跨期/跨候选池可比，
-#     不依赖当天候选集合的相对大小）
+# Layer③ 统一选筹逻辑（四段）：
+#   1. trend      — 有没有趋势（无趋势不进入买入候选）
+#   2. leadership — 是不是主题龙头/核心成分（主题内相对地位）
+#   3. position   — 当前处于历史什么位置（判断赔率；历史低位只提高赔率，不产生趋势）
+#   4. signal     — 三者组合后给出最终行动信号（STRONG_BUY / BUY / WATCH / HOLD / WAIT）
+#
+# 纪律：position 从不单独产生买入信号。趋势不成立（trend=NOT_QUALIFIED）的标的
+#       即使位于 20% 历史分位，仍然 WAIT；HIGH 位置只输出 HOLD，不追高。
 
 etf_selection:
-  allowed_trend_states: ["BUY_CANDIDATE", "STRONG_WATCH"]
-  watch_allowed_trend_states: ["BUY_CANDIDATE", "STRONG_WATCH", "WATCH"]
-  min_amount: 50000000
+  # Layer③ ETF 候选的「准入—排序—输出」策略（Policy，非指标定义）。
+  #   - 准入：trend.allowed_trend_states（趋势门）+ trend.min_amount（流动性门）
+  #   - 排序：ranking.weights（rps15/rps20/amount_score 权重）
+  #   - amount_score：固定区间 log 评分（floor→0，reference→cap，跨期/跨候选池可比，
+  #     不依赖当天候选集合的相对大小）
+  #   - leadership：主题内排序 → LEADER（rank≤core_rank_max）/ CORE（≤satellite_rank_max）
+  #   - signal：与 stock_selection.signal_policy 共用同一信号词汇表与规则（ETF 沿用个股思想）
+  trend:
+    allowed_trend_states: ["BUY_CANDIDATE", "STRONG_WATCH"]
+    watch_allowed_trend_states: ["BUY_CANDIDATE", "STRONG_WATCH", "WATCH"]
+    min_amount: 50000000
+
   ranking:
     weights:
       rps15: 0.55
@@ -25,14 +37,76 @@ etf_selection:
       reference: 500000000   # 成交额 ≥ reference → cap（100）
       cap: 100
 
-# stock_selection：Layer③ 个股准入 + 主题门控（Policy，非指标定义）
-#   个股准入：qualified_score + allowed_trend_states（趋势合格线）
-#   theme_confirm_states：哪些 strength_level 视为主题确认（Layer③ 门控；
+  leadership:
+    core_rank_max: 1         # 主题内 rank≤1 → LEADER（核心主题 ETF）
+    satellite_rank_max: 3    # rank≤3 → CORE（细分/卫星 ETF）；>3 → NON_CORE
+
+  historical_position:
+    enabled: true
+    lookback_days: 756       # 约 3 年交易日
+    metric: price_percentile
+    low_max: 30              # ≤30% = LOW
+    mid_max: 70              # ≤70% = MID；>70% = HIGH
+
+# stock_selection：Layer③ 个股准入 + 主题门控 + 四段信号（Policy，非指标定义）
+#   ① trend：qualified_score + allowed_trend_states（趋势合格线）
+#     - rps15_min：策略定义的 RPS15 底线（与 strategies.<id>.entry 对齐，供展示/对齐检查）
+#   theme_confirm_states：哪些 strength_level 视为主题确认（Layer③ 前置 Gate；
 #     与 Layer② 生成 strength_level 的 observe_threshold 无关——那是 Observation）
+#   ② leadership：theme_rank = 主题内按 trend_score 排名 → LEADER（Top leader_rank_max）/
+#     CORE（≤core_rank_max）/ NON_CORE；require_rps_outperform=true 时趋势分未过线
+#     的一律不升 LEADER/CORE（保险丝，通常已被 ① 挡住）
+#   ③ historical_position：价格分位（历史赔率，不产生趋势）
+#   ④ signal_policy：规则顺序匹配（先命中先生效），未命中 → fallback_signal
 stock_selection:
-  qualified_score: 70
-  allowed_trend_states: ["S", "A"]
+  trend:
+    qualified_score: 70
+    rps15_min: 80
+    allowed_trend_states: ["S", "A"]
+
   theme_confirm_states: ["观察", "强势"]
+
+  leadership:
+    method: theme_rank
+    leader_rank_max: 3       # 主题内综合排名 Top3 = LEADER
+    core_rank_max: 10        # Top4~10 = CORE
+    require_rps_outperform: true
+
+  historical_position:
+    enabled: true
+    lookback_days: 756       # 约 3 年交易日
+    metric: price_percentile
+    low_max: 30              # ≤30% = LOW
+    mid_max: 70              # ≤70% = MID；>70% = HIGH
+
+  # ④ 最终信号（ETF 复用本规则；position 缺失/不可用时按中性 MID 处理，不升级也不压制）
+  signal_policy:
+    rules:
+      - trend: QUALIFIED
+        leadership: LEADER
+        position: LOW
+        signal: STRONG_BUY
+
+      - trend: QUALIFIED
+        leadership: LEADER
+        position: MID
+        signal: BUY
+
+      - trend: QUALIFIED
+        leadership: CORE
+        position: LOW
+        signal: BUY
+
+      - trend: QUALIFIED
+        leadership: CORE
+        position: MID
+        signal: WATCH
+
+      - trend: QUALIFIED
+        position: HIGH
+        signal: HOLD
+
+    fallback_signal: WAIT
 
 strategies:
   ai_20:

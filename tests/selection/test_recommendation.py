@@ -132,6 +132,10 @@ class TestBuildRecommendation:
         assert len(t["watchlist"]["stocks"]) == 1
         assert t["watchlist"]["stocks"][0]["code"] == "600900"
         assert "跌破MA20" in t["watchlist"]["stocks"][0]["reject_reason"]
+        # 附录 ETF 监控：推荐 ETF 与动态观察 ETF 分开标注
+        assert [a["code"] for a in t["etf_monitoring"]] == ["561560", "159625", "159536"]
+        assert t["etf_monitoring"][0]["monitoring_source"] == "recommendation"
+        assert t["etf_monitoring"][-1]["monitoring_source"] == "watchlist"
 
     def test_unconfirmed_theme_blocks(self):
         r = rec.build_recommendation(_engine([_theme_unconfirmed()]))
@@ -174,3 +178,49 @@ class TestRejectReasons:
 
     def test_stock_qualified(self):
         assert "待主题确认" in rec._stock_reject_reason({"state": "QUALIFIED", "selection_status": "available"})
+
+
+class TestMonitorConclusion:
+    """v0.9.0 附录监控表结论：四段信号优先，state 仅作主题门控区分。"""
+
+    def _c(self, **kw):
+        base = {"selection_status": "available", "state": "RECOMMENDED", "signal": "BUY",
+                "trend_status": "A", "data_status": "current", "reason": "重点观察"}
+        base.update(kw)
+        return base
+
+    def test_signal_buy_confirmed_recommended(self):
+        from src.selection.report import _monitor_conclusion
+        assert _monitor_conclusion(self._c(signal="STRONG_BUY")) == "推荐"
+        assert _monitor_conclusion(self._c(signal="BUY")) == "推荐"
+
+    def test_signal_buy_but_theme_unconfirmed_qualified(self):
+        """信号 BUY 但主题未确认（state=QUALIFIED）→ 合格（待主题确认），不是推荐。"""
+        from src.selection.report import _monitor_conclusion
+        assert _monitor_conclusion(self._c(signal="BUY", state="QUALIFIED")) == "合格"
+
+    def test_signal_hold(self):
+        """趋势成立但历史高位 → 持有，不追高（不是推荐）。"""
+        from src.selection.report import _monitor_conclusion
+        c = self._c(signal="HOLD", position_level="HIGH", position_pct=98.9)
+        assert _monitor_conclusion(c) == "持有"
+
+    def test_signal_watch(self):
+        from src.selection.report import _monitor_conclusion
+        assert _monitor_conclusion(self._c(signal="WATCH")) == "观察"
+
+    def test_signal_wait_stale_or_weak(self):
+        from src.selection.report import _monitor_conclusion
+        assert _monitor_conclusion(self._c(signal="WAIT", data_status="stale")) == "等待"
+        assert _monitor_conclusion(self._c(signal="WAIT", trend_status="C")) == "等待"
+        assert _monitor_conclusion(self._c(signal="WAIT", trend_status="B")) == "观察"
+
+    def test_unavailable_waits(self):
+        from src.selection.report import _monitor_conclusion
+        assert _monitor_conclusion(self._c(selection_status="unavailable", signal="BUY")) == "等待"
+
+    def test_no_signal_fallback_state(self):
+        """无信号（历史/降级路径）→ 回退 state 逻辑。"""
+        from src.selection.report import _monitor_conclusion
+        assert _monitor_conclusion(self._c(signal="")) == "推荐"
+        assert _monitor_conclusion(self._c(signal="", state="QUALIFIED")) == "合格"

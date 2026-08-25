@@ -16,7 +16,8 @@ from src.common.paths import config_dir
 from . import schema as sch
 from .model import (
     AllocationSpec, AmountScoreSpec, EntrySpec, EtfSelectionSpec, ExecutionSpec,
-    ExitSpec, IndicatorSpec, PortfolioSpec, StockSelectionSpec, StrategySpec,
+    ExitSpec, HistoricalPositionSpec, IndicatorSpec, LeadershipSpec, PortfolioSpec,
+    SignalPolicySpec, SignalRule, StockSelectionSpec, StrategySpec,
 )
 
 
@@ -26,6 +27,46 @@ def _read_yaml(rel: str) -> dict[str, Any]:
         raise FileNotFoundError(f"config/{rel} missing")
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+def _parse_leadership(node: dict[str, Any]) -> LeadershipSpec:
+    if "leader_rank_max" in node:
+        # 个股风格：leader_rank_max（LEADER 上界）+ core_rank_max（CORE 上界）
+        leader = int(node["leader_rank_max"])
+        core = int(node.get("core_rank_max", leader))
+    else:
+        # ETF 风格：core_rank_max（LEADER 上界）+ satellite_rank_max（CORE 上界）
+        leader = int(node.get("core_rank_max", 1))
+        core = int(node.get("satellite_rank_max", leader))
+    return LeadershipSpec(
+        method=str(node.get("method", "theme_rank")),
+        leader_rank_max=leader,
+        core_rank_max=core,
+        require_rps_outperform=bool(node.get("require_rps_outperform", True)),
+    )
+
+
+def _parse_historical_position(node: dict[str, Any]) -> HistoricalPositionSpec:
+    return HistoricalPositionSpec(
+        enabled=bool(node.get("enabled", True)),
+        lookback_days=int(node.get("lookback_days", 756)),
+        metric=str(node.get("metric", "price_percentile")),
+        low_max=float(node.get("low_max", 30.0)),
+        mid_max=float(node.get("mid_max", 70.0)),
+    )
+
+
+def _parse_signal_policy(node: dict[str, Any]) -> SignalPolicySpec:
+    rules = tuple(
+        SignalRule(
+            signal=str(r["signal"]),
+            trend=r.get("trend"),
+            leadership=r.get("leadership"),
+            position=r.get("position"),
+        )
+        for r in (node.get("rules") or [])
+    )
+    return SignalPolicySpec(rules=rules, fallback_signal=str(node.get("fallback_signal", "WAIT")))
 
 
 def _themes_keys() -> set[str]:
@@ -67,33 +108,41 @@ def load_indicator_spec() -> IndicatorSpec:
 
 @lru_cache(maxsize=None)
 def load_etf_selection_spec() -> EtfSelectionSpec:
-    """Layer③ ETF 候选策略（准入门限 + 排序权重 + amount_score 口径）。"""
+    """Layer③ ETF 候选策略（准入 + 排序权重 + amount_score 口径 + 四段）。"""
     cfg = _read_yaml("strategies.yaml")
     sch.validate_etf_selection(cfg)
     es = cfg["etf_selection"]
+    trend = es["trend"]
     amt = es["ranking"]["amount_score"]
     return EtfSelectionSpec(
-        allowed_trend_states=tuple(es["allowed_trend_states"]),
-        watch_allowed_trend_states=tuple(es["watch_allowed_trend_states"]),
-        min_amount=float(es["min_amount"]),
+        allowed_trend_states=tuple(trend["allowed_trend_states"]),
+        watch_allowed_trend_states=tuple(trend["watch_allowed_trend_states"]),
+        min_amount=float(trend["min_amount"]),
         ranking_weights={k: float(v) for k, v in es["ranking"]["weights"].items()},
         amount_score=AmountScoreSpec(
             method=str(amt["method"]), floor=float(amt["floor"]),
             reference=float(amt["reference"]), cap=float(amt["cap"]),
         ),
+        leadership=_parse_leadership(es.get("leadership") or {}),
+        historical_position=_parse_historical_position(es.get("historical_position") or {}),
     )
 
 
 @lru_cache(maxsize=None)
 def load_stock_selection_spec() -> StockSelectionSpec:
-    """Layer③ 个股准入 + 主题门控（Policy）。"""
+    """Layer③ 个股准入 + 主题门控 + 四段信号（Policy）。"""
     cfg = _read_yaml("strategies.yaml")
     sch.validate_stock_selection(cfg)
     ss = cfg["stock_selection"]
+    trend = ss["trend"]
     return StockSelectionSpec(
-        qualified_score=float(ss["qualified_score"]),
-        allowed_trend_states=tuple(ss["allowed_trend_states"]),
+        qualified_score=float(trend["qualified_score"]),
+        rps15_min=float(trend.get("rps15_min", 80.0)),
+        allowed_trend_states=tuple(trend["allowed_trend_states"]),
         theme_confirm_states=tuple(ss["theme_confirm_states"]),
+        leadership=_parse_leadership(ss.get("leadership") or {}),
+        historical_position=_parse_historical_position(ss.get("historical_position") or {}),
+        signal_policy=_parse_signal_policy(ss.get("signal_policy") or {}),
     )
 
 

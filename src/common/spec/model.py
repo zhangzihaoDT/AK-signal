@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-RULE_VERSION = "v0.8.0"
+RULE_VERSION = "v0.9.0"
 
 
 @dataclass(frozen=True)
@@ -54,27 +54,82 @@ class AmountScoreSpec:
 
 
 @dataclass(frozen=True)
+class LeadershipSpec:
+    """② 龙头性：主题内相对地位（Policy）。
+
+    method=theme_rank：按主题内可比分排序取相对名次。
+    leader_rank_max / core_rank_max：rank≤leader_rank_max → LEADER；
+    rank≤core_rank_max → CORE；其余 NON_CORE。
+    require_rps_outperform=true：趋势指标未过线的候选强制 NON_CORE（保险丝，
+    通常已被 trend 段挡住，仅作第二道防线上抛）。
+    """
+    method: str = "theme_rank"
+    leader_rank_max: int = 3
+    core_rank_max: int = 10
+    require_rps_outperform: bool = True
+
+
+@dataclass(frozen=True)
+class HistoricalPositionSpec:
+    """③ 历史位置：判断赔率（Policy）。
+
+    metric=price_percentile：当前价在最近 lookback_days 交易日内的分位。
+    ≤low_max → LOW；≤mid_max → MID；>mid_max → HIGH。
+    纪律：历史低位只提高赔率，不产生趋势（趋势成立仍是前置条件）。
+    """
+    enabled: bool = True
+    lookback_days: int = 756
+    metric: str = "price_percentile"
+    low_max: float = 30.0
+    mid_max: float = 70.0
+
+
+@dataclass(frozen=True)
+class SignalRule:
+    """④ 信号规则：条件全部命中（缺省=通配）则输出 signal；顺序匹配、先命中先生效。"""
+    signal: str
+    trend: str | None = None          # QUALIFIED / NOT_QUALIFIED
+    leadership: str | None = None     # LEADER / CORE / NON_CORE
+    position: str | None = None       # LOW / MID / HIGH（UNKNOWN 按中性 MID 匹配）
+
+
+@dataclass(frozen=True)
+class SignalPolicySpec:
+    """④ 最终信号（Policy）：规则顺序匹配；未命中 → fallback_signal。"""
+    rules: tuple[SignalRule, ...]
+    fallback_signal: str = "WAIT"
+
+
+@dataclass(frozen=True)
 class EtfSelectionSpec:
-    """Layer③ ETF 候选「准入—排序—输出」策略（Policy）。"""
+    """Layer③ ETF 候选「准入—排序—输出」策略（Policy，v0.9.0 四段）。"""
     allowed_trend_states: tuple[str, ...]
     watch_allowed_trend_states: tuple[str, ...]
     min_amount: float
     ranking_weights: dict[str, float]           # {"rps15": 0.55, "rps20": 0.25, "amount_score": 0.20}
     amount_score: AmountScoreSpec
+    leadership: LeadershipSpec = field(default_factory=LeadershipSpec)
+    historical_position: HistoricalPositionSpec = field(default_factory=HistoricalPositionSpec)
 
 
 @dataclass(frozen=True)
 class StockSelectionSpec:
-    """Layer③ 个股准入 + 主题门控（Policy）。
+    """Layer③ 个股准入 + 主题门控 + 四段信号（Policy）。
 
     qualified_score / allowed_trend_states：个股趋势合格线（≥score 且 watch_level∈{S,A}）；
-    theme_confirm_states：哪些 strength_level 视为主题确认（Layer③ 门控）。
+    theme_confirm_states：哪些 strength_level 视为主题确认（Layer③ 前置 Gate）。
     注意：strength_level 由 Layer② 用 indicators.confirmation.observe_threshold 生成
     （Observation），此处只决定「哪些状态开放主题」，不决定阈值本身。
+
+    v0.9.0 四段：trend（①）→ leadership（②）→ historical_position（③）→ signal_policy（④）。
     """
     qualified_score: float
     allowed_trend_states: tuple[str, ...]
     theme_confirm_states: tuple[str, ...]
+    rps15_min: float = 80.0
+    leadership: LeadershipSpec = field(default_factory=LeadershipSpec)
+    historical_position: HistoricalPositionSpec = field(default_factory=HistoricalPositionSpec)
+    signal_policy: SignalPolicySpec = field(default_factory=lambda: SignalPolicySpec(rules=(), fallback_signal="WAIT"))
 
 
 @dataclass(frozen=True)

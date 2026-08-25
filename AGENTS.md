@@ -102,7 +102,9 @@
 - **多主题结构**：`layer3.buckets[].themes[]`（Core → AI基础设施 / Quality → 高现金流资产），逐主题独立确认与表达决策
 - **表达方式决策**基于 Layer② 上涨结构：广泛上涨→ETF、龙头主导→龙头个股、扩散→ETF核心+龙头卫星、未确认→仅观察
 - **确认机制显式化**：主题 confirmed = 任一焦点行业进入确认状态（`strength_level ∈ stock_selection.theme_confirm_states`，默认观察/强势）。为避免「20% 行业转强为何整主题确认」的误读，每主题输出 `confirmation_state`（BROAD_CONFIRMED / NARROW_CONFIRMED / WATCH / UNCONFIRMED）+ `confirm_evidence`（依据行业及 RPS15）+ `confirmation_breadth`（广泛/窄幅确认）+ `observing_industries`（进入观察区行业明细）；广度阈值（broad_fraction=0.5 / watch_proximity=70）在 config/indicators.yaml。**NARROW_CONFIRMED 语义**：主题仍开放整个资产池（存在性判定，不做子主题拆解），但表达决策显式标注「仅 X/N 行业支撑，宜观察」并压低表达强度（见 docs/STRATEGY_SPEC.md §7.1）
-- **个股准入与主题门控（Policy）**：`stock_selection` 参数在 config/strategies.yaml（qualified_score=70 / allowed_trend_states=[S,A] / theme_confirm_states=[观察,强势]）；`indicators.yaml` 只保留生成 strength_level 的 observe_threshold（Observation）——策略可调整「哪些状态算确认」，但不能改阈值定义
+- **个股准入与主题门控（Policy）**：`stock_selection` 参数在 config/strategies.yaml（v0.9.0 起四段嵌套：`trend.qualified_score=70` / `trend.allowed_trend_states=[S,A]` / `trend.rps15_min=80` / `theme_confirm_states=[观察,强势]`）；`indicators.yaml` 只保留生成 strength_level 的 observe_threshold（Observation）——策略可调整「哪些状态算确认」，但不能改阈值定义
+- **四段选筹（v0.9.0）**：Layer③ 个股/ETF 统一四段——**① trend**（趋势门，无趋势不进入买入候选）→ **② leadership**（主题内相对地位：个股按 score_trend 排名，LEADER=Top leader_rank_max / CORE=≤core_rank_max / NON_CORE；ETF 按 selection_score 排名，core_rank_max=1→LEADER、satellite_rank_max=3→CORE）→ **③ position**（历史价格分位 756 交易日，≤30% LOW / ≤70% MID / >70% HIGH；**历史低位只提高赔率，不产生趋势**）→ **④ signal**（`signal_policy` 规则顺序匹配：LEADER×LOW→STRONG_BUY、LEADER×MID→BUY、CORE×LOW→BUY、CORE×MID→WATCH、position HIGH→HOLD、fallback WAIT；ETF 复用同一词汇表）。`recommended` 由信号门控：主题确认 ∧ signal∈{STRONG_BUY,BUY}（HIGH 位不追高、CORE×MID 不推荐）；`state`（WATCH/QUALIFIED/RECOMMENDED）仍是趋势+主题资格状态，与信号分开放置，字段输出 `leadership_level / theme_rank / position_level / position_pct / position_lookback_days / signal`。position 价格历史离线读取（个股=processed CSV / ETF=raw parquet），按 trade_date 截断防 look-ahead；数据不足按中性 MID 匹配（position_level=UNKNOWN 显式保留）
+- **策略语义分层**：`strategies.{ai_20,ai_ma,hc_20}` 回答「入场后持有多久/怎么退出」（回测/组合层），与四段选筹「选哪个标的」是两件事，互不重叠
 - ETF 候选动态从 Layer① rotation 全市场按 `themes_two_directions.yaml` 主题关键词选（趋势门控 + 流动性 + 评分 + 去重）；`etf_pool` 为全部关键词命中池（含未达趋势门/流动性不足/同类去重落选，供「⑤ 观察」展示未入选原因）
 - **个股趋势读取预计算产物**：`outputs/stock_metrics/stock_metrics_{trade_date}.parquet`（统一 schema：asset_id/trade_date/close/return_5d/return_20d/trend_score/score_trend/watch_level/action/risk_flags/volatility_20d/drawdown_20d/source/data_status/source_trade_date/lag_days）
 - **Selection 默认禁止联网（v0.4.3）**：Layer③ 是纯消费/纯决策层，只读 Layer① ETF rotation + Layer② confirmation + 预计算个股趋势；缺个股输入不自动重试，按 `data_status=missing / selection_status=unavailable / reason=stock_trend_input_missing` 局部降级，不阻塞整体
@@ -178,6 +180,20 @@ make test             # 全部测试
 - **基准**：同实体宇宙横截面中位前向收益（行业=124 行业、ETF=全市场、个股=universe；离线、全历史，替代过期 HS300 缓存）
 - **非重叠样本**：同实体相邻事件间隔 ≥ horizon 交易日计数
 - 命令：`research event-study --signals <parquet> [--start --end] [--layers 123] [--horizons 5,10,20,60]`
+
+## v0.10 Expression Regime Event Study（src/research/expression_regime/）
+
+- **定位**：验证 Layer③ 表达方式结构判断的预测力——「ETF_PRIORITY / LEADER_PRIORITY / CORE_PLUS_LEADER 这套市场结构判断，是否真的能预测下一阶段哪种表达方式更优」
+- **事件 = 主题确认日 + 结构判定日**（confirmed 且 expression ≠ WATCHLIST_ONLY），对每事件同时计算三种表达的 counterfactual 前向收益（核心 ETF / 龙头个股 / 0.5+0.5 等权组合）
+- **核心指标**：`hit_rate`（判定表达事后 ≥ 事后最优的比例）、`delta_best`（判定 − 事后最优，0=完美预测）、`etf_vs_stock`（组内 ETF 相对龙头超额）、`combo_vs_single`
+- **结构输入源可插拔**（`structure.py`）：
+  - `TierStructureInput`（默认）：历史重放，universe 个股价格 2018+ → tier 篮子结构（上涨比例 → broad、龙头贡献 → leader-dominated）近似行业结构；**历史可用但语义是「个股篮子」，非行业内部结构**
+  - `IndustryStructureInput`：生产 confirmation 行业结构（participation/HHI/Top3，Enrichment），当前仅几周覆盖，用于近期冒烟/生产对照
+  - 映射阈值集中在 `ExpressionRegimeSpec`（默认 broad≥0.6 参与率 / leader HHI≥0.15 或 Top3≥0.60 / Tier 上涨比例≥0.6 或龙头贡献≥0.5），与生产 `decide_expression` 语义对齐
+- **个股趋势历史**（`history.py`）：对 universe 股票 processed CSV 预计算逐日 score/watch_level/action（`score_row` 与 production `score_latest_row` 逻辑一致、去掉 reason 字符串），事件日查表 O(1)——rolling 指标向后计算，截断到任意日期无 look-ahead
+- **2024-01→2026-02 实测（Tier 近似，717 事件）**：总体命中率 20D 43% / 60D 39% / 120D 37%，判错代价随 horizon 扩大（-3.8% / -7.7% / -12.4%）→ **结构判断整体预测力弱**；**ETF_PRIORITY 判定有效**（n=126，命中 57-64%，组内 etf_vs_stock 恒为正）；**LEADER_PRIORITY 判定方向存疑**（n=544 占 76%，etf_vs_stock 多为正 → 这些日子 ETF 事后更优但系统判了龙头，Tier 近似 leader_contribution≥0.5 门槛过低导致过度判定）；CORE_PLUS 组合表达几乎从不事后最优（hit=0）
+- 产物：`outputs/research/expression_regime/expression_regime_{start}_{end}.json/.html`；命令：`research expression-regime --start --end [--structure tier|industry] [--themes ...] [--horizons 20,60,120]`
+- **生产联动修复**：`evaluate_themes` Tier Gate 分支原先把结构字段置空 → `decide_expression` 在 Tier 确认下恒塌缩 CORE_PLUS_LEADER；现补算结构字段（Enrichment 可用时恢复区分度，缺失时 soft-fail 塌缩）；顺带加 `_col_series` 容错空 confirmation 数据（研究重放发现 focus 空日 KeyError）
 
 ## v0.5.2 Trade Simulation（src/backtest/trade/）
 

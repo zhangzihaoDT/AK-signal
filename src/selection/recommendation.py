@@ -45,7 +45,7 @@ def _etf_reject_reason(a: dict[str, Any]) -> str:
 
 
 def _stock_reject_reason(a: dict[str, Any]) -> str:
-    """个股未推荐原因（Policy 标注，基于既有状态/风险字段）。"""
+    """个股未推荐原因（Policy 标注，基于既有状态/风险字段 + 四段信号）。"""
     codes = a.get("reason_codes") or []
     if a.get("selection_status") == "unavailable":
         return "数据缺失"
@@ -54,6 +54,14 @@ def _stock_reject_reason(a: dict[str, Any]) -> str:
     flags = a.get("risk_flags") or []
     if "risk_warning" in codes or (a.get("risk_gate_passed") is False and flags):
         return "风险警戒" + (f"（{'、'.join(flags)}）" if flags else "")
+    # v0.9.0 四段信号：趋势/主题都过但信号是 HOLD/WATCH → 解释为什么未推荐
+    if a.get("state") == "RECOMMENDED" and not a.get("recommended"):
+        if a.get("signal") == "HOLD":
+            return f"历史高位（3年价格分位 {a.get('position_pct') or '—'}%），持有不追高"
+        if a.get("signal") == "WATCH":
+            return "主题内非龙头/非核心，或位置中性，暂不买入"
+        if a.get("signal"):
+            return f"信号 {a.get('signal')}，暂不买入"
     if a.get("state") == "QUALIFIED":
         return "趋势合格，待主题确认"
     if a.get("state") == "WATCH":
@@ -230,6 +238,20 @@ def _watchlist_block(theme_obj: dict[str, Any], max_etf: int = 6, max_stocks: in
     return {"etf": watch_etf, "stocks": watch_stocks}
 
 
+def _etf_monitoring_block(theme_obj: dict[str, Any], max_watch: int = 6) -> list[dict[str, Any]]:
+    """附录 ETF 监控：推荐 ETF + 主题动态观察 ETF，不混入个股监控表。"""
+    core = theme_obj.get("core_etf", [])
+    sub = theme_obj.get("sub_industry_etf", [])
+    rec_codes = {a.get("code") for a in core + sub}
+    out: list[dict[str, Any]] = []
+    for a in core + sub:
+        out.append({**a, "monitoring_source": "recommendation", "reject_reason": ""})
+    for a in _watchlist_block(theme_obj, max_etf=max_watch, max_stocks=0)["etf"]:
+        if a.get("code") not in rec_codes:
+            out.append({**a, "monitoring_source": "watchlist"})
+    return out
+
+
 def _theme_recommendation(theme_obj: dict[str, Any], top_action: dict[str, Any]) -> dict[str, Any]:
     """单主题推荐对象：5 块结构，不制造新事实。"""
     return {
@@ -244,6 +266,7 @@ def _theme_recommendation(theme_obj: dict[str, Any], top_action: dict[str, Any])
         "recommendation": _recommendation_block(theme_obj),
         "rationale": _rationale_block(theme_obj),
         "watchlist": _watchlist_block(theme_obj),
+        "etf_monitoring": _etf_monitoring_block(theme_obj),
         "monitoring": theme_obj.get("stock_watchlist", {}),
         # 附录/概览透传：最强 ETF 摘要（引擎事实原值）
         "strongest_etf": theme_obj.get("strongest_etf"),

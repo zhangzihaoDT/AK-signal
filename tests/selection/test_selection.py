@@ -304,6 +304,54 @@ class TestAmountScore:
         assert 0 < a1 < 100
 
 
+class TestEtfMinAmountConfig:
+    """回归保护：ETF_MIN_AMOUNT 必须来自 config/strategies.yaml，禁止硬编码覆盖。
+
+    曾出现 selection.py 在模块加载后硬编码 `ETF_MIN_AMOUNT = 50_000_000`
+    覆盖 config 值导致 config drift 的缺陷（改 strategies.yaml 不生效）。
+    """
+
+    def test_module_constant_matches_config(self):
+        from src.common.spec.loaders import load_etf_selection_spec
+        # 静态回归：模块常量与 config 值一致。若未来有人再硬编码覆盖且 config
+        # 值不同，此断言失败 → 强制回归到 config 单一来源。
+        assert selection.ETF_MIN_AMOUNT == float(load_etf_selection_spec().min_amount)
+
+    def test_etf_min_amount_single_source(self, monkeypatch):
+        """_etf_min_amount() 每次从 spec loader 读取（函数内 import，monkeypatch 生效）。"""
+        from src.common.spec import loaders
+        from src.common.spec.model import AmountScoreSpec, EtfSelectionSpec
+        fake = EtfSelectionSpec(
+            allowed_trend_states=("BUY_CANDIDATE", "STRONG_WATCH"),
+            watch_allowed_trend_states=("BUY_CANDIDATE", "STRONG_WATCH", "WATCH"),
+            min_amount=123_000_000,
+            ranking_weights={"rps15": 0.55, "rps20": 0.25, "amount_score": 0.20},
+            amount_score=AmountScoreSpec(method="log_threshold", floor=5e7, reference=5e8, cap=100.0),
+        )
+        monkeypatch.setattr(loaders, "load_etf_selection_spec", lambda: fake)
+        assert selection._etf_min_amount() == 123_000_000
+
+    def test_theme_pool_liquidity_gate_uses_constant(self, monkeypatch):
+        """theme_etf_pool 的流动性标记跟随模块常量（运行时查模块命名空间，非内嵌字面量）。"""
+        pool = selection.theme_etf_pool(_sample_rotation(), _sample_account(), _sample_master(),
+                                        "ai_infrastructure")
+        by_code = {c.code: c for c in pool}
+        assert "liquidity_ok" in by_code["512480"].reason_codes
+        monkeypatch.setattr(selection, "ETF_MIN_AMOUNT", 9e8)
+        pool2 = selection.theme_etf_pool(_sample_rotation(), _sample_account(), _sample_master(),
+                                         "ai_infrastructure")
+        by_code2 = {c.code: c for c in pool2}
+        assert "low_liquidity" in by_code2["512480"].reason_codes
+
+    def test_select_etf_candidates_respects_min_amount_param(self):
+        """select_etf_candidates 的 min_amount 参数独立于趋势门控生效。"""
+        etf = selection.select_etf_candidates(_sample_rotation(), _sample_account(), _sample_master(),
+                                              "ai_infrastructure", min_amount=5.5e8)
+        codes = set(etf["fund_code"])
+        # 趋势门内三只（512480/159819/588000）：成交额 5e8 < 5.5e8 被流动性过滤，仅 159819(6e8) 保留
+        assert codes == {"159819"}
+
+
 class TestStaleDegradation:
     def test_stale_does_not_recommend(self):
         from src.selection.selection import select_stock_watchlist
@@ -323,3 +371,82 @@ class TestStaleDegradation:
         assert "stale_data" in c.reason_codes
         assert c.score_trend == 100.0      # 事实原值保留（不改分）
         assert "滞后" in c.reason
+
+
+class TestFourStageIntegration:
+    """v0.9.0 四段信号接入 select_stock_watchlist 的端到端行为。"""
+
+    def _items(self, symbols: list[str]):
+        from src.selection.universe import UniverseItem
+        from src.trend_engine.asset import Asset
+        out = []
+        for s in symbols:
+            out.append(UniverseItem(asset=Asset(symbol=s, name=s, market="CN", category="leader"),
+                                    bucket="core", bucket_label="核心", theme="ai_infrastructure",
+                                    theme_label="AI 基础设施", tier="leader", tier_label="龙头"))
+        return out
+
+    def _trend(self, symbol: str, score: float):
+        return {"symbol": symbol, "data_status": "current", "score_trend": score,
+                "watch_level": "A", "action": "重点观察", "risk_flags": ""}
+
+    def test_leader_low_position_strong_buy(self, monkeypatch):
+        """LEADER（rank1）× LOW → STRONG_BUY，推荐。"""
+        monkeypatch.setattr("src.selection.four_stage.load_stock_close_history",
+                            lambda market, symbol, td=None, lb=None: [100.0, 90.0, 80.0, 70.0, 60.0, 50.0, 10.0])
+        items = self._items(["000001"])
+        leaders, _, _ = selection.select_stock_watchlist(
+            items, "ai_infrastructure", pd.DataFrame([self._trend("000001", 90.0)]), theme_confirmed=True)
+        c = leaders[0]
+        assert c.theme_rank == 1
+        assert c.leadership_level == "LEADER"
+        assert c.position_level == "LOW"
+        assert c.signal == "STRONG_BUY"
+        assert c.recommended is True
+
+    def test_leader_high_position_hold_not_recommended(self, monkeypatch):
+        """LEADER × HIGH → HOLD：趋势/主题都成立但历史高位不追高，不推荐。"""
+        monkeypatch.setattr("src.selection.four_stage.load_stock_close_history",
+                            lambda market, symbol, td=None, lb=None: [50.0, 60.0, 70.0, 80.0, 90.0, 95.0, 100.0])
+        items = self._items(["000001"])
+        leaders, _, _ = selection.select_stock_watchlist(
+            items, "ai_infrastructure", pd.DataFrame([self._trend("000001", 90.0)]), theme_confirmed=True)
+        c = leaders[0]
+        assert c.state == selection.STOCK_STATE_RECOMMENDED  # 趋势/主题确认状态保留
+        assert c.position_level == "HIGH"
+        assert c.signal == "HOLD"
+        assert c.recommended is False                          # 信号门控：不追高
+        assert "signal_hold" in c.reason_codes
+
+    def test_low_position_no_trend_still_wait(self, monkeypatch):
+        """纪律：历史低位不产生趋势——趋势不成立（BELOW trend）即使 LOW 也 WAIT。"""
+        monkeypatch.setattr("src.selection.four_stage.load_stock_close_history",
+                            lambda market, symbol, td=None, lb=None: [100.0, 90.0, 80.0, 70.0, 60.0, 50.0, 10.0])
+        items = self._items(["000001"])
+        trend = pd.DataFrame([{"symbol": "000001", "data_status": "current", "score_trend": 30.0,
+                               "watch_level": "C", "action": "观察", "risk_flags": ""}])
+        leaders, _, _ = selection.select_stock_watchlist(
+            items, "ai_infrastructure", trend, theme_confirmed=True)
+        c = leaders[0]
+        assert c.state == selection.STOCK_STATE_WATCH
+        assert c.position_level == "LOW"    # 位置确实是低位
+        assert c.signal == "WAIT"           # 但无趋势 → WAIT
+        assert c.recommended is False
+
+    def test_theme_rank_by_trend_score(self, monkeypatch):
+        """主题内排名按 score_trend：rank≤3 → LEADER，rank4+ → CORE（leader_rank_max=3）。"""
+        monkeypatch.setattr("src.selection.four_stage.load_stock_close_history",
+                            lambda market, symbol, td=None, lb=None: [100.0, 90.0, 80.0, 70.0, 60.0, 50.0, 10.0])
+        items = self._items(["000001", "600001", "600002", "600003"])
+        trend = pd.DataFrame([
+            self._trend("000001", 95.0), self._trend("600001", 90.0),
+            self._trend("600002", 85.0), self._trend("600003", 75.0),
+        ])
+        leaders, _, _ = selection.select_stock_watchlist(
+            items, "ai_infrastructure", trend, theme_confirmed=True)
+        by_code = {c.code: c for c in leaders}
+        assert by_code["000001"].theme_rank == 1 and by_code["000001"].leadership_level == "LEADER"
+        assert by_code["600003"].theme_rank == 4 and by_code["600003"].leadership_level == "CORE"
+        assert by_code["000001"].signal == "STRONG_BUY"  # LEADER × LOW
+        assert by_code["600003"].signal == "BUY"         # CORE × LOW
+

@@ -104,13 +104,75 @@ def validate_indicators(cfg: dict[str, Any]) -> None:
     _num_in_range(tc.get("strong_trend_min"), 0, 100, "tier_confirmation.strong_trend_min")
 
 
+SIGNALS = {"STRONG_BUY", "BUY", "WATCH", "HOLD", "WAIT"}
+TREND_LEVELS = {"QUALIFIED", "NOT_QUALIFIED"}
+LEADERSHIP_LEVELS = {"LEADER", "CORE", "NON_CORE"}
+POSITION_LEVELS = {"LOW", "MID", "HIGH", "UNKNOWN"}
+LEADERSHIP_METHODS = {"theme_rank"}
+
+
+def _validate_leadership(node: dict[str, Any], prefix: str) -> None:
+    if not isinstance(node, dict):
+        raise SpecValidationError(f"{prefix}: must define leadership")
+    if node.get("method", "theme_rank") not in LEADERSHIP_METHODS:
+        raise SpecValidationError(f"{prefix}.method unsupported: {node.get('method')!r}")
+    if "leader_rank_max" in node:
+        # 个股风格：leader_rank_max（LEADER 上界）+ core_rank_max（CORE 上界）
+        leader = int(node.get("leader_rank_max", 1))
+        core = int(node.get("core_rank_max", leader))
+    else:
+        # ETF 风格：core_rank_max（LEADER 上界）+ satellite_rank_max（CORE 上界）
+        leader = int(node.get("core_rank_max", 1))
+        core = int(node.get("satellite_rank_max", leader))
+    if leader < 1:
+        raise SpecValidationError(f"{prefix}: LEADER rank upper bound must be >= 1")
+    if core < leader:
+        raise SpecValidationError(f"{prefix}: CORE rank upper bound must be >= LEADER bound")
+
+
+def _validate_historical_position(node: dict[str, Any], prefix: str) -> None:
+    if not isinstance(node, dict):
+        raise SpecValidationError(f"{prefix}: must define historical_position")
+    if node.get("metric", "price_percentile") != "price_percentile":
+        raise SpecValidationError(f"{prefix}.metric unsupported: {node.get('metric')!r}")
+    if int(node.get("lookback_days", 0)) < 20:
+        raise SpecValidationError(f"{prefix}.lookback_days must be >= 20")
+    low = _num_in_range(node.get("low_max"), 0, 100, f"{prefix}.low_max")
+    mid = _num_in_range(node.get("mid_max"), 0, 100, f"{prefix}.mid_max")
+    if mid <= low:
+        raise SpecValidationError(f"{prefix}.mid_max must be > low_max")
+
+
+def _validate_signal_policy(node: dict[str, Any], prefix: str) -> None:
+    if not isinstance(node, dict):
+        raise SpecValidationError(f"{prefix}: must define signal_policy")
+    rules = node.get("rules")
+    if not isinstance(rules, list) or not rules:
+        raise SpecValidationError(f"{prefix}.rules: non-empty rules list required")
+    for i, r in enumerate(rules):
+        if not isinstance(r, dict) or "signal" not in r:
+            raise SpecValidationError(f"{prefix}.rules[{i}]: must define signal")
+        if r["signal"] not in SIGNALS:
+            raise SpecValidationError(f"{prefix}.rules[{i}].signal unsupported: {r.get('signal')!r}")
+        if r.get("trend") is not None and r["trend"] not in TREND_LEVELS:
+            raise SpecValidationError(f"{prefix}.rules[{i}].trend unsupported: {r.get('trend')!r}")
+        if r.get("leadership") is not None and r["leadership"] not in LEADERSHIP_LEVELS:
+            raise SpecValidationError(f"{prefix}.rules[{i}].leadership unsupported: {r.get('leadership')!r}")
+        if r.get("position") is not None and r["position"] not in POSITION_LEVELS:
+            raise SpecValidationError(f"{prefix}.rules[{i}].position unsupported: {r.get('position')!r}")
+    fb = node.get("fallback_signal", "WAIT")
+    if fb not in SIGNALS:
+        raise SpecValidationError(f"{prefix}.fallback_signal unsupported: {fb!r}")
+
+
 def validate_etf_selection(cfg: dict[str, Any]) -> None:
-    """Layer③ ETF 候选策略校验（准入/排序权重/amount_score 口径）。"""
+    """Layer③ ETF 候选策略校验（准入/排序权重/amount_score 口径/四段）。"""
     es = _require(cfg, "etf_selection", "must define etf_selection policy")
-    states = es.get("allowed_trend_states")
+    trend = _require(es, "trend", "etf_selection.trend required")
+    states = trend.get("allowed_trend_states")
     if not isinstance(states, list) or not states:
-        raise SpecValidationError("etf_selection.allowed_trend_states required")
-    _num_in_range(es.get("min_amount"), 0, 1e15, "etf_selection.min_amount")
+        raise SpecValidationError("etf_selection.trend.allowed_trend_states required")
+    _num_in_range(trend.get("min_amount"), 0, 1e15, "etf_selection.trend.min_amount")
     weights = _require(es, "ranking.weights", "ranking weights required")
     w = float(weights.get("rps15", 0)) + float(weights.get("rps20", 0)) + float(weights.get("amount_score", 0))
     if abs(w - 1.0) > 1e-6:
@@ -121,18 +183,25 @@ def validate_etf_selection(cfg: dict[str, Any]) -> None:
     _num_in_range(amt.get("floor"), 0, 1e15, "etf_selection.amount_score.floor")
     _num_in_range(amt.get("reference"), 0, 1e15, "etf_selection.amount_score.reference")
     _num_in_range(amt.get("cap"), 0, 1e6, "etf_selection.amount_score.cap")
+    _validate_leadership(es.get("leadership") or {}, "etf_selection.leadership")
+    _validate_historical_position(es.get("historical_position") or {}, "etf_selection.historical_position")
 
 
 def validate_stock_selection(cfg: dict[str, Any]) -> None:
-    """Layer③ 个股准入 + 主题门控校验。"""
+    """Layer③ 个股准入 + 主题门控 + 四段信号校验。"""
     ss = _require(cfg, "stock_selection", "must define stock_selection policy")
-    _num_in_range(ss.get("qualified_score"), 0, 100, "stock_selection.qualified_score")
-    states = ss.get("allowed_trend_states")
+    trend = _require(ss, "trend", "stock_selection.trend required")
+    _num_in_range(trend.get("qualified_score"), 0, 100, "stock_selection.trend.qualified_score")
+    _num_in_range(trend.get("rps15_min", 80), 0, 100, "stock_selection.trend.rps15_min")
+    states = trend.get("allowed_trend_states")
     if not isinstance(states, list) or not states:
-        raise SpecValidationError("stock_selection.allowed_trend_states required")
+        raise SpecValidationError("stock_selection.trend.allowed_trend_states required")
     confirm = ss.get("theme_confirm_states")
     if not isinstance(confirm, list) or not confirm:
         raise SpecValidationError("stock_selection.theme_confirm_states required")
+    _validate_leadership(ss.get("leadership") or {}, "stock_selection.leadership")
+    _validate_historical_position(ss.get("historical_position") or {}, "stock_selection.historical_position")
+    _validate_signal_policy(ss.get("signal_policy") or {}, "stock_selection.signal_policy")
 
 
 def validate_execution(cfg: dict[str, Any]) -> None:
