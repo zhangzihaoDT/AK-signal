@@ -27,13 +27,19 @@ def main() -> None:
         es_main()
         return
 
+    if sub in ("expression-regime", "expression_regime"):
+        from src.research.expression_regime.cli import main as er_main
+        sys.argv = [sys.argv[0], *argv[1:]]
+        er_main()
+        return
+
     if sub in ("basket", "baskets"):
         from src.research.baskets.cli import main as basket_main
         sys.argv = [sys.argv[0], *argv[1:]]
         basket_main()
         return
 
-    print("research subcommands: replay (single|parity|range), event-study, basket run")
+    print("research subcommands: replay (single|parity|range), event-study, expression-regime, basket run")
     sys.exit(2)
 
 
