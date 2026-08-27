@@ -41,7 +41,14 @@ EXPRESSION_LABELS = {
     "ETF_PRIORITY": "优先 ETF（广泛上涨）",
     "LEADER_PRIORITY": "优先龙头个股（龙头主导）",
     "ETF_CORE_PLUS_LEADER": "ETF 核心 + 龙头卫星（扩散形成）",
+    "STOCK_FALLBACK": "转龙头个股（ETF 无合格产品）",
+    "ETF_FALLBACK": "转 ETF（个股无合格）",
+    "NO_EXECUTABLE": "无可交易标的",
 }
+
+# 表达可执行性状态（observability，非决策）
+EXPRESSION_STATUS_NORMAL = "NORMAL"
+EXPRESSION_STATUS_DEGRADED = "DEGRADED"
 
 # 个股 role 标记
 ROLE_LABELS = {
@@ -1059,6 +1066,55 @@ def decide_expression(theme_meta: dict[str, Any]) -> dict[str, Any]:
             "expression_reason": reason}
 
 
+def _etf_trend_eligible(c: AssetCandidate) -> bool:
+    """ETF 是否通过趋势门（可执行性统计；仅 observability，不改变决策）。"""
+    return "below_trend_gate" not in (c.reason_codes or [])
+
+
+def resolve_execution_expression(
+    structural_expression: str,
+    eligible_etf: int,
+    eligible_stock: int,
+) -> dict[str, Any]:
+    """把结构表达解析为可执行表达（observability，不改决策）。
+
+    结构表达（decide_expression，Layer② 行业结构判断）≠ 可执行表达（Layer③ 产品可得性）。
+    当结构表达依赖 ETF 但今日无合格 ETF 产品时，降级为个股/无可执行并显式标注
+    fallback_reason；结构表达原值保留（不覆盖、不冒充），供审计与研究。
+
+    典型场景（20260826 高现金流）：结构表达 ETF_PRIORITY，但 ETF 0/9 通过趋势门，
+    个股 3 只合格 → execution=STOCK_FALLBACK / status=DEGRADED / reason=NO_ELIGIBLE_ETF。
+    """
+    execution = structural_expression
+    status = EXPRESSION_STATUS_NORMAL
+    fallback_reason = ""
+    if structural_expression in ("ETF_PRIORITY", "ETF_CORE_PLUS_LEADER"):
+        # 结构表达依赖 ETF；无合格 ETF 产品时回退个股（策略 fallback，非修复事实）
+        if eligible_etf == 0:
+            if eligible_stock > 0:
+                execution = "STOCK_FALLBACK"
+                status = EXPRESSION_STATUS_DEGRADED
+                fallback_reason = "NO_ELIGIBLE_ETF"
+            else:
+                execution = "NO_EXECUTABLE"
+                status = EXPRESSION_STATUS_DEGRADED
+                fallback_reason = "NO_ELIGIBLE_ETF_AND_STOCK"
+    elif structural_expression == "LEADER_PRIORITY":
+        # 镜像：结构表达依赖个股；无合格个股但有 ETF 时回退 ETF
+        if eligible_stock == 0 and eligible_etf > 0:
+            execution = "ETF_FALLBACK"
+            status = EXPRESSION_STATUS_DEGRADED
+            fallback_reason = "NO_ELIGIBLE_STOCK"
+    return {
+        "structural_expression": structural_expression,
+        "execution_expression": execution,
+        "expression_status": status,
+        "fallback_reason": fallback_reason,
+        "eligible_etf_count": int(eligible_etf),
+        "eligible_stock_count": int(eligible_stock),
+    }
+
+
 def build_top_action(theme_objs: list[dict[str, Any]]) -> dict[str, Any]:
     """顶层行动建议：只回答「今天投哪一个方向」，不枚举具体标的。
 
@@ -1183,6 +1239,12 @@ def build_candidates(
             # ETF 观察池（全部关键词命中 + 原因标注；core/sub 逻辑不变，仅补全事实）
             etf_pool = theme_etf_pool(rotation_df, account_df, master_df, key, trade_date=trade_date)
 
+            # 表达可执行性（observability）：结构表达 ≠ 可执行表达（Layer③ 产品可得性）
+            eligible_etf_count = sum(1 for e in etf_pool if _etf_trend_eligible(e))
+            eligible_stock_count = sum(1 for c in stock_candidates if c.get("recommended"))
+            exec_expr = resolve_execution_expression(
+                expr["expression"], eligible_etf_count, eligible_stock_count)
+
             theme_obj = {
                 "theme": key,
                 "theme_label": th.label,
@@ -1205,6 +1267,14 @@ def build_candidates(
                 "expression": expr["expression"],
                 "expression_label": expr["expression_label"],
                 "expression_reason": expr["expression_reason"],
+                # 表达可执行性（observability，不改决策）：结构表达 → 可执行表达 → 降级原因
+                "structural_expression": exec_expr["structural_expression"],
+                "execution_expression": exec_expr["execution_expression"],
+                "expression_status": exec_expr["expression_status"],
+                "fallback_reason": exec_expr["fallback_reason"],
+                "eligible_etf_count": exec_expr["eligible_etf_count"],
+                "eligible_stock_count": exec_expr["eligible_stock_count"],
+                "etf_pool_total": len(etf_pool),
                 "core_etf": [c.to_dict() for c in core_etf],
                 "sub_industry_etf": [c.to_dict() for c in sub_industry_etf],
                 "etf_pool": [c.to_dict() for c in etf_pool],

@@ -352,6 +352,46 @@ class TestEtfMinAmountConfig:
         assert codes == {"159819"}
 
 
+class TestExecutionExpression:
+    """表达可执行性（observability）：结构表达 ≠ 可执行表达，不改决策。"""
+
+    def test_etf_priority_with_etf_normal(self):
+        r = selection.resolve_execution_expression("ETF_PRIORITY", eligible_etf=2, eligible_stock=3)
+        assert r["execution_expression"] == "ETF_PRIORITY"
+        assert r["expression_status"] == "NORMAL"
+        assert r["fallback_reason"] == ""
+
+    def test_etf_priority_no_etf_stock_fallback(self):
+        """20260826 高现金流场景：结构 ETF_PRIORITY，ETF 0 合格，个股 3 只 → STOCK_FALLBACK。"""
+        r = selection.resolve_execution_expression("ETF_PRIORITY", eligible_etf=0, eligible_stock=3)
+        assert r["execution_expression"] == "STOCK_FALLBACK"
+        assert r["expression_status"] == "DEGRADED"
+        assert r["fallback_reason"] == "NO_ELIGIBLE_ETF"
+        assert r["structural_expression"] == "ETF_PRIORITY"   # 结构表达原值保留
+
+    def test_etf_core_plus_leader_no_executable(self):
+        r = selection.resolve_execution_expression("ETF_CORE_PLUS_LEADER", eligible_etf=0, eligible_stock=0)
+        assert r["execution_expression"] == "NO_EXECUTABLE"
+        assert r["expression_status"] == "DEGRADED"
+        assert r["fallback_reason"] == "NO_ELIGIBLE_ETF_AND_STOCK"
+
+    def test_leader_priority_with_stock_normal(self):
+        r = selection.resolve_execution_expression("LEADER_PRIORITY", eligible_etf=0, eligible_stock=3)
+        assert r["execution_expression"] == "LEADER_PRIORITY"
+        assert r["expression_status"] == "NORMAL"
+
+    def test_leader_priority_no_stock_etf_fallback(self):
+        r = selection.resolve_execution_expression("LEADER_PRIORITY", eligible_etf=2, eligible_stock=0)
+        assert r["execution_expression"] == "ETF_FALLBACK"
+        assert r["expression_status"] == "DEGRADED"
+        assert r["fallback_reason"] == "NO_ELIGIBLE_STOCK"
+
+    def test_watchlist_only_passthrough(self):
+        r = selection.resolve_execution_expression("WATCHLIST_ONLY", eligible_etf=0, eligible_stock=0)
+        assert r["execution_expression"] == "WATCHLIST_ONLY"
+        assert r["expression_status"] == "NORMAL"
+
+
 class TestStaleDegradation:
     def test_stale_does_not_recommend(self):
         from src.selection.selection import select_stock_watchlist

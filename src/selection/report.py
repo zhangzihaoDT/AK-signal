@@ -100,6 +100,42 @@ def _position_header() -> str:
         return "位置分位"
 
 
+POSITION_LEVEL_LABELS = {
+    "LOW": "低位", "MID": "中性", "HIGH": "追高", "BREAKDOWN": "破位", "UNKNOWN": "未知",
+}
+
+# 可执行表达中文标签（observability，展示层）
+EXECUTION_EXPRESSION_LABELS = {
+    "STOCK_FALLBACK": "转龙头个股（ETF 无合格产品）",
+    "ETF_FALLBACK": "转 ETF（个股无合格）",
+    "NO_EXECUTABLE": "无可交易标的",
+}
+
+
+def _position_level_label(level: str) -> str:
+    """位置等级中文标签（展示层，不改变事实）。"""
+    return POSITION_LEVEL_LABELS.get(str(level or ""), str(level or "—"))
+
+
+def _position_value(v: Any) -> str:
+    """位置指标值：乖离率口径带 %（可负）；分位口径原样。"""
+    if v is None or (isinstance(v, float) and v != v):
+        return "—"
+    if _position_header() == "偏离MA60%":
+        return f"{float(v):+.1f}%"
+    return f"{v}"
+
+
+def _position_level_html(level: str) -> str:
+    """位置等级单元格：破位/追高红色警示，其余正常（展示层）。"""
+    txt = _position_level_label(level)
+    if level == "BREAKDOWN":
+        return f"<span style='color:#C62828;font-weight:600'>{txt}</span>"
+    if level == "HIGH":
+        return f"<span style='color:#E65100'>{txt}</span>"
+    return txt
+
+
 def _pct(v: Any) -> str:
     if v is None or (isinstance(v, float) and v != v):
         return "—"
@@ -163,18 +199,21 @@ def _risk_short(a: dict[str, Any]) -> str:
 
 
 def _monitor_conclusion(a: dict[str, Any]) -> str:
-    """监控表当前结论（v0.9.0 四段信号优先）：推荐 / 持有 / 合格 / 观察 / 等待。
+    """监控表当前结论（v0.9.0 四段信号优先）：推荐 / 持有 / 合格 / 观察 / 等待 / 破位。
 
     推荐：主题确认（state=RECOMMENDED）且信号为 BUY 类（recommended=True）
-    持有：信号 HOLD（趋势成立但历史高位，不追高）
+    持有：信号 HOLD（趋势成立但偏离 60 日线过高，不追高）
     合格：信号 BUY 类但主题未确认（state=QUALIFIED，待主题确认）
     观察：信号 WATCH（CORE×MID 等，暂不买入）；或 WAIT 且未明显转弱
     等待：数据缺失 / 数据滞后 / 明显转弱 / 风险阻塞
+    破位：position=BREAKDOWN（中期趋势破坏，即使趋势/主题合格也禁止买入）
     """
     if a.get("selection_status") == "unavailable":
         return "等待"
     signal = str(a.get("signal", "") or "")
     state = str(a.get("state", ""))
+    if a.get("position_level") == "BREAKDOWN":
+        return "破位"
     if signal in ("STRONG_BUY", "BUY"):
         # 主题确认才给推荐；主题未确认 → 合格（待主题确认）
         return "推荐" if state == "RECOMMENDED" else "合格"
@@ -285,9 +324,22 @@ def _today_block_html(t: dict[str, Any]) -> list[str]:
     expr_label = today.get("expression_label", "")
     action = today.get("action", "WAIT")
     parts.append("<div class='block'><h3>① 今天怎么做</h3>")
+    # 表达可执行性（observability）：结构表达 vs 实际表达（Layer③ 产品可得性）
+    exec_status = today.get("expression_status", "")
+    if exec_status == "DEGRADED":
+        exec_expr = today.get("execution_expression", "")
+        exec_label = EXECUTION_EXPRESSION_LABELS.get(exec_expr, exec_expr)
+        etf_n = today.get("eligible_etf_count", 0)
+        etf_total = today.get("etf_pool_total", 0)
+        expr_txt = (f"{expr_label or '仅观察'} → "
+                    f"<b style='color:#E65100'>{exec_label}</b>"
+                    f"<br><small>ETF {etf_n}/{etf_total} 通过交易门"
+                    f"；fallback_reason={today.get('fallback_reason', '')}</small>")
+    else:
+        expr_txt = expr_label or '仅观察'
     parts.append(
         f"<div class='verdict'><b>行动：</b>{_action_tag(action)} "
-        f"｜ <b>表达：</b>{expr_label or '仅观察'} "
+        f"｜ <b>结构表达：</b>{expr_txt} "
         f"｜ <b>确认：</b>{_confirm_tag(confirmed, today.get('confirmation_breadth', ''))}"
         f"<br><small>{today.get('summary', '')}</small></div>")
     parts.append("</div>")
@@ -664,7 +716,9 @@ def render_selection_html(
                          "<th class='num'>RPS15</th><th class='num'>成交额</th><th>信号</th><th>结论</th></tr>")
             for a in etfs:
                 signal = a.get("signal", "") or "—"
-                if a.get("recommended"):
+                if a.get("position_level") == "BREAKDOWN":
+                    conclusion = "破位"
+                elif a.get("recommended"):
                     conclusion = "推荐"
                 elif signal == "HOLD":
                     conclusion = "持有"
@@ -673,15 +727,13 @@ def render_selection_html(
                 else:
                     conclusion = "等待"
                 source = "推荐" if a.get("monitoring_source") == "recommendation" else "动态观察"
-                position_pct = _num(a.get("position_pct"))
-                position_txt = a.get("position_level", "—") or "—"
-                if position_pct is not None:
-                    position_txt = f"{position_txt}"
+                position_txt = _position_level_html(a.get("position_level", ""))
+                position_pct = _position_value(a.get("position_pct"))
                 parts.append(
                     f"<tr><td><b>{a.get('name', '')}</b><span class='why'> ({a.get('code', '')})</span></td>"
                     f"<td>{source}</td><td class='num'>{a.get('theme_rank', '—')}</td>"
                     f"<td>{a.get('leadership_level', '—')}</td><td>{position_txt}</td>"
-                    f"<td class='num'>{position_pct if position_pct is not None else '—'}</td>"
+                    f"<td class='num'>{position_pct}</td>"
                     f"<td class='num'>{_num(a.get('rps15'))}</td><td class='num'>{_fmt_liquidity(a.get('liquidity'))}</td>"
                     f"<td>{signal}</td><td>{conclusion}</td></tr>")
             parts.append("</table>")

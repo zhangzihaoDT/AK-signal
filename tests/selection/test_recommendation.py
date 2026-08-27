@@ -218,6 +218,12 @@ class TestMonitorConclusion:
         c = self._c(signal="HOLD", position_level="HIGH", position_pct=98.9)
         assert _monitor_conclusion(c) == "持有"
 
+    def test_signal_breakdown(self):
+        """趋势/主题都过但破位（BREAKDOWN）→ 破位，禁止买入。"""
+        from src.selection.report import _monitor_conclusion
+        c = self._c(signal="WAIT", position_level="BREAKDOWN", position_pct=-37.6)
+        assert _monitor_conclusion(c) == "破位"
+
     def test_signal_watch(self):
         from src.selection.report import _monitor_conclusion
         assert _monitor_conclusion(self._c(signal="WATCH")) == "观察"

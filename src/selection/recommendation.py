@@ -165,6 +165,14 @@ def _today_block(theme_obj: dict[str, Any], top_action: dict[str, Any]) -> dict[
         "action_label": action_label,
         "expression": expr,
         "expression_label": theme_obj.get("expression_label", ""),
+        # 表达可执行性（observability）：结构表达 ≠ 可执行表达
+        "structural_expression": theme_obj.get("structural_expression", expr),
+        "execution_expression": theme_obj.get("execution_expression", expr),
+        "expression_status": theme_obj.get("expression_status", ""),
+        "fallback_reason": theme_obj.get("fallback_reason", ""),
+        "eligible_etf_count": theme_obj.get("eligible_etf_count", 0),
+        "eligible_stock_count": theme_obj.get("eligible_stock_count", 0),
+        "etf_pool_total": theme_obj.get("etf_pool_total", 0),
         "confirmation_state": theme_obj.get("confirmation_state", ""),
         "confirmation_breadth": theme_obj.get("confirmation_breadth", ""),
         "stage": theme_obj.get("stage", ""),
@@ -300,6 +308,14 @@ def _theme_recommendation(theme_obj: dict[str, Any], top_action: dict[str, Any])
         "strongest_etf": theme_obj.get("strongest_etf"),
         "distance_to_industry_confirm": theme_obj.get("distance_to_industry_confirm"),
         "distance_to_etf_strength": theme_obj.get("distance_to_etf_strength"),
+        # 表达可执行性（observability）：结构表达 → 可执行表达 → 降级原因
+        "structural_expression": theme_obj.get("structural_expression", theme_obj.get("expression", "")),
+        "execution_expression": theme_obj.get("execution_expression", theme_obj.get("expression", "")),
+        "expression_status": theme_obj.get("expression_status", ""),
+        "fallback_reason": theme_obj.get("fallback_reason", ""),
+        "eligible_etf_count": theme_obj.get("eligible_etf_count", 0),
+        "eligible_stock_count": theme_obj.get("eligible_stock_count", 0),
+        "etf_pool_total": theme_obj.get("etf_pool_total", 0),
     }
 
 
