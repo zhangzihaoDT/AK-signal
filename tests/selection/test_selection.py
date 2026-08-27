@@ -393,7 +393,7 @@ class TestFourStageIntegration:
     def test_leader_low_position_strong_buy(self, monkeypatch):
         """LEADER（rank1）× LOW → STRONG_BUY，推荐。"""
         monkeypatch.setattr("src.selection.four_stage.load_stock_close_history",
-                            lambda market, symbol, td=None, lb=None: [100.0, 90.0, 80.0, 70.0, 60.0, 50.0, 10.0])
+                            lambda market, symbol, td=None, lb=None: [100.0] * 60 + [90.0])
         items = self._items(["000001"])
         leaders, _, _ = selection.select_stock_watchlist(
             items, "ai_infrastructure", pd.DataFrame([self._trend("000001", 90.0)]), theme_confirmed=True)
@@ -405,9 +405,9 @@ class TestFourStageIntegration:
         assert c.recommended is True
 
     def test_leader_high_position_hold_not_recommended(self, monkeypatch):
-        """LEADER × HIGH → HOLD：趋势/主题都成立但历史高位不追高，不推荐。"""
+        """LEADER × HIGH → HOLD：趋势/主题都成立但偏离 60 日线过高不追高，不推荐。"""
         monkeypatch.setattr("src.selection.four_stage.load_stock_close_history",
-                            lambda market, symbol, td=None, lb=None: [50.0, 60.0, 70.0, 80.0, 90.0, 95.0, 100.0])
+                            lambda market, symbol, td=None, lb=None: [100.0] * 60 + [120.0])
         items = self._items(["000001"])
         leaders, _, _ = selection.select_stock_watchlist(
             items, "ai_infrastructure", pd.DataFrame([self._trend("000001", 90.0)]), theme_confirmed=True)
@@ -418,10 +418,23 @@ class TestFourStageIntegration:
         assert c.recommended is False                          # 信号门控：不追高
         assert "signal_hold" in c.reason_codes
 
+    def test_leader_breakdown_position_not_recommended(self, monkeypatch):
+        """LEADER × BREAKDOWN → WAIT：深破 60 日线（趋势破坏），即使 LEADER 也禁止买入。"""
+        monkeypatch.setattr("src.selection.four_stage.load_stock_close_history",
+                            lambda market, symbol, td=None, lb=None: [100.0] * 60 + [80.0])
+        items = self._items(["000001"])
+        leaders, _, _ = selection.select_stock_watchlist(
+            items, "ai_infrastructure", pd.DataFrame([self._trend("000001", 90.0)]), theme_confirmed=True)
+        c = leaders[0]
+        assert c.position_level == "BREAKDOWN"
+        assert c.signal == "WAIT"          # 破位不给任何买入信号
+        assert c.recommended is False
+        assert c.position_pct is not None and c.position_pct < -15.0
+
     def test_low_position_no_trend_still_wait(self, monkeypatch):
         """纪律：历史低位不产生趋势——趋势不成立（BELOW trend）即使 LOW 也 WAIT。"""
         monkeypatch.setattr("src.selection.four_stage.load_stock_close_history",
-                            lambda market, symbol, td=None, lb=None: [100.0, 90.0, 80.0, 70.0, 60.0, 50.0, 10.0])
+                            lambda market, symbol, td=None, lb=None: [100.0] * 60 + [90.0])
         items = self._items(["000001"])
         trend = pd.DataFrame([{"symbol": "000001", "data_status": "current", "score_trend": 30.0,
                                "watch_level": "C", "action": "观察", "risk_flags": ""}])
@@ -436,7 +449,7 @@ class TestFourStageIntegration:
     def test_theme_rank_by_trend_score(self, monkeypatch):
         """主题内排名按 score_trend：rank≤3 → LEADER，rank4+ → CORE（leader_rank_max=3）。"""
         monkeypatch.setattr("src.selection.four_stage.load_stock_close_history",
-                            lambda market, symbol, td=None, lb=None: [100.0, 90.0, 80.0, 70.0, 60.0, 50.0, 10.0])
+                            lambda market, symbol, td=None, lb=None: [100.0] * 60 + [90.0])
         items = self._items(["000001", "600001", "600002", "600003"])
         trend = pd.DataFrame([
             self._trend("000001", 95.0), self._trend("600001", 90.0),

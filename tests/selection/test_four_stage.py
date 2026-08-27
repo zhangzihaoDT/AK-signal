@@ -61,6 +61,43 @@ class TestClassifyPosition:
         assert four_stage.effective_position("") == "MID"
         assert four_stage.effective_position("LOW") == "LOW"
         assert four_stage.effective_position("HIGH") == "HIGH"
+        # BREAKDOWN 是真实状态，不归一为 MID
+        assert four_stage.effective_position("BREAKDOWN") == "BREAKDOWN"
+
+
+class TestMaDeviation:
+    def test_insufficient_window(self):
+        assert four_stage.ma_deviation([100.0] * 10, 60) is None
+        assert four_stage.ma_deviation([], 60) is None
+        assert four_stage.ma_deviation([100.0] * 60, 0) is None
+
+    def test_at_ma_zero_deviation(self):
+        assert four_stage.ma_deviation([10.0] * 60, 60) == 0.0
+
+    def test_above_ma_positive_deviation(self):
+        dev = four_stage.ma_deviation([10.0] * 59 + [11.0], 60)
+        assert dev is not None and 9.5 < dev < 10.5
+
+    def test_below_ma_negative_deviation(self):
+        dev = four_stage.ma_deviation([10.0] * 59 + [9.0], 60)
+        assert dev is not None and -10.5 < dev < -9.5
+
+
+class TestClassifyDeviation:
+    def test_bands(self):
+        # -15% 破位 / -5% 深度回调 / +10% 追高
+        assert four_stage.classify_deviation(-40.0, -15.0, -5.0, 10.0) == "BREAKDOWN"
+        assert four_stage.classify_deviation(-15.0, -15.0, -5.0, 10.0) == "BREAKDOWN"
+        assert four_stage.classify_deviation(-14.9, -15.0, -5.0, 10.0) == "LOW"
+        assert four_stage.classify_deviation(-6.0, -15.0, -5.0, 10.0) == "LOW"
+        assert four_stage.classify_deviation(-5.0, -15.0, -5.0, 10.0) == "LOW"
+        assert four_stage.classify_deviation(0.0, -15.0, -5.0, 10.0) == "MID"
+        assert four_stage.classify_deviation(9.9, -15.0, -5.0, 10.0) == "MID"
+        assert four_stage.classify_deviation(10.0, -15.0, -5.0, 10.0) == "HIGH"
+        assert four_stage.classify_deviation(20.0, -15.0, -5.0, 10.0) == "HIGH"
+
+    def test_unknown(self):
+        assert four_stage.classify_deviation(None, -15.0, -5.0, 10.0) == "UNKNOWN"
 
 
 _RULES = [
@@ -103,6 +140,11 @@ class TestMatchSignal:
         assert four_stage.match_signal("QUALIFIED", "LEADER", "UNKNOWN", _RULES, "WAIT") == "BUY"
         assert four_stage.match_signal("QUALIFIED", "CORE", "UNKNOWN", _RULES, "WAIT") == "WATCH"
 
+    def test_breakdown_position_never_buys(self):
+        """破位（BREAKDOWN）不归一为 MID：即使 LEADER × QUALIFIED 也得不到买入信号。"""
+        assert four_stage.match_signal("QUALIFIED", "LEADER", "BREAKDOWN", _RULES, "WAIT") == "WAIT"
+        assert four_stage.match_signal("QUALIFIED", "CORE", "BREAKDOWN", _RULES, "WAIT") == "WAIT"
+
     def test_rule_order_first_match(self):
         """HIGH 规则在 LEADER 规则之后：LEADER+HIGH 应命中 HOLD 而非降级规则。"""
         # LEADER×HIGH：规则 1/2（LOW/MID）不命中，规则 5（position HIGH）命中 → HOLD
@@ -121,6 +163,39 @@ class TestEvaluatePosition:
     def test_high_position(self):
         level, pct = four_stage.evaluate_position([50, 60, 70, 80, 90, 100], 756, 30, 70)
         assert level == "HIGH" and pct == 100.0
+
+
+class TestEvaluatePositionDeviation:
+    def test_high_position(self):
+        """现价高出 MA60 超 high_above_pct → HIGH（追高，不追）。"""
+        level, dev = four_stage.evaluate_position(
+            [10.0] * 59 + [13.0], 756, 30, 70,
+            metric="ma60_deviation", ma_window=60,
+            breakdown_pct=-15.0, low_below_pct=-5.0, high_above_pct=10.0)
+        assert level == "HIGH" and dev is not None and dev > 10.0
+
+    def test_low_position(self):
+        """现价低于 MA60 5%~15% → LOW（深度回调，赔率区）。"""
+        level, dev = four_stage.evaluate_position(
+            [10.0] * 59 + [9.0], 756, 30, 70,
+            metric="ma60_deviation", ma_window=60,
+            breakdown_pct=-15.0, low_below_pct=-5.0, high_above_pct=10.0)
+        assert level == "LOW" and dev is not None and dev < -5.0
+
+    def test_breakdown_position(self):
+        """现价低于 MA60 超 breakdown_pct → BREAKDOWN（趋势破坏，禁止买入）。"""
+        level, dev = four_stage.evaluate_position(
+            [10.0] * 59 + [8.0], 756, 30, 70,
+            metric="ma60_deviation", ma_window=60,
+            breakdown_pct=-15.0, low_below_pct=-5.0, high_above_pct=10.0)
+        assert level == "BREAKDOWN" and dev is not None and dev < -15.0
+
+    def test_insufficient_history_unknown(self):
+        level, dev = four_stage.evaluate_position(
+            [100.0] * 30, 756, 30, 70,
+            metric="ma60_deviation", ma_window=60,
+            breakdown_pct=-15.0, low_below_pct=-5.0, high_above_pct=10.0)
+        assert level == "UNKNOWN" and dev is None
 
 
 class TestHistoryLoaders:

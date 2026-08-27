@@ -23,7 +23,7 @@ import pandas as pd
 
 logger = logging.getLogger("selection.four_stage")
 
-POSITION_LEVELS = ("LOW", "MID", "HIGH", "UNKNOWN")
+POSITION_LEVELS = ("LOW", "MID", "HIGH", "BREAKDOWN", "UNKNOWN")
 NEUTRAL_POSITION = "MID"  # 数据不足/未启用时按中性位置匹配
 
 
@@ -62,7 +62,7 @@ def price_percentile(closes: list[float], lookback_days: int | None = None) -> f
 
 
 def classify_position(pct: float | None, low_max: float, mid_max: float) -> str:
-    """③ 历史位置：≤low_max → LOW；≤mid_max → MID；>mid_max → HIGH；None → UNKNOWN。"""
+    """③ 历史位置（价格分位）：≤low_max → LOW；≤mid_max → MID；>mid_max → HIGH；None → UNKNOWN。"""
     if pct is None:
         return "UNKNOWN"
     if pct <= low_max:
@@ -72,9 +72,50 @@ def classify_position(pct: float | None, low_max: float, mid_max: float) -> str:
     return "HIGH"
 
 
+def ma_deviation(closes: list[float], window: int) -> float | None:
+    """③ 乖离率（%）：现价相对 MA 的偏离百分比，(现价/MA − 1)×100。
+
+    MA = 最近 window 个收盘价的简单均值；价格点少于 window → None（数据不足）。
+    """
+    if window <= 0:
+        return None
+    vals = [c for c in closes if c is not None and not pd.isna(c)]
+    if len(vals) < window:
+        return None
+    window_vals = vals[-window:]
+    ma = sum(window_vals) / window
+    cur = vals[-1]
+    if ma <= 0:
+        return None
+    return round((cur / ma - 1) * 100, 2)
+
+
+def classify_deviation(
+    dev: float | None,
+    breakdown_pct: float,
+    low_below_pct: float,
+    high_above_pct: float,
+) -> str:
+    """③ 乖离率位置（U 形，两端皆差）：dev ≤ breakdown_pct → BREAKDOWN（破位，禁止买入）；
+    ≤ low_below_pct → LOW（深度回调，赔率区）；≥ high_above_pct → HIGH（追高）；中间 → MID；
+    None → UNKNOWN。"""
+    if dev is None:
+        return "UNKNOWN"
+    if dev <= breakdown_pct:
+        return "BREAKDOWN"
+    if dev <= low_below_pct:
+        return "LOW"
+    if dev >= high_above_pct:
+        return "HIGH"
+    return "MID"
+
+
 def effective_position(position_level: str) -> str:
-    """把 UNKNOWN / 空（数据不足或未启用）归一为中性位置，避免数据缺口造成假信号。"""
-    return position_level if position_level in POSITION_LEVELS[:3] else NEUTRAL_POSITION
+    """把 UNKNOWN / 空（数据不足或未启用）归一为中性位置，避免数据缺口造成假信号。
+
+    BREAKDOWN 是真实状态，原样参与信号匹配（不归一为 MID）。
+    """
+    return position_level if position_level in ("LOW", "MID", "HIGH", "BREAKDOWN") else NEUTRAL_POSITION
 
 
 def match_signal(
@@ -163,13 +204,24 @@ def evaluate_position(
     mid_max: float,
     *,
     enabled: bool = True,
+    metric: str = "price_percentile",
+    ma_window: int = 60,
+    breakdown_pct: float = -15.0,
+    low_below_pct: float = -5.0,
+    high_above_pct: float = 10.0,
 ) -> tuple[str, float | None]:
-    """历史位置评估：返回 (position_level, position_pct)。
+    """历史位置评估：返回 (position_level, position_metric)。
 
-    未启用 → ("", None)（信号匹配按中性 MID 处理）；数据不足 → ("UNKNOWN", None)。
+    position_metric：price_percentile → 价格分位（0-100）；ma60_deviation → 乖离率（%，可负）。
+    未启用 → ("", None)（信号匹配按中性 MID 处理）；数据不足 → ("UNKNOWN", None）。
     """
     if not enabled:
         return "", None
+    if metric == "ma60_deviation":
+        dev = ma_deviation(closes, ma_window)
+        if dev is None:
+            return "UNKNOWN", None
+        return classify_deviation(dev, breakdown_pct, low_below_pct, high_above_pct), dev
     pct = price_percentile(closes, lookback_days)
     if pct is None:
         return "UNKNOWN", None

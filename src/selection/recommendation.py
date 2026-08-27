@@ -56,8 +56,10 @@ def _stock_reject_reason(a: dict[str, Any]) -> str:
         return "风险警戒" + (f"（{'、'.join(flags)}）" if flags else "")
     # v0.9.0 四段信号：趋势/主题都过但信号是 HOLD/WATCH → 解释为什么未推荐
     if a.get("state") == "RECOMMENDED" and not a.get("recommended"):
+        if a.get("position_level") == "BREAKDOWN":
+            return _breakdown_reject_reason(a)
         if a.get("signal") == "HOLD":
-            return f"历史高位（3年价格分位 {a.get('position_pct') or '—'}%），持有不追高"
+            return _hold_reject_reason(a)
         if a.get("signal") == "WATCH":
             return "主题内非龙头/非核心，或位置中性，暂不买入"
         if a.get("signal"):
@@ -67,6 +69,32 @@ def _stock_reject_reason(a: dict[str, Any]) -> str:
     if a.get("state") == "WATCH":
         return "未达趋势资格"
     return a.get("reason", "") or ""
+
+
+def _position_metric_label() -> str:
+    """位置指标的人类可读标签（展示层，不改变事实）。"""
+    try:
+        from src.common.spec.loaders import load_stock_selection_spec
+        metric = load_stock_selection_spec().historical_position.metric
+        return "60 日线乖离" if metric == "ma60_deviation" else "历史价格分位"
+    except Exception:
+        return "历史位置"
+
+
+def _hold_reject_reason(a: dict[str, Any]) -> str:
+    """HOLD 未推荐原因：追高不买（position_pct 为分位或乖离率，措辞按 metric 区分）。"""
+    pct = a.get("position_pct")
+    pct_txt = "—" if pct is None else f"{pct:g}%"
+    if _position_metric_label() == "60 日线乖离":
+        return f"现价高于 60 日线 {pct_txt}，追高不买"
+    return f"历史高位（{pct_txt} 分位），持有不追高"
+
+
+def _breakdown_reject_reason(a: dict[str, Any]) -> str:
+    """BREAKDOWN 未推荐原因：现价深破 60 日线，中期趋势破坏。"""
+    pct = a.get("position_pct")
+    pct_txt = "—" if pct is None else f"{abs(pct):g}%"
+    return f"现价低于 60 日线 {pct_txt}，中期趋势破坏，暂不买入"
 
 
 def _stock_short_reason(a: dict[str, Any]) -> str:

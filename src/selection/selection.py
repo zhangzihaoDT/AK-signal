@@ -135,16 +135,27 @@ def _apply_four_stage(
         lvl = "NON_CORE"
     hp = spec.historical_position
     pos_level, pos_pct = four_stage.evaluate_position(
-        closes, hp.lookback_days, hp.low_max, hp.mid_max, enabled=hp.enabled)
+        closes,
+        hp.lookback_days, hp.low_max, hp.mid_max,
+        enabled=hp.enabled, metric=hp.metric,
+        ma_window=hp.ma_window, breakdown_pct=hp.breakdown_pct,
+        low_below_pct=hp.low_below_pct, high_above_pct=hp.high_above_pct)
     signal = four_stage.match_signal(
         trend_level, lvl, pos_level, _signal_rules_dicts(), _STOCK_SPEC.signal_policy.fallback_signal)
     cand.leadership_level = lvl
     cand.theme_rank = rank
     cand.position_level = pos_level
     cand.position_pct = pos_pct
-    cand.position_lookback_days = hp.lookback_days if hp.enabled else 0
+    cand.position_lookback_days = _position_window(hp)
     cand.signal = signal
     return signal
+
+
+def _position_window(hp: Any) -> int:
+    """历史位置生效时的回看窗口（price_percentile=lookback_days；ma60_deviation=ma_window）。"""
+    if not hp.enabled:
+        return 0
+    return hp.ma_window if hp.metric == "ma60_deviation" else hp.lookback_days
 
 
 def _signal_reason(cand: AssetCandidate) -> str:
@@ -154,7 +165,7 @@ def _signal_reason(cand: AssetCandidate) -> str:
     parts = [cand.signal]
     if cand.leadership_level:
         parts.append(cand.leadership_level)
-    if cand.position_level in ("LOW", "MID", "HIGH"):
+    if cand.position_level in ("LOW", "MID", "HIGH", "BREAKDOWN"):
         parts.append(cand.position_level)
     return " · ".join(parts)
 
@@ -270,9 +281,9 @@ class AssetCandidate:
     # 四段信号（v0.9.0）：trend → leadership → position → signal
     leadership_level: str = ""          # LEADER / CORE / NON_CORE（主题内相对地位）
     theme_rank: int | None = None       # 主题内可比分排名（1 起）
-    position_level: str = ""            # LOW / MID / HIGH / UNKNOWN（历史价格分位）
-    position_pct: float | None = None   # 3 年价格分位（0-100）
-    position_lookback_days: int = 0     # 分位回看窗口（config historical_position.lookback_days）
+    position_level: str = ""            # LOW / MID / HIGH / BREAKDOWN / UNKNOWN（历史位置）
+    position_pct: float | None = None   # price_percentile=分位(0-100)；ma60_deviation=乖离率(%,可负)
+    position_lookback_days: int = 0     # 位置回看窗口（price_percentile=lookback_days；ma60_deviation=ma_window）
     signal: str = ""                    # STRONG_BUY / BUY / WATCH / HOLD / WAIT
 
     def to_dict(self) -> dict[str, Any]:
@@ -723,7 +734,7 @@ def theme_etf_pool(
             cand, rank=i + 1, trend_qualified=in_gate,
             closes=four_stage.load_etf_close_history(
                 code, trade_date,
-                _ETF_SPEC.historical_position.lookback_days if _ETF_SPEC.historical_position.enabled else None))
+                _position_window(_ETF_SPEC.historical_position)))
         cand.recommended = bool(in_gate and liq_ok) and signal in BUY_SIGNALS
         if signal in ("HOLD", "WATCH"):
             sig_code = f"signal_{signal.lower()}"
@@ -972,7 +983,7 @@ def select_stock_watchlist(
             hp = _STOCK_SPEC.historical_position
             closes_cache[cand.code] = four_stage.load_stock_close_history(
                 available_market.get(id(cand), "CN"), cand.code, trade_date,
-                hp.lookback_days if hp.enabled else None)
+                _position_window(hp))
         signal = _apply_four_stage(
             cand, rank=rank or 1, trend_level=trend_level,
             closes=closes_cache[cand.code], spec=_STOCK_SPEC, outperform_bar=_STOCK_SPEC.qualified_score)
@@ -1392,7 +1403,7 @@ def _to_etf_candidate(
         cand, rank=rank, trend_qualified=in_gate,
         closes=four_stage.load_etf_close_history(
             cand.code, trade_date,
-            _ETF_SPEC.historical_position.lookback_days if _ETF_SPEC.historical_position.enabled else None))
+            _position_window(_ETF_SPEC.historical_position)))
     cand.recommended = in_gate and signal in BUY_SIGNALS
     if signal in ("HOLD", "WATCH"):
         sig_code = f"signal_{signal.lower()}"

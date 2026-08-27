@@ -7,11 +7,12 @@
 # Layer③ 统一选筹逻辑（四段）：
 #   1. trend      — 有没有趋势（无趋势不进入买入候选）
 #   2. leadership — 是不是主题龙头/核心成分（主题内相对地位）
-#   3. position   — 当前处于历史什么位置（判断赔率；历史低位只提高赔率，不产生趋势）
+#   3. position   — 当前相对 60 日线的位置/赔率（乖离率；低位只提高赔率，不产生趋势）
 #   4. signal     — 三者组合后给出最终行动信号（STRONG_BUY / BUY / WATCH / HOLD / WAIT）
 #
 # 纪律：position 从不单独产生买入信号。趋势不成立（trend=NOT_QUALIFIED）的标的
-#       即使位于 20% 历史分位，仍然 WAIT；HIGH 位置只输出 HOLD，不追高。
+#       即使大幅低于 60 日线，仍然 WAIT；偏离 60 日线过高（HIGH）只输出 HOLD，不追高；
+#       破位（BREAKDOWN，现价低于 MA60 超 breakdown_pct）中期趋势破坏，禁止买入。
 
 etf_selection:
   # Layer③ ETF 候选的「准入—排序—输出」策略（Policy，非指标定义）。
@@ -43,10 +44,11 @@ etf_selection:
 
   historical_position:
     enabled: true
-    lookback_days: 756       # 约 3 年交易日
-    metric: price_percentile
-    low_max: 30              # ≤30% = LOW
-    mid_max: 70              # ≤70% = MID；>70% = HIGH
+    metric: ma60_deviation   # 乖离率：现价相对 60 日线的偏离百分比（(现价/MA60 − 1)×100）
+    ma_window: 60            # 60 日线（MA60）
+    breakdown_pct: -15.0     # 现价低于 MA60 超 15% → BREAKDOWN（趋势破坏，禁止买入）
+    low_below_pct: -5.0      # 低于 MA60 5%~15% → LOW（深度回调，赔率区）
+    high_above_pct: 10.0     # 高于 MA60 超 10% → HIGH（追高，不追）
 
 # stock_selection：Layer③ 个股准入 + 主题门控 + 四段信号（Policy，非指标定义）
 #   ① trend：qualified_score + allowed_trend_states（趋势合格线）
@@ -56,7 +58,7 @@ etf_selection:
 #   ② leadership：theme_rank = 主题内按 trend_score 排名 → LEADER（Top leader_rank_max）/
 #     CORE（≤core_rank_max）/ NON_CORE；require_rps_outperform=true 时趋势分未过线
 #     的一律不升 LEADER/CORE（保险丝，通常已被 ① 挡住）
-#   ③ historical_position：价格分位（历史赔率，不产生趋势）
+#   ③ historical_position：现价相对 60 日线的乖离率（历史赔率，不产生趋势）
 #   ④ signal_policy：规则顺序匹配（先命中先生效），未命中 → fallback_signal
 stock_selection:
   trend:
@@ -74,10 +76,11 @@ stock_selection:
 
   historical_position:
     enabled: true
-    lookback_days: 756       # 约 3 年交易日
-    metric: price_percentile
-    low_max: 30              # ≤30% = LOW
-    mid_max: 70              # ≤70% = MID；>70% = HIGH
+    metric: ma60_deviation   # 乖离率：现价相对 60 日线的偏离百分比（(现价/MA60 − 1)×100）
+    ma_window: 60            # 60 日线（MA60）
+    breakdown_pct: -15.0     # 现价低于 MA60 超 15% → BREAKDOWN（趋势破坏，禁止买入）
+    low_below_pct: -5.0      # 低于 MA60 5%~15% → LOW（深度回调，赔率区）
+    high_above_pct: 10.0     # 高于 MA60 超 10% → HIGH（追高，不追）
 
   # ④ 最终信号（ETF 复用本规则；position 缺失/不可用时按中性 MID 处理，不升级也不压制）
   signal_policy:
@@ -105,6 +108,10 @@ stock_selection:
       - trend: QUALIFIED
         position: HIGH
         signal: HOLD
+
+      - trend: QUALIFIED
+        position: BREAKDOWN
+        signal: WAIT
 
     fallback_signal: WAIT
 

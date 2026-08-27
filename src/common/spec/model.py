@@ -74,14 +74,23 @@ class HistoricalPositionSpec:
     """③ 历史位置：判断赔率（Policy）。
 
     metric=price_percentile：当前价在最近 lookback_days 交易日内的分位。
-    ≤low_max → LOW；≤mid_max → MID；>mid_max → HIGH。
-    纪律：历史低位只提高赔率，不产生趋势（趋势成立仍是前置条件）。
+      ≤low_max → LOW；≤mid_max → MID；>mid_max → HIGH。
+    metric=ma60_deviation：乖离率 = (现价/MA60 − 1)×100（现价相对 60 日线的偏离百分比）。
+      现价低于 MA60 超 breakdown_pct → BREAKDOWN（中期趋势破坏，禁止买入）；
+      低于 MA60 超 low_below_pct（且未破位）→ LOW（深度回调，赔率区）；
+      高于 MA60 超 high_above_pct → HIGH（追高）；中间 → MID。
+      数据不足 → UNKNOWN（信号按中性 MID 匹配）。
+    纪律：历史低位只提高赔率，不产生趋势（趋势成立仍是前置条件）；高位（追高）与破位都不买。
     """
     enabled: bool = True
     lookback_days: int = 756
     metric: str = "price_percentile"
     low_max: float = 30.0
     mid_max: float = 70.0
+    ma_window: int = 60
+    breakdown_pct: float = -15.0
+    low_below_pct: float = -5.0
+    high_above_pct: float = 10.0
 
 
 @dataclass(frozen=True)

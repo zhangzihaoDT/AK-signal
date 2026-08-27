@@ -36,15 +36,17 @@ class TestLoaders:
         assert ss.leadership.core_rank_max == 10
         assert ss.leadership.require_rps_outperform is True
         assert ss.historical_position.enabled is True
-        assert ss.historical_position.lookback_days == 756
-        assert ss.historical_position.metric == "price_percentile"
-        assert (ss.historical_position.low_max, ss.historical_position.mid_max) == (30.0, 70.0)
+        assert ss.historical_position.metric == "ma60_deviation"
+        assert ss.historical_position.ma_window == 60
+        assert ss.historical_position.breakdown_pct == -15.0
+        assert (ss.historical_position.low_below_pct, ss.historical_position.high_above_pct) == (-5.0, 10.0)
         # 信号规则：顺序匹配、先命中先生效
         assert ss.signal_policy.fallback_signal == "WAIT"
         rules = ss.signal_policy.rules
         assert rules[0].signal == "STRONG_BUY"
         assert (rules[0].trend, rules[0].leadership, rules[0].position) == ("QUALIFIED", "LEADER", "LOW")
-        assert rules[-1].signal == "HOLD" and rules[-1].position == "HIGH"
+        assert rules[4].signal == "HOLD" and rules[4].position == "HIGH"
+        assert rules[-1].signal == "WAIT" and rules[-1].position == "BREAKDOWN"
 
     def test_etf_selection_spec(self):
         from src.common.spec.loaders import load_etf_selection_spec
@@ -62,7 +64,8 @@ class TestLoaders:
         # ETF leadership：core_rank_max=1 → LEADER 上界；satellite_rank_max=3 → CORE 上界
         assert es.leadership.leader_rank_max == 1
         assert es.leadership.core_rank_max == 3
-        assert es.historical_position.lookback_days == 756
+        assert es.historical_position.metric == "ma60_deviation"
+        assert es.historical_position.ma_window == 60
 
     def test_strategy_spec(self):
         s = load_strategy_spec("ai_fixed_20")
@@ -174,6 +177,33 @@ class TestSchemaValidation:
     def test_stock_selection_bad_position_bands(self):
         raw = {"stock_selection": self._valid_stock_selection(
             historical_position={"lookback_days": 756, "low_max": 60, "mid_max": 40})}
+        with pytest.raises(sch.SpecValidationError):
+            sch.validate_stock_selection(raw)
+
+    def test_stock_selection_bad_deviation_bands(self):
+        raw = {"stock_selection": self._valid_stock_selection(
+            historical_position={"metric": "ma60_deviation", "ma_window": 60,
+                                 "low_below_pct": 10, "high_above_pct": 5})}
+        with pytest.raises(sch.SpecValidationError):
+            sch.validate_stock_selection(raw)
+
+    def test_stock_selection_bad_breakdown_ordering(self):
+        """breakdown_pct 必须 < low_below_pct：-5 破位门槛 ≥ -5 回调门槛 → 非法。"""
+        raw = {"stock_selection": self._valid_stock_selection(
+            historical_position={"metric": "ma60_deviation", "ma_window": 60,
+                                 "breakdown_pct": -5.0, "low_below_pct": -5.0, "high_above_pct": 10.0})}
+        with pytest.raises(sch.SpecValidationError):
+            sch.validate_stock_selection(raw)
+
+    def test_stock_selection_valid_deviation_bands(self):
+        raw = {"stock_selection": self._valid_stock_selection(
+            historical_position={"metric": "ma60_deviation", "ma_window": 60,
+                                 "breakdown_pct": -15.0, "low_below_pct": -5.0, "high_above_pct": 10.0})}
+        sch.validate_stock_selection(raw)
+
+    def test_stock_selection_unsupported_position_metric(self):
+        raw = {"stock_selection": self._valid_stock_selection(
+            historical_position={"metric": "ma99"})}
         with pytest.raises(sch.SpecValidationError):
             sch.validate_stock_selection(raw)
 

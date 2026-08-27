@@ -53,6 +53,10 @@ def _parse_historical_position(node: dict[str, Any]) -> HistoricalPositionSpec:
         metric=str(node.get("metric", "price_percentile")),
         low_max=float(node.get("low_max", 30.0)),
         mid_max=float(node.get("mid_max", 70.0)),
+        ma_window=int(node.get("ma_window", 60)),
+        breakdown_pct=float(node.get("breakdown_pct", -15.0)),
+        low_below_pct=float(node.get("low_below_pct", -5.0)),
+        high_above_pct=float(node.get("high_above_pct", 10.0)),
     )
 
 

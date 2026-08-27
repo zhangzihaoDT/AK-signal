@@ -90,6 +90,16 @@ def _num(v: Any) -> str:
     return f"{v}"
 
 
+def _position_header() -> str:
+    """位置指标列头（展示层；按 ETF historical_position.metric 标注口径）。"""
+    try:
+        from src.common.spec.loaders import load_etf_selection_spec
+        metric = load_etf_selection_spec().historical_position.metric
+        return "偏离MA60%" if metric == "ma60_deviation" else "位置分位"
+    except Exception:
+        return "位置分位"
+
+
 def _pct(v: Any) -> str:
     if v is None or (isinstance(v, float) and v != v):
         return "—"
@@ -647,8 +657,10 @@ def render_selection_html(
                 continue
             parts.append(f"<h4 style='color:var(--zh-blue);margin:16px 0 6px'>{sub.get('theme_label', '')}"
                          f" <span style='font-size:12px;color:var(--zh-muted)'>({len(etfs)} 只)</span></h4>")
+            pos_header = _position_header()
             parts.append("<table><tr><th>ETF</th><th>来源</th><th class='num'>主题排名</th>"
-                         "<th>龙头/核心</th><th>位置</th><th class='num'>位置分位</th>"
+                         "<th>龙头/核心</th><th>位置</th>"
+                         f"<th class='num'>{pos_header}</th>"
                          "<th class='num'>RPS15</th><th class='num'>成交额</th><th>信号</th><th>结论</th></tr>")
             for a in etfs:
                 signal = a.get("signal", "") or "—"

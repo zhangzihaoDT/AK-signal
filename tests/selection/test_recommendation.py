@@ -179,6 +179,19 @@ class TestRejectReasons:
     def test_stock_qualified(self):
         assert "待主题确认" in rec._stock_reject_reason({"state": "QUALIFIED", "selection_status": "available"})
 
+    def test_stock_breakdown(self):
+        """趋势/主题都过但破位（BREAKDOWN）→ 中期趋势破坏，暂不买入。"""
+        a = {"state": "RECOMMENDED", "signal": "WAIT", "position_level": "BREAKDOWN",
+             "position_pct": -37.6, "selection_status": "available"}
+        assert "中期趋势破坏" in rec._stock_reject_reason(a)
+        assert "37.6" in rec._stock_reject_reason(a)
+
+    def test_stock_hold(self):
+        """追高（HOLD）文案按 ma60_deviation 措辞。"""
+        a = {"state": "RECOMMENDED", "signal": "HOLD", "position_level": "HIGH",
+             "position_pct": 18.5, "selection_status": "available"}
+        assert "追高不买" in rec._stock_reject_reason(a)
+
 
 class TestMonitorConclusion:
     """v0.9.0 附录监控表结论：四段信号优先，state 仅作主题门控区分。"""

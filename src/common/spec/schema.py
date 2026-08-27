@@ -107,7 +107,7 @@ def validate_indicators(cfg: dict[str, Any]) -> None:
 SIGNALS = {"STRONG_BUY", "BUY", "WATCH", "HOLD", "WAIT"}
 TREND_LEVELS = {"QUALIFIED", "NOT_QUALIFIED"}
 LEADERSHIP_LEVELS = {"LEADER", "CORE", "NON_CORE"}
-POSITION_LEVELS = {"LOW", "MID", "HIGH", "UNKNOWN"}
+POSITION_LEVELS = {"LOW", "MID", "HIGH", "BREAKDOWN", "UNKNOWN"}
 LEADERSHIP_METHODS = {"theme_rank"}
 
 
@@ -130,17 +130,31 @@ def _validate_leadership(node: dict[str, Any], prefix: str) -> None:
         raise SpecValidationError(f"{prefix}: CORE rank upper bound must be >= LEADER bound")
 
 
+POSITION_METRICS = {"price_percentile", "ma60_deviation"}
+
+
 def _validate_historical_position(node: dict[str, Any], prefix: str) -> None:
     if not isinstance(node, dict):
         raise SpecValidationError(f"{prefix}: must define historical_position")
-    if node.get("metric", "price_percentile") != "price_percentile":
-        raise SpecValidationError(f"{prefix}.metric unsupported: {node.get('metric')!r}")
-    if int(node.get("lookback_days", 0)) < 20:
-        raise SpecValidationError(f"{prefix}.lookback_days must be >= 20")
-    low = _num_in_range(node.get("low_max"), 0, 100, f"{prefix}.low_max")
-    mid = _num_in_range(node.get("mid_max"), 0, 100, f"{prefix}.mid_max")
-    if mid <= low:
-        raise SpecValidationError(f"{prefix}.mid_max must be > low_max")
+    metric = node.get("metric", "price_percentile")
+    if metric not in POSITION_METRICS:
+        raise SpecValidationError(f"{prefix}.metric unsupported: {metric!r}")
+    if metric == "price_percentile":
+        if int(node.get("lookback_days", 0)) < 20:
+            raise SpecValidationError(f"{prefix}.lookback_days must be >= 20")
+        low = _num_in_range(node.get("low_max"), 0, 100, f"{prefix}.low_max")
+        mid = _num_in_range(node.get("mid_max"), 0, 100, f"{prefix}.mid_max")
+        if mid <= low:
+            raise SpecValidationError(f"{prefix}.mid_max must be > low_max")
+    else:  # ma60_deviation
+        if int(node.get("ma_window", 0)) < 20:
+            raise SpecValidationError(f"{prefix}.ma_window must be >= 20")
+        bd = _num_in_range(node.get("breakdown_pct"), -100, 100, f"{prefix}.breakdown_pct")
+        low = _num_in_range(node.get("low_below_pct"), -100, 100, f"{prefix}.low_below_pct")
+        high = _num_in_range(node.get("high_above_pct"), -100, 100, f"{prefix}.high_above_pct")
+        if not (bd < low < high):
+            raise SpecValidationError(
+                f"{prefix}: must satisfy breakdown_pct < low_below_pct < high_above_pct")
 
 
 def _validate_signal_policy(node: dict[str, Any], prefix: str) -> None:
