@@ -103,7 +103,7 @@ def run_construction_experiments(
 
     strategies = load_strategies(strategies_path)
     if "ai_20" not in strategies or "hc_20" not in strategies:
-        raise ValueError("config/strategies.yaml 需包含 ai_20 与 hc_20")
+        raise ValueError("config/strategy_spec.yaml 需包含 ai_20 与 hc_20")
     cache = cache or replay_engine.build_replay_cache()
     closes = build_close_prices(cache)
 

@@ -1,7 +1,7 @@
 """
 Portfolio Simulation 编排 — 单策略账户 + Core+Quality 综合账户。
 
-三套单账户：AI-20 / AI-MA / HC-20（策略配置见 config/strategies.yaml）
+三套单账户：AI-20 / AI-MA / HC-20（策略配置见 config/strategy_spec.yaml）
 综合账户：Core+Quality = AI-20 + HC-20，两种资金模式：
   Mode A：全组合统一等权（weight 全 1）
   Mode B：AI 60% / HC 40%
@@ -27,7 +27,7 @@ from .nav import nav_metrics  # noqa: F401  (re-export for callers/report)
 
 
 def load_strategies(path: Path | None = None) -> dict[str, dict[str, Any]]:
-    p = path or (config_dir() / "strategies.yaml")
+    p = path or (config_dir() / "strategy_spec.yaml")
     if not p.exists():
         return {}
     with open(p, "r", encoding="utf-8") as f:
@@ -41,7 +41,7 @@ def strategy_trades(
 ) -> pd.DataFrame:
     """按策略规格运行逐笔模拟，产出该策略的成交序列（含 Provenance）。
 
-    entry/exit/universe 参数来自统一 Strategy Specification（config/strategies.yaml）。
+    entry/exit/universe 参数来自统一 Strategy Specification（config/strategy_spec.yaml）。
     """
     from src.common.spec.loaders import load_strategy_spec
     from ..trade.trades import run_backtest

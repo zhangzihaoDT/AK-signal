@@ -25,7 +25,7 @@ import pandas as pd
 from src.common.paths import (
     config_dir,
     etf_signal_master_dir, etf_signal_raw_dir,
-    sw_industry_processed_dir, stock_universe_path,
+    sw_industry_processed_dir, selection_universe_path,
 )
 from src.etf_signal import indicators as etf_indicators
 from src.etf_signal import rotation as etf_rotation
@@ -179,7 +179,7 @@ def _replay_layer3(
     confirmation_df: pd.DataFrame,
     logger: logging.Logger,
 ) -> pd.DataFrame:
-    universe_items = load_universe_items(stock_universe_path())
+    universe_items = load_universe_items(selection_universe_path())
     stock_items = trend_inputs.stock_items(universe_items)
 
     trend_df = trend_inputs.build_stock_metrics(

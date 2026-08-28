@@ -84,7 +84,7 @@ KEYWORD_RULES: list[dict[str, Any]] = [
 
 
 def load_config(config_dir: Path) -> dict[str, Any]:
-    path = config_dir / "etf_buckets.yaml"
+    path = config_dir / "etf_classification.yaml"
     if path.exists():
         with open(path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f) or {}

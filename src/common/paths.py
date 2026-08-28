@@ -21,16 +21,28 @@ def stock_pool_path() -> Path:
     return config_dir() / "stock_pool.csv"
 
 
-def stock_universe_path() -> Path:
-    return config_dir() / "stock_universe.yaml"
+def selection_universe_path() -> Path:
+    """Layer ③ Selection 资产池（theme → tier → assets）。"""
+    return config_dir() / "selection_universe.yaml"
+
+
+def research_observations_path() -> Path:
+    """研究观察组（不参与 Layer ③ 确认与交易候选，供 Research Basket 消费）。"""
+    return config_dir() / "research_observations.yaml"
+
+
+def theme_registry_path() -> Path:
+    """主题注册表（bucket → theme → industries / etf_keywords / tiers）。"""
+    return config_dir() / "theme_registry.yaml"
 
 
 def sw_industry_confirmation_dir() -> Path:
     return processed_dir() / "sw_industry"
 
 
-def sw_industry_rps_config_path() -> Path:
-    return config_dir() / "sw_industry_rps.yaml"
+def industry_data_config_path() -> Path:
+    """申万行业数据模块配置（数据源 / provisional / storage）。"""
+    return config_dir() / "industry_data.yaml"
 
 
 def data_dir() -> Path:

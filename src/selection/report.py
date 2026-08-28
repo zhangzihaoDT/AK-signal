@@ -560,7 +560,7 @@ def render_selection_html(
         issue_parts: list[str] = []
         unregistered = config_issues.get("unregistered_themes") or []
         if unregistered:
-            issue_parts.append(f"asset pool 存在未注册 theme（不进入候选，需加入 config/themes_two_directions.yaml）：{'、'.join(unregistered)}")
+            issue_parts.append(f"asset pool 存在未注册 theme（不进入候选，需加入 config/theme_registry.yaml）：{'、'.join(unregistered)}")
         cross = config_issues.get("cross_theme_assets") or {}
         if cross:
             shown = "、".join(f"{code}({'/'.join(ths)})" for code, ths in list(cross.items())[:8])

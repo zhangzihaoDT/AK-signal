@@ -6,7 +6,7 @@ Layer ③ — 多主题交易标的筛选与表达方式选择（Tradable Select
       「这个已确认主题，应当由哪只 ETF、哪类股票来交易」。
 
 多主题框架：bucket（Core/Quality/Tactical，为什么持有） → theme（市场方向）→ 候选资产。
-  theme 与 industries / etf_keywords 来自 config/themes_two_directions.yaml（单一事实源）。
+  theme 与 industries / etf_keywords 来自 config/theme_registry.yaml（单一事实源）。
 
 核心输出：候选资产对象（结构化 dict/JSON），HTML 报告只是它的可视化。
 
@@ -59,7 +59,7 @@ ROLE_LABELS = {
     "UPSTREAM": "设备与上游",
 }
 
-# 趋势门控：允许进入候选的 ETF 状态（来自统一 Strategy Specification config/strategies.yaml etf_selection）
+# 趋势门控：允许进入候选的 ETF 状态（来自统一 Strategy Specification config/strategy_spec.yaml etf_selection）
 def _indicator_gates() -> tuple[set[str], set[str], float, set[str], set[str]]:
     from src.common.spec.loaders import load_etf_selection_spec, load_stock_selection_spec
     es = load_etf_selection_spec()
@@ -74,7 +74,7 @@ def _indicator_gates() -> tuple[set[str], set[str], float, set[str], set[str]]:
 
 
 def _etf_min_amount() -> float:
-    """ETF 流动性门槛（Policy，config/strategies.yaml etf_selection.min_amount）。
+    """ETF 流动性门槛（Policy，config/strategy_spec.yaml etf_selection.min_amount）。
 
     单一来源：只允许通过 spec loader 读取，禁止模块内硬编码覆盖（曾出现
     `ETF_MIN_AMOUNT = 50_000_000` 覆盖 config 值的 config drift 缺陷）。
@@ -97,7 +97,7 @@ ETF_TREND_STATUS_LABELS = {
 STOCK_STATE_WATCH = "WATCH"
 STOCK_STATE_QUALIFIED = "QUALIFIED"
 STOCK_STATE_RECOMMENDED = "RECOMMENDED"
-# 个股趋势合格门槛（来自 config/strategies.yaml stock_selection.trend.qualified_score）
+# 个股趋势合格门槛（来自 config/strategy_spec.yaml stock_selection.trend.qualified_score）
 # 主题确认门槛（Layer③ 门控 = stock_selection.theme_confirm_states；与 Layer② 生成
 # strength_level 的 observe_threshold 无关——那是 Observation，本层只消费状态）
 
@@ -525,7 +525,7 @@ def evaluate_direction(theme_metas: dict[str, dict[str, Any]]) -> dict[str, Any]
 # ── 2. ETF 候选（动态从 Layer① rotation 选） ───────────────────────
 
 def match_theme(fund_name: str) -> str | None:
-    """按 config/themes_two_directions.yaml 的 etf_keywords 匹配首个 theme（bucket 顺序优先）。"""
+    """按 config/theme_registry.yaml 的 etf_keywords 匹配首个 theme（bucket 顺序优先）。"""
     return themes_cfg.match_theme(fund_name)
 
 
@@ -577,7 +577,7 @@ def select_etf_candidates(
     etf = etf[etf["amount"].fillna(0) >= min_amount].copy()
 
     # 选择评分（Policy）：RPS15/20 + 流动性，权重与 amount_score 口径来自
-    # config/strategies.yaml etf_selection（固定区间 log 评分，跨期/跨候选池可比）
+    # config/strategy_spec.yaml etf_selection（固定区间 log 评分，跨期/跨候选池可比）
     from src.common.spec.loaders import load_etf_selection_spec
     es = load_etf_selection_spec()
     w = es.ranking_weights

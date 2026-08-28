@@ -6,7 +6,7 @@
   2. 当日所属主题行业确认成立（theme 焦点行业存在 观察/强势）。
 
 Universe 范围（明确参数，不静默改变原逻辑）：
-  configured      限定在 config/stock_universe.yaml 的主题资产池（8 AI + 6 高现金流 ETF）
+  configured      限定在 config/selection_universe.yaml 的主题资产池（8 AI + 6 高现金流 ETF）
   theme-matched   全市场按主题关键词命中的 ETF（44 / 12）——广义主题研究基线
 
 注意：是否开仓由 trades 层持有状态门控（持仓期间再次 entry 不重复开仓）。
@@ -20,7 +20,7 @@ from typing import Any
 
 import pandas as pd
 
-from src.common.paths import stock_universe_path, config_dir
+from src.common.paths import selection_universe_path, config_dir
 from src.research.event_study.events import extract_events
 from src.selection.universe import load_universe_items
 from src.trend_engine import inputs as trend_inputs
@@ -32,8 +32,8 @@ UNIVERSE_MODES = ("configured", "theme-matched")
 
 
 def configured_etf_codes(theme: str, universe_path: Path | None = None) -> list[str]:
-    """config/stock_universe.yaml 中该主题的 ETF 资产池代码（theme_etf / sub_industry_etf）。"""
-    items = load_universe_items(universe_path or stock_universe_path())
+    """config/selection_universe.yaml 中该主题的 ETF 资产池代码（theme_etf / sub_industry_etf）。"""
+    items = load_universe_items(universe_path or selection_universe_path())
     return sorted(
         it.asset.symbol for it in items
         if it.theme == theme and not trend_inputs.is_stock_item(it)
@@ -60,8 +60,8 @@ def universe_size(signals: pd.DataFrame, theme: str, mode: str) -> int:
 
 def universe_config_hash(mode: str) -> str:
     """Universe 定义来源的配置指纹：
-    configured → stock_universe.yaml；theme-matched → themes_two_directions.yaml（关键词）。"""
-    rel = "stock_universe.yaml" if mode == "configured" else "themes_two_directions.yaml"
+    configured → selection_universe.yaml；theme-matched → theme_registry.yaml（关键词）。"""
+    rel = "selection_universe.yaml" if mode == "configured" else "theme_registry.yaml"
     path = config_dir() / rel
     h = hashlib.sha256()
     h.update(f"universe_mode:{mode}".encode("utf-8"))

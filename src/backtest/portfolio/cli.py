@@ -5,7 +5,7 @@ Portfolio CLI — v0.6 共享账户模拟。
   python src/main.py backtest portfolio \
       --signals <historical_signals.parquet> \
       [--initial-capital 1000000] [--max-positions 5] [--max-weight 0.20] \
-      [--fee 0.05] [--slippage 0.05] [--config config/strategies.yaml] [--modes A,B]
+      [--fee 0.05] [--slippage 0.05] [--config config/strategy_spec.yaml] [--modes A,B]
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     espec = load_execution_spec()
     p = argparse.ArgumentParser(description="v0.6 Shared-account Portfolio Simulation")
     p.add_argument("--signals", default="", help="historical_signals parquet 路径")
-    p.add_argument("--config", default="", help="策略配置 yaml（默认 config/strategies.yaml）")
+    p.add_argument("--config", default="", help="策略配置 yaml（默认 config/strategy_spec.yaml）")
     p.add_argument("--initial-capital", type=float, default=pspec.initial_capital)
     p.add_argument("--max-positions", type=int, default=pspec.max_positions)
     p.add_argument("--max-weight", type=float, default=pspec.max_weight_per_asset)

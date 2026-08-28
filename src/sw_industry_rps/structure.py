@@ -35,7 +35,7 @@ _TREND_STATES = {"强势", "观察"}
 
 
 def focus_codes() -> list[str]:
-    """主题焦点行业代码（从 themes_two_directions.yaml 推导）。"""
+    """主题焦点行业代码（从 theme_registry.yaml 推导）。"""
     return [ind.code for b in themes_cfg.load_buckets() for th in b.themes for ind in th.industries]
 
 

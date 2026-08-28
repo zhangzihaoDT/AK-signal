@@ -33,7 +33,7 @@ def _focus_df() -> pd.DataFrame:
 
 class TestMultiThemeConfirmation:
     def test_focus_industries_from_config(self):
-        # 焦点组来自 config/themes_two_directions.yaml（两方向）
+        # 焦点组来自 config/theme_registry.yaml
         assert len(confirmation.FOCUS_INDUSTRIES) >= 10
         codes = {f["code"] for f in confirmation.FOCUS_INDUSTRIES}
         assert {"801081.SI", "801161.SI", "801223.SI", "801179.SI"} <= codes

@@ -63,7 +63,7 @@ TECH_KEYWORDS = [
     "科创", "机器人", "信息技术", "软件服务", "数字经济",
 ]
 
-# RPS 排名窗口（来自统一 Strategy Specification config/indicators.yaml）
+# RPS 排名窗口（来自统一 Strategy Specification config/indicator_spec.yaml）
 RPS_WINDOWS: tuple[int, ...] = (15, 20, 60)
 # 排名变化回溯交易日数
 RANK_CHANGE_DAYS = 5
@@ -218,7 +218,7 @@ def _compute_liquidity(
     """Liquidity（Observation）：最近 avg_days 个交易日成交额均值的横截面百分位（0-100）。
 
     仅展示流动性强弱。不参与排序；Selection（Decision）的 amount_score 独立按
-    strategies.yaml 的 log_threshold 口径计算，本列不进 Decision 层。
+    strategy_spec.yaml 的 log_threshold 口径计算，本列不进 Decision 层。
     """
     amount = _pivot_values(combined, value_col="amount")
     if amount.empty:
@@ -270,7 +270,7 @@ def is_tech_etf(fund_name: str) -> bool:
 
 
 def match_theme(fund_name: str) -> str | None:
-    """按 config/themes_two_directions.yaml 关键词匹配首个主题（v0.4.3 多主题）。"""
+    """按 config/theme_registry.yaml 关键词匹配首个主题（v0.4.3 多主题）。"""
     return themes_cfg.match_theme(fund_name)
 
 
@@ -608,7 +608,7 @@ def _theme_focus_one(etf: pd.DataFrame, theme_key: str, label: str, bucket_key: 
 
 
 def theme_focus_groups(etf: pd.DataFrame) -> list[dict[str, Any]]:
-    """v0.4.3 多主题焦点组：对 config/themes_two_directions.yaml 中每个 theme 输出独立判断块。
+    """v0.4.3 多主题焦点组：对 config/theme_registry.yaml 中每个 theme 输出独立判断块。
 
     兼容旧 rotation parquet（无 theme 列）：按名称现场匹配。
     """
@@ -686,7 +686,7 @@ def assess_market_regime(bucket_table: pd.DataFrame) -> dict[str, Any]:
 
 
 # ── 三问三答：跨资产大类 / 方向去重 / 主题池（v0.7.1）─────────────────────────
-# 七个跨资产方向（对应 etf_buckets.yaml 大类），消费侧只做展示排版，不改排序/选择。
+# 七个跨资产方向（对应 etf_classification.yaml 大类），消费侧只做展示排版，不改排序/选择。
 CROSS_ASSET_ORDER = ["A股宽基", "A股行业/主题", "港股", "海外权益", "债券", "商品/黄金", "现金/货币", "其他"]
 
 

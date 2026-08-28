@@ -155,13 +155,13 @@ def test_stage_log_apply_entries_and_chain_guard():
 def test_stage_log_detects_config_drift(tmp_path):
     import yaml
 
-    from src.common.paths import stock_universe_path
+    from src.common.paths import research_observations_path
     from src.research.baskets.config import load_baskets
     from src.research.baskets.stage_log import config_matches_log
 
     baskets = load_baskets()
-    universe = tmp_path / "universe.yaml"
-    raw = yaml.safe_load(stock_universe_path().read_text())
+    universe = tmp_path / "research_observations.yaml"
+    raw = yaml.safe_load(research_observations_path().read_text())
     for asset in raw["observation_groups"]["auto_tier1_embodied"]["groups"]["execution_hardware"]["listed_assets"]:
         if asset["symbol"] == "603009":
             asset["evidence_stage"] = "MASS_PRODUCTION"  # 改了 config 但没追加 log → 应报 drift

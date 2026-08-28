@@ -46,7 +46,7 @@ Layer③（Policy） 消费 Fact A + Fact B + 配置 + 策略规则
 - **落地要求**：
   1. 产物必须**保留事实原值**（ETF 的 rps15 等），Policy 的接受/拒绝单独标注（recommended / reason），不与事实混淆。
   2. 若某个 Policy 确实要改变「事实」本身（例如某阈值影响 RPS 计算），必须把它上移为 Observation 层的规则，并过 Parity；不得在 Layer③ 就地改写。
-  3. Layer③ 的阈值（趋势门、流动性、rps_min、行业弱势拒绝）是**策略参数**（config/strategies.yaml），不是对 Observation 口径的修正。
+  3. Layer③ 的阈值（趋势门、流动性、rps_min、行业弱势拒绝）是**策略参数**（config/strategy_spec.yaml），不是对 Observation 口径的修正。
   4. 不同策略可对同一事实给出不同 Policy（多策略兼容）：A 策略拒绝、B 策略接受，均不改变共享事实——「Fact 不可变」与「支持多策略」由此兼容。
 
 ## 架构
@@ -103,14 +103,14 @@ Layer③（Policy） 消费 Fact A + Fact B + 配置 + 策略规则
 
 **信号主链**：Layer ① ETF 发现 → Layer ② 主题确认（Theme Confirmation）→ Layer ③ 交易候选（Candidate JSON）→ Layer ④ 执行
 
-**多主题框架（v0.4.3，两方向）**：单一「AI/科技/半导体」方向升级为「Bucket（为什么持有）→ Theme（持有什么）→ 候选资产」的多主题结构。主题与行业/关键词定义在 `config/themes_two_directions.yaml`（单一事实源），Layer ①②③ 共同消费：
+**多主题框架（v0.4.3，两方向）**：单一「AI/科技/半导体」方向升级为「Bucket（为什么持有）→ Theme（持有什么）→ 候选资产」的多主题结构。主题与行业/关键词定义在 `config/theme_registry.yaml`（单一事实源），Layer ①②③ 共同消费：
 
 | Bucket | 目的 | Theme | 申万二级焦点行业 |
 |--------|------|-------|------------------|
 | Core（核心） | 获取长期收益 | AI 基础设施（注意不是 AI 应用） | 半导体 / 元件 / 通信设备 / 计算机设备 / 光学光电子 / 自动化设备 / 消费电子 |
 | Quality（质量） | 高现金流防守 | 高现金流资产（电力/运营商/公用事业） | 电力 / 通信服务 / 铁路公路 / 航运港口 / 燃气 |
 
-> **Future Themes（Not Enabled）**：以下方向不属当前两方向，但仅是「**未启用**」而非被否定，后续可在 `themes_two_directions.yaml` 重新打开：
+> **Future Themes（Not Enabled）**：以下方向不属当前两方向，但仅是「**未启用**」而非被否定，后续可在 `theme_registry.yaml` 重新打开：
 > - **Resource Cycle**（有色 / 钢铁 / 煤炭等周期资源）
 > - **High-end Equipment**（高端装备）
 > - **Aerospace / Shipping**（航空航天 / 船舶）
@@ -129,7 +129,7 @@ Layer③（Policy） 消费 Fact A + Fact B + 配置 + 策略规则
 
 **核心问题**：每个配置主题（AI 基础设施 / 高现金流资产）在全部 A 股 ETF 资产中处于什么位置？
 
-**职责**：从全量 ETF 中发现当前主线，不预设某个主题一定是主线。全市场横截面 RPS 对全部主题通用，每主题按 `themes_two_directions.yaml` 关键词聚合焦点组。**这是 Observation：产出「市场观察到什么」的事实，不做买入决策。**
+**职责**：从全量 ETF 中发现当前主线，不预设某个主题一定是主线。全市场横截面 RPS 对全部主题通用，每主题按 `theme_registry.yaml` 关键词聚合焦点组。**这是 Observation：产出「市场观察到什么」的事实，不做买入决策。**
 
 **四维观察（v0.7.0 Market Pulse）**：Layer① 回答的不再只是「谁最强」，而是今天市场的强度（Level）/ 热度（Today）/ 速度（Velocity）/ 流动性分别在何处：
 
@@ -161,7 +161,7 @@ Layer③（Policy） 消费 Fact A + Fact B + 配置 + 策略规则
 
 **核心问题**：每个主题是否被底层行业证据支持？
 
-**职责**：确认目标是 **Theme**，不是行业。按 `themes_two_directions.yaml` 加载每主题的申万二级行业焦点组作为**确认因子**（SW 行业 / ETF / 参与率 / HHI 都是因子，不是目标本身），从中观行业层面验证趋势质量，并按 Bucket 聚合（Core / Quality 两个组合意图当前哪个被行业证据确认支撑）。**这是 Observation：产出「行业证据是否支持主题」的事实，不做买入决策。**
+**职责**：确认目标是 **Theme**，不是行业。按 `theme_registry.yaml` 加载每主题的申万二级行业焦点组作为**确认因子**（SW 行业 / ETF / 参与率 / HHI 都是因子，不是目标本身），从中观行业层面验证趋势质量，并按 Bucket 聚合（Core / Quality 两个组合意图当前哪个被行业证据确认支撑）。**这是 Observation：产出「行业证据是否支持主题」的事实，不做买入决策。**
 
 **识别维度**：
 
@@ -210,7 +210,7 @@ tradable_candidates_{date}.json
 - 扩散形成 → ETF 核心 + 龙头卫星
 - 行业未确认 → 仅 WATCHLIST
 
-**分层资产池**：`config/stock_universe.yaml`（theme → tier → assets，bucket 归属由 `themes_two_directions.yaml` 推导，不重复维护），每主题压缩为：1 核心 ETF + 1–2 细分 ETF + 2–5 龙头 + 设备/上游观察。
+**分层资产池**：`config/selection_universe.yaml`（theme → tier → assets，bucket 归属由 `theme_registry.yaml` 推导，不重复维护），每主题压缩为：1 核心 ETF + 1–2 细分 ETF + 2–5 龙头 + 设备/上游观察。
 
 **Trend Engine（内部依赖）**：原 stock_trend 底层能力（行情获取/缓存/多源/指标/0–100 评分）重组为 `trend_engine`，仅被 selection 调用，不暴露独立业务入口。
 
@@ -272,7 +272,7 @@ Layer①、Layer②、Layer③ 一律遵循同一规则：
     Core（长期增长）：AI 基础设施
     Quality（高现金流防守）：高现金流资产（电力 / 运营商 / 公用事业）
 
-        │ 决定系统关注什么（config/themes_two_directions.yaml）
+        │ 决定系统关注什么（config/theme_registry.yaml）
 
 第一层：市场状态（Discovery）
     全市场 ETF 轮动，判断关注主题是否成为市场主线
@@ -287,7 +287,7 @@ Layer①、Layer②、Layer③ 一律遵循同一规则：
     仓位、买卖时点、风险控制
 ```
 
-**配置层不参与每日计算**：Bucket 与 Theme 是人工设定的长期研究方向（`themes_two_directions.yaml`），决定整个系统关注什么。Layer ①/②/③ 始终围绕这些主题运行，分别回答三个问题——**它是不是主线？是否得到确认？应该如何表达？**
+**配置层不参与每日计算**：Bucket 与 Theme 是人工设定的长期研究方向（`theme_registry.yaml`），决定整个系统关注什么。Layer ①/②/③ 始终围绕这些主题运行，分别回答三个问题——**它是不是主线？是否得到确认？应该如何表达？**
 
 ---
 
@@ -297,9 +297,9 @@ v0.4.3 是在现有 v0.4.2 上**增加多主题能力**的增量升级，不是�
 
 | 模块 | v0.4.2 当前状态（基线） | v0.4.3 目标（本次升级） |
 |------|------------------------|------------------------|
-| ① A股全市场 ETF 轮动 | ✅ 全市场横截面 RPS15/20/60 + rotation 报告（单一 AI 焦点组 `is_tech`） | 每主题独立焦点组（`themes_two_directions.yaml` 关键词），报告按 Bucket→Theme 展示 |
-| ② 主题确认（Theme Confirmation） | ✅ 硬编码 10 个 AI 重点行业群共振 + 3 子主题 | `FOCUS_INDUSTRIES` → `themes_two_directions.yaml` 配置驱动（两方向 12 行业）+ bucket 聚合 + 每主题背离 |
-| ③ 多主题交易标的筛选 | ✅ 单主题（ai_tech，3 子主题）候选 + 表达决策 | `buckets[].themes[]` 多主题候选；universe 保持 theme→tier→assets（bucket 由 themes_two_directions.yaml 推导） |
+| ① A股全市场 ETF 轮动 | ✅ 全市场横截面 RPS15/20/60 + rotation 报告（单一 AI 焦点组 `is_tech`） | 每主题独立焦点组（`theme_registry.yaml` 关键词），报告按 Bucket→Theme 展示 |
+| ② 主题确认（Theme Confirmation） | ✅ 硬编码 10 个 AI 重点行业群共振 + 3 子主题 | `FOCUS_INDUSTRIES` → `theme_registry.yaml` 配置驱动（两方向 12 行业）+ bucket 聚合 + 每主题背离 |
+| ③ 多主题交易标的筛选 | ✅ 单主题（ai_tech，3 子主题）候选 + 表达决策 | `buckets[].themes[]` 多主题候选；universe 保持 theme→tier→assets（bucket 由 theme_registry.yaml 推导） |
 | Trend Engine | ✅ 原 stock_trend 底层能力重组（selection 内部依赖） | 复用，无变化 |
 | ④ Portfolio（Execution） | ⬜ 未来 | 不在 v0.4.3 范围 |
 | 美股 AI/半导体局部观察池 | ⬜ 待实现 | 不在 v0.4.3 范围 |

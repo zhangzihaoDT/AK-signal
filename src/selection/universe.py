@@ -2,8 +2,8 @@
 Layer ③ 分层资产池 — universe 加载与行业确认注入
 
 职责：
-  - 加载 config/stock_universe.yaml（theme → tier → assets 分层结构）
-  - 将分层池扁平化为可运行的资产列表；bucket 归属由 config/themes_two_directions.yaml 推导，
+  - 加载 config/selection_universe.yaml（theme → tier → assets 分层结构）
+  - 将分层池扁平化为可运行的资产列表；bucket 归属由 config/theme_registry.yaml 推导，
     不在本文件重复维护
   - 读取 Layer ② confirmation_{date}.parquet，按 sw_industry 注入行业确认信号
 """
@@ -74,8 +74,8 @@ def load_universe(path: Path) -> dict[str, Any]:
 def load_universe_items(path: Path) -> list[UniverseItem]:
     """将分层 universe 扁平化为资产列表（保留 theme/tier 元数据）。
 
-    bucket / bucket_label 从 config/themes_two_directions.yaml 推导（theme_bucket_map）；
-    theme 不在 themes_two_directions.yaml → bucket 为空，仅作展示，不参与确认门控。
+    bucket / bucket_label 从 config/theme_registry.yaml 推导（theme_bucket_map）；
+    theme 不在 theme_registry.yaml → bucket 为空，仅作展示，不参与确认门控。
     """
     cfg = load_universe(path)
     themes_cfg_map = themes_cfg.load_themes()
@@ -88,7 +88,7 @@ def load_universe_items(path: Path) -> list[UniverseItem]:
         theme_label = themes_cfg_map.get(theme_key).label if theme_key in themes_cfg_map \
             else str(theme_cfg.get("label", theme_key))
         if not bucket_key:
-            logger.warning("theme '%s' not registered in config/themes_two_directions.yaml — bucket empty", theme_key)
+            logger.warning("theme '%s' not registered in config/theme_registry.yaml — bucket empty", theme_key)
         for tier_cfg in theme_cfg.get("tiers", []):
             tier_key = str(tier_cfg.get("key", ""))
             tier_label = str(tier_cfg.get("label", tier_key))
@@ -127,7 +127,7 @@ def load_universe_items(path: Path) -> list[UniverseItem]:
 
 
 def detect_unregistered_themes(path: Path) -> list[str]:
-    """返回 stock_universe.yaml 中存在但未在 config/themes_two_directions.yaml 注册的 theme 键。
+    """返回 selection_universe.yaml 中存在但未在 config/theme_registry.yaml 注册的 theme 键。
 
     未注册 theme = 配置关系不完整：其资产不会进入任何主题候选。
     展示层允许继续运行（bucket 为空），正式发布应由调用方决定阻止或标记 degraded。

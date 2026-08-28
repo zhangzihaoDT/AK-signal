@@ -22,14 +22,14 @@ from src.common.paths import sw_industry_processed_dir, raw_dir
 from src.sw_industry_rps import storage as sw_storage
 from src.research.replay import engine as replay_engine
 from src.selection.universe import load_universe_items
-from src.common.paths import stock_universe_path
+from src.common.paths import selection_universe_path
 from src.trend_engine import inputs as trend_inputs
 
 logger = logging.getLogger("research.event_study.returns")
 
 
 def _stock_symbols() -> list[str]:
-    items = load_universe_items(stock_universe_path())
+    items = load_universe_items(selection_universe_path())
     return [it.asset.symbol for it in trend_inputs.stock_items(items)]
 
 

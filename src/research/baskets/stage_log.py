@@ -1,6 +1,6 @@
 """Research Basket Stage-Change 日志解析。
 
-日志文件 config/research_baskets_stage_log.yaml 记录每次 evidence-driven stage update，
+日志文件 config/research_stage_log.yaml 记录每次 evidence-driven stage update，
 未来 stage-upgrade event study 直接读它重建每个标的的阶段历史。
 """
 
@@ -16,7 +16,7 @@ from .config import expand_constituents, load_baskets
 
 FIELDS = ("evidence_stage", "revenue_evidence", "capacity_stage")
 
-STAGE_LOG_FILENAME = "research_baskets_stage_log.yaml"
+STAGE_LOG_FILENAME = "research_stage_log.yaml"
 
 
 def stage_log_path() -> Path:
@@ -81,7 +81,7 @@ def config_matches_log(
     log: dict[str, Any] | None = None,
     universe_path: Path | None = None,
 ) -> tuple[bool, list[str]]:
-    """校验 config/stock_universe.yaml 当前阶段 == stage log（genesis + entries）推得阶段。
+    """校验 research_observations.yaml / selection_universe.yaml 当前阶段 == stage log（genesis + entries）推得阶段。
 
     每次 evidence-driven stage update 必须同时改 config 与追加 log entry；
     本校验保证两者不漂移。

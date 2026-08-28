@@ -19,12 +19,12 @@ AKsignal/
 │   └── manifest.json
 ├── docs/
 ├── config/
-│   ├── etf_buckets.yaml
+│   ├── etf_classification.yaml
 │   ├── etf_signal_rules.yaml
 │   ├── etf_universe.yaml
 │   ├── guojin_tradable_whitelist.csv
 │   ├── stock_pool.csv
-│   └── sw_industry_rps.yaml
+│   └── industry_data.yaml
 ├── data/                         # 运行数据与状态（gitignored）
 │   ├── etf_signal/
 │   ├── processed/
@@ -76,14 +76,14 @@ Layer ① ETF 发现 → Layer ② 主题确认（Theme Confirmation）
     → Layer ③ 多主题交易候选（buckets[].themes[]）→ Layer ④ Portfolio（未来）
 ```
 
-- **Theme Registry**：`config/themes_two_directions.yaml` 为唯一事实源（bucket → theme → SW 行业证据 + ETF 关键词），Layer ①②③ 共同消费
+- **Theme Registry**：`config/theme_registry.yaml` 为唯一事实源（bucket → theme → SW 行业证据 + ETF 关键词），Layer ①②③ 共同消费
   - Core：AI 基础设施（不含 AI 应用）/ Quality：高现金流资产（电力·运营商·公用事业）
   - Future Themes（Not Enabled）：Resource Cycle / High-end Equipment / Aerospace / Shipping 可在配置重新打开
 - **Layer ①**：rotation 新增 theme 列，报告按每主题焦点组展示（多主题主线焦点）
 - **Layer ② 改名「主题确认」**：确认目标是 Theme，SW 行业 / ETF / 参与率 / HHI 均为确认因子；confirmation parquet 新增 bucket/theme 列 + bucket 聚合 + 每主题背离
 - **Layer ③**：`layer3.buckets[].themes[]` 多主题候选；顶层 Action 收敛为「今日方向」（BUY/OBSERVE/WAIT + Bucket + Theme），ETF/股票/观察池落在下层；`recommended_actions` 跨主题去重（primary = 首个 bucket）
 - **配置健康**：未注册 theme → 告警 + degraded 标记（`select run --strict` 中止）；跨主题资产经 `config_issues.cross_theme_assets` 暴露
-- 资产池：`config/stock_universe.yaml` 保持 theme → tier → assets（bucket 由 themes 配置推导，不重复维护）
+- 资产池：`config/selection_universe.yaml` 保持 theme → tier → assets（bucket 由 themes 配置推导，不重复维护）
 - 实测：20260731 横截面两方向跑通（高现金流确认 BUY，AI 基础设施观察）；255 项测试通过
 
 ### AKSignal v0.4.0 ✅
@@ -359,7 +359,7 @@ python src/main.py etf card                # 仅生成卡片
 |------|------|
 | `config/guojin_tradable_whitelist.csv` | 国金账户白名单（116 只，三态） |
 | `config/etf_universe.yaml` | 质量门控参数 |
-| `config/etf_buckets.yaml` | 资产桶定义 |
+| `config/etf_classification.yaml` | 资产桶定义 |
 | `config/etf_signal_rules.yaml` | 信号规则 |
 
 ### 后续阶段

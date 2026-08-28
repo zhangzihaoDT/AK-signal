@@ -34,7 +34,7 @@ WATCHLIST_ONLY = "WATCHLIST_ONLY"
 class ExpressionRegimeSpec:
     """结构 → expression 的映射阈值（研究侧 Policy 参数，非 Observation）。
 
-    默认值与生产 decide_expression / config/strategies.yaml 语义对齐：
+    默认值与生产 decide_expression / config/strategy_spec.yaml 语义对齐：
       broad 参与率 ≥ 0.60；leader HHI ≥ 0.15 / Top3 ≥ 0.60；Tier 近似阈值见注释。
     """
     broad_participation: float = 0.60       # Industry: median participation_rate

@@ -190,7 +190,7 @@ class TestSpecDrivenBehavior:
 
     def test_entry_threshold_from_config(self):
         from src.etf_signal.signal import compute_trend_state
-        # 阈值来自 config/indicators.yaml（strong=80 / watch=60）
+        # 阈值来自 config/indicator_spec.yaml（strong=80 / watch=60）
         assert compute_trend_state(80.0, 50, 1.0, 2.0, True, True) == "BUY_CANDIDATE"
         assert compute_trend_state(80.0, 50, 1.0, 2.0, False, False) == "STRONG_WATCH"
         assert compute_trend_state(79.0, 50, 1.0, 2.0, False, False) == "WATCH"

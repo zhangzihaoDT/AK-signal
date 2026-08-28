@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 from src.common import themes as themes_cfg
-from src.common.paths import stock_universe_path
+from src.common.paths import selection_universe_path
 from src.research.event_study.returns import PriceBook, build_price_book
 from src.research.replay import engine as replay_engine
 from src.selection import selection as sel_module
@@ -114,7 +114,7 @@ def collect_expression_events(
     master = cache.get("master")
     combined = cache.get("combined")
     metrics_df = cache.get("metrics_df")
-    universe_items = load_universe_items(stock_universe_path())
+    universe_items = load_universe_items(selection_universe_path())
     if stock_history is None:
         stock_history = build_stock_trend_history(universe_items)
     struct_in = struct_mod.build_structure_input(structure_source)

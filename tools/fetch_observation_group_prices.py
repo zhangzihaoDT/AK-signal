@@ -1,7 +1,7 @@
 """
 获取观察组 / 主题标的近 N 日股价（Observation 层，在线抓取，落盘供后续计算）。
 
-读取 config/stock_universe.yaml：
+读取 config/research_observations.yaml（观察组）与 config/selection_universe.yaml（主题）：
   --source group → observation_groups.<key>.groups[].listed_assets
   --source theme → themes.<key>.tiers[].assets
 
@@ -156,7 +156,7 @@ def main() -> None:
     args = parser.parse_args()
 
     root = project_root()
-    cfg_path = root / "config" / "stock_universe.yaml"
+    cfg_path = root / "config" / ("research_observations.yaml" if args.source == "group" else "selection_universe.yaml")
     section = load_section(cfg_path, args.source, args.key)
     skip = {s.strip() for s in args.skip_tiers.split(",") if s.strip()}
     assets = collect_assets(section, args.source, skip)

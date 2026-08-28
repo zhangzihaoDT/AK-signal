@@ -117,4 +117,4 @@ def test_project_root_resolves():
     root = project_root()
     assert (root / "src" / "trend_engine").exists()
     assert (root / "src" / "selection").exists()
-    assert (root / "config" / "stock_universe.yaml").exists()
+    assert (root / "config" / "selection_universe.yaml").exists()

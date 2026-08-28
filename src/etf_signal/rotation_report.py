@@ -235,7 +235,7 @@ def render_rotation_report(
                     f"<td>{_state_tag(str(ts))}</td></tr>")
             parts.append("</table>")
     else:
-        parts.append("<p>未配置主题 ETF 池（config/stock_universe.yaml theme_etf + sub_industry_etf）。</p>")
+        parts.append("<p>未配置主题 ETF 池（config/selection_universe.yaml theme_etf + sub_industry_etf）。</p>")
     parts.append('</div>')
 
     # ── 页脚：日期｜数据状态｜异常数量（审计信息不进正文）──

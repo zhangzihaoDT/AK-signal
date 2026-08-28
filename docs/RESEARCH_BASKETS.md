@@ -10,7 +10,7 @@ Research Basket 是独立于 Layer ①/②/③ 和 Portfolio Execution 的主题
 
 ## 配置
 
-入口为 `config/research_baskets.yaml`。标的清单复用 `config/stock_universe.yaml`，研究配置只声明：
+入口为 `config/research_baskets.yaml`。标的清单复用两个资产文件——主题来源读 `config/selection_universe.yaml`（themes），观察组来源读 `config/research_observations.yaml`（observation_groups）——研究配置只声明：
 
 - 主题或观察组来源
 - include/exclude 子组
@@ -31,7 +31,7 @@ Research Basket 是独立于 Layer ①/②/③ 和 Portfolio Execution 的主题
 ## Schema v1 稳定基线
 
 - 三正交字段（`evidence_stage` / `revenue_evidence` / `capacity_stage`）为 **v1 稳定 schema**（`config/research_baskets.yaml` version 1.0.0），字段语义与枚举不再随主题叙事改动。
-- **更新纪律**：后续只做 **evidence-driven stage update**——每次在 `config/stock_universe.yaml` 修改阶段字段时，必须同时在 `config/research_baskets_stage_log.yaml` 的 `entries` 追加一条记录（日期 / 标的 / 字段 / from→to / 披露证据），不得覆盖或回填旧记录。
+- **更新纪律**：后续只做 **evidence-driven stage update**——每次在 `config/research_observations.yaml` 修改阶段字段时，必须同时在 `config/research_stage_log.yaml` 的 `entries` 追加一条记录（日期 / 标的 / 字段 / from→to / 披露证据），不得覆盖或回填旧记录。
 - **一致性由测试守护**：`test_stage_log_matches_current_config` 校验 config 当前阶段 == log（genesis + entries）推得阶段；漏记 log 会直接让测试失败。
 - **预留分析**：stage-change 日志积累后，可回测每次 `VALIDATION → ORDER → SMALL_BATCH → MASS_PRODUCTION` 升级前后 20D / 60D / 120D 超额收益，回答「市场什么时候开始给产业兑现定价」（event study 尚未实现）。
 

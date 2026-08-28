@@ -49,7 +49,7 @@ buckets:
           - {code: "801078.SI", name: "自动化设备", relevance: related}
           - {code: "801085.SI", name: "消费电子", relevance: related}
         # Tier-level confirmation（v0.9.1）：主题确认由申万行业 Gate 升级为 Tier basket Gate。
-        #   每个 Tier 是主题内的一篮子个股（成分股归属复用 stock_universe.yaml ai_infrastructure tiers，
+        #   每个 Tier 是主题内的一篮子个股（成分股归属复用 selection_universe.yaml ai_infrastructure tiers，
         #   不重复维护股票清单）；universe_tiers 列出该 Tier 对应的 universe tier key。
         #   Tier 自算：Tier Strength（加权复合分）/ 上涨比例 / Trend Score 中位数 /
         #   强趋势股票数量 / 龙头贡献度。申万行业保留为 Evidence，不再是确认 Gate。
@@ -101,7 +101,7 @@ buckets:
           - {code: "801737.SI", name: "电池", relevance: related}
           - {code: "801084.SI", name: "光学光电子", relevance: related}
         # Tier-level confirmation（v0.9.1）：汽车主题同 AI，走 Theme → Tier basket → 个股趋势
-        #   每个 Tier 是主题内的一篮子个股（成分股归属复用 stock_universe.yaml 对应 tiers，
+        #   每个 Tier 是主题内的一篮子个股（成分股归属复用 selection_universe.yaml 对应 tiers，
         #   不重复维护股票清单）；申万行业保留为 Evidence，不再是确认 Gate。
         tiers:
           oem_global:
@@ -145,7 +145,7 @@ buckets:
           - {code: "801992.SI", name: "航运港口", relevance: core}
           - {code: "801163.SI", name: "燃气Ⅱ", relevance: related}
         # Tier-level confirmation（v0.9.1）：高现金流同 AI，走 Theme → Tier basket → 个股趋势
-        #   每个 Tier 是主题内的一篮子个股（成分股归属复用 stock_universe.yaml 对应 tiers，
+        #   每个 Tier 是主题内的一篮子个股（成分股归属复用 selection_universe.yaml 对应 tiers，
         #   不重复维护股票清单）；申万行业保留为 Evidence，不再是确认 Gate。
         tiers:
           hydro_nuclear:

@@ -5,7 +5,7 @@ Layer ② Tier-level confirmation（v0.9.1/v0.9.2）— Theme → Tier basket �
 都走「Theme → Tier basket → 个股趋势 → Theme confirmation → 申万行业 Evidence」：
 
     theme（如 ai_infrastructure / china_auto_global / high_cashflow）
-      └─ tiers（每 Tier = 一篮子个股，universe_tiers 映射 stock_universe.yaml）
+      └─ tiers（每 Tier = 一篮子个股，universe_tiers 映射 selection_universe.yaml）
             └─ 个股趋势（trend_score / return / watch_level）
 
 每个 Tier 自算（Observation，不伪造 RPS）：
@@ -49,7 +49,7 @@ logger = logging.getLogger("sw_industry_rps.tier_confirmation")
 
 
 def _tier_params() -> tuple[float, float, float, float]:
-    """Tier 门控阈值（Observation，来自 config/indicators.yaml tier_confirmation）。"""
+    """Tier 门控阈值（Observation，来自 config/indicator_spec.yaml tier_confirmation）。"""
     s = load_indicator_spec()
     return (s.tier_gate_strong, s.tier_gate_observe, s.tier_broad_fraction, s.tier_strong_trend_min)
 
@@ -58,7 +58,7 @@ TIER_GATE_STRONG, TIER_GATE_OBSERVE, TIER_BROAD_FRACTION, STRONG_TREND_MIN = _ti
 
 STRONG_STATES = {"S", "A"}
 
-# 加权复合分权重（Observation 口径，与 indicators.yaml 注释一致）
+# 加权复合分权重（Observation 口径，与 indicator_spec.yaml 注释一致）
 W_STRENGTH = 0.5   # median(trend_score)
 W_ADVANCE = 0.3    # 上涨比例
 W_STRONG = 0.2     # 强趋势占比
@@ -120,7 +120,7 @@ def tier_metrics_for_theme(
     Args:
         theme_key: 主题 key（默认 ai_infrastructure）
         stock_metrics: stock_metrics_{date}.parquet 内容（趋势指标）；为空则全部 unavailable
-        universe_items: universe items（可空，从 stock_universe.yaml 现读）
+        universe_items: universe items（可空，从 selection_universe.yaml 现读）
 
     Returns:
         每 Tier 一行的 dict 列表（含 tier_strength / advance_ratio / median_trend_score /
@@ -133,8 +133,8 @@ def tier_metrics_for_theme(
     # 从 universe 读取该主题的成分股 → tier 归属
     if universe_items is None:
         from src.selection.universe import load_universe_items
-        from src.common.paths import stock_universe_path
-        universe_items = load_universe_items(stock_universe_path())
+        from src.common.paths import selection_universe_path
+        universe_items = load_universe_items(selection_universe_path())
     theme_items = [
         it for it in universe_items
         if it.theme == theme_key and it.tier not in ("theme_etf", "sub_industry_etf")
@@ -381,7 +381,7 @@ def build_tier_confirmation_parquet(
     tier_confirmation_{date}.parquet。
 
     v0.9.1：统一框架——所有 theme 走 Theme → Tier basket → 个股趋势。
-    成分股归属由 themes_two_directions.yaml 的 tiers.universe_tiers 映射 stock_universe.yaml。
+    成分股归属由 theme_registry.yaml 的 tiers.universe_tiers 映射 selection_universe.yaml。
 
     Args:
         trade_date: 信号日期 YYYYMMDD（文件名日期 = 目标 trade_date）
@@ -389,7 +389,7 @@ def build_tier_confirmation_parquet(
         data_status: confirmed / provisional
         source: 数据来源标签
         processed_dir: 落盘目录（默认 data/processed/sw_industry）
-        universe_items: universe items（可空，从 stock_universe.yaml 现读）
+        universe_items: universe items（可空，从 selection_universe.yaml 现读）
 
     Returns:
         产物路径

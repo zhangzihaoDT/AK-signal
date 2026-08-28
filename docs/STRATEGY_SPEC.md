@@ -20,18 +20,18 @@ Strategy Specification      （config/ 中的策略知识与可实验参数）
 
 | 文件 | 职责 | 不含 |
 |---|---|---|
-| `themes_two_directions.yaml` | 主题 / bucket / 行业焦点组 / ETF 关键词 / 启用状态 | 费用、组合权重 |
-| `stock_universe.yaml` | 资产池 / 主题映射 / 黑名单 / Universe | Entry/Exit 阈值、Portfolio 分配 |
-| `strategies.yaml` | 主题级策略（entry/exit 参数 + strategy_id + 权重）+ `etf_selection`（ETF 准入/排序）+ `stock_selection`（个股准入/主题门控） | Portfolio 参数 |
-| `indicators.yaml` | RPS/MA 窗口、信号门限（ETF 趋势门/确认阈值） | 策略/准入门限（在 strategies.yaml） |
+| `theme_registry.yaml` | 主题 / bucket / 行业焦点组 / ETF 关键词 / 启用状态 | 费用、组合权重 |
+| `selection_universe.yaml` | 资产池 / 主题映射 / 黑名单 / Universe | Entry/Exit 阈值、Portfolio 分配 |
+| `strategy_spec.yaml` | 主题级策略（entry/exit 参数 + strategy_id + 权重）+ `etf_selection`（ETF 准入/排序）+ `stock_selection`（个股准入/主题门控） | Portfolio 参数 |
+| `indicator_spec.yaml` | RPS/MA 窗口、信号门限（ETF 趋势门/确认阈值） | 策略/准入门限（在 strategy_spec.yaml） |
 | `execution.yaml` | 执行模型 / fee / slippage / leverage / pyramiding | 撮合实现 |
 | `portfolio.yaml` | 初始资金 / 持仓 / 单资产上限 / deploy / 权重 | Entry/Exit 策略参数 |
-| `sw_industry_rps.yaml` | 申万模块自身配置（provisional/storage 等） | — |
+| `industry_data.yaml` | 申万模块自身配置（provisional/storage 等） | — |
 
 ## 3. 参数 vs 规则边界（示例）
 
 ```text
-rps15_min = 80                 → 参数，进 config（strategies.yaml / indicators.yaml）
+rps15_min = 80                 → 参数，进 config（strategy_spec.yaml / indicator_spec.yaml）
 RPS 如何计算（百分位）           → 规则实现，留代码
 execution.model = next_open    → 执行模型选择，进 config
 next_open 如何找下一交易日        → 执行语义，留代码

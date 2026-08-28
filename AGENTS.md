@@ -26,33 +26,34 @@
 
 ## 多主题框架（v0.4.3，两方向）
 
-- **单一事实源**：`config/themes_two_directions.yaml` 定义 bucket → theme → 申万二级行业焦点组 + ETF 关键词。Layer ①②③ 共同消费，不再硬编码。
+- **单一事实源**：`config/theme_registry.yaml` 定义 bucket → theme → 申万二级行业焦点组 + ETF 关键词。Layer ①②③ 共同消费，不再硬编码。
   - Core（核心，长期收益）：**AI 基础设施**（注意不是 AI 应用，不含软件开发/IT 服务）
   - Quality（质量，高现金流防守）：**高现金流资产**（电力（火电·水电·核电）/ 三大运营商 / 公用事业（高速·公路·港口））
-- **ETF 归属**：按 `themes_two_directions.yaml` 的 `etf_keywords` 匹配（bucket 顺序优先），不再依赖单一 is_tech 焦点组。`is_tech` 列保留作向后兼容。
+- **ETF 归属**：按 `theme_registry.yaml` 的 `etf_keywords` 匹配（bucket 顺序优先），不再依赖单一 is_tech 焦点组。`is_tech` 列保留作向后兼容。
 - **Layer ②**：确认输出按 bucket/theme 分层，confirmation parquet 新增 `bucket` / `bucket_label` 列，报告按 Bucket → Theme 展示。
-- **Layer ② 行业轮动脉冲（v0.7.1）**：Layer② 是全市场行业轮动观察的唯一主场（不做 ETF 产品层面判断）。metrics 与 confirmation 新增 `RPS1`（今日热度，today_window=1）、`delta_rps15_5d`（Δ5RPS15，velocity_window=5，RPS15 今日 − RPS15 5 交易日前）两列（`sw_industry_rps.yaml rps.today_window/velocity_window`），均为 Observation 展示，**不参与确认（确认仍只看 RPS15≥observe_threshold）**，也不进入 Layer③。主行业报告首表改为「行业轮动概览（今日强度榜）」，新增「行业轮动状态」四类观察分类（`classify_rotation_state`：强势延续 / 加速启动 / 高位休整 / 一日脉冲 / 走弱，仅描述今日轮动到哪、是延续还是启动，不改确认 Policy）；confirmation 报告证据表加 RPS1/Δ5RPS15/轮动状态，主题共振表加「③ 主题视角」（中位 RPS1 今日热度 / 中位 RPS5 近期轮动 / 轮动状态分布）。积累一段历史后，才验证短周期 RPS 是否进入确认 Policy。
-- **Layer ① ETF 三问三答（v0.7.1）**：Layer① 主语是 ETF 产品，报告只回答三问——① 大类资产往哪里动（跨资产方向：A股宽基/行业主题/港股/海外/债券/商品黄金/现金，`cross_asset_direction`）；② 趋势活跃 ETF（`active_etf_representatives` 按方向去重、每方向一只流动性最好代表，排序 STRONG_WATCH→BUY_CANDIDATE→WATCH→RPS15→流动性，新增/退出活跃简报，完整名单在 `watchlist_active_{date}.csv`）；③ 我的主题 ETF（config/stock_universe.yaml 固定主题池 theme_etf+sub_industry_etf）。RPS1/ΔRPS15/流动性作为单只 ETF 补充信息保留在②③，不做「今日热点主题/加速主题」宏观判断（`market_pulse`/`leader_lists` 已移除）。数据覆盖/异常数量等审计信息只保留在页脚一行，不进正文。全市场行业脉搏整体归 Layer②。
+- **Layer ② 行业轮动脉冲（v0.7.1）**：Layer② 是全市场行业轮动观察的唯一主场（不做 ETF 产品层面判断）。metrics 与 confirmation 新增 `RPS1`（今日热度，today_window=1）、`delta_rps15_5d`（Δ5RPS15，velocity_window=5，RPS15 今日 − RPS15 5 交易日前）两列（`industry_data.yaml rps.today_window/velocity_window`），均为 Observation 展示，**不参与确认（确认仍只看 RPS15≥observe_threshold）**，也不进入 Layer③。主行业报告首表改为「行业轮动概览（今日强度榜）」，新增「行业轮动状态」四类观察分类（`classify_rotation_state`：强势延续 / 加速启动 / 高位休整 / 一日脉冲 / 走弱，仅描述今日轮动到哪、是延续还是启动，不改确认 Policy）；confirmation 报告证据表加 RPS1/Δ5RPS15/轮动状态，主题共振表加「③ 主题视角」（中位 RPS1 今日热度 / 中位 RPS5 近期轮动 / 轮动状态分布）。积累一段历史后，才验证短周期 RPS 是否进入确认 Policy。
+- **Layer ① ETF 三问三答（v0.7.1）**：Layer① 主语是 ETF 产品，报告只回答三问——① 大类资产往哪里动（跨资产方向：A股宽基/行业主题/港股/海外/债券/商品黄金/现金，`cross_asset_direction`）；② 趋势活跃 ETF（`active_etf_representatives` 按方向去重、每方向一只流动性最好代表，排序 STRONG_WATCH→BUY_CANDIDATE→WATCH→RPS15→流动性，新增/退出活跃简报，完整名单在 `watchlist_active_{date}.csv`）；③ 我的主题 ETF（config/selection_universe.yaml 固定主题池 theme_etf+sub_industry_etf）。RPS1/ΔRPS15/流动性作为单只 ETF 补充信息保留在②③，不做「今日热点主题/加速主题」宏观判断（`market_pulse`/`leader_lists` 已移除）。数据覆盖/异常数量等审计信息只保留在页脚一行，不进正文。全市场行业脉搏整体归 Layer②。
 - **Layer ② 三问三答镜像（v0.8.0/0.8.1）**：Layer② 与 Layer① 同构镜像——① 行业轮动往哪里动（`metrics.cross_industry_direction` 按 `parent_industry` 申万一级方向聚合，强度 median_rps15 × 速度 median_delta_rps15_5d × 广度 active_ratio，Top5 强势 + Bottom3 弱势 + 一句结构总结，全量折叠；`_industry_direction_state` 独立阈值不复制 ETF 口径）；② 哪些行业形成趋势（含驱动模式，按轮动状态语义筛选分组而非固定 Top40，矩阵与状态变化降级折叠）；③ 我的主题获得哪些行业支撑（主题概览：状态+结论+RPS15+驱动模式最小证据 + `<details>` 完整确认证据：主题判断/证据明细/龙头vs广泛/背离，删主题热图，未确认差值只在主题级一句话体现）。主报告 `sw_industry_rps_{date}.html` 一个 HTML 入口，confirmation 事实并入第三问，独立 confirmation HTML 已删除。
   - **驱动模式展示层分离（v0.8.2）**：`contribution_structure`（贡献集中度：单核/集中/多龙头/分散）与 `breadth_structure`（参与广度：广泛/中度/少数/分化）是**机器事实**（data/structure parquet 原样保留，`drive_pattern`/`format_structures` 的 `×` 双维拼接不变，Layer③ 透传不受影响）；人类可读文案由**独立展示模块** `src/sw_industry_rps/drive_labels.py` 映射——`composite_drive_label(cs,bs)` 把 4×4 组合合成一句话综合语义（如「单核主导×广泛上涨」→「龙头拉动普涨」），`drive_detail(...)` 输出双维+数值。主报告/概览只显示综合标签，详情页显示双维+数值；unknown/missing 一律显式 fallback「驱动信息不足」。该展示模块不依赖 confirmation Policy（避免「全市场报告为显示文案反向依赖主题确认」的耦合）。
   - **第二问趋势阶段三分类（v0.8.3）**：第二问从「算法状态分类（强势延续/加速启动/高位休整…）」改造成**语义三阶段** `classify_trend_stage`（Observation，不改确认 Policy）——A **已形成趋势**（RPS15 站稳观察区且持续，展示 RPS15/Δ5/驱动模式/参与率）· B **正在启动**（RPS5 快速领先而 RPS15 未跟上，如元件 RPS5=100/RPS15=2，展示 RPS5/RPS15/Δ5，不展示驱动因趋势未确立）· C **正在退潮**（falling_out 或 RPS15 高但 RPS5 明显回落，原强势降温/跌出）。三分类回答「强是刚开始强，还是已持续很强」；驱动模式（v0.8.2）回答「龙头拉还是全行业涨」。折叠区语义化为「▶ 20日轮动矩阵 · 状态变化详情」「▶ 全 124 行业」；第三问详情段对齐为 ①确认判断/②行业证据/③内部结构/④跨层对照。
   - **日报精简「一句话 + 一张表」×3（v0.8.4）**：Layer② 日报收敛为「① 一句话+Top5 产业方向表 · ② 一句话+单张行业表（行业/阶段/RPS15/RPS5/驱动）· ③ 每主题一行表（主题/状态/支撑/最接近确认/判断）」，一个屏幕读完核心。**直接从日报删除**（非折叠）：31 个一级全表、20日轮动矩阵、6 组状态变化、全 124 行业表、Theme Confirmation 四段完整证据、HHI/Top1/Top3 结构明细、ETF-行业对照、市场宽度卡——全部保留在 `metrics/structure/confirmation` parquet + CSV，研究/审计/调试时读取。第二问阶段统一定义：趋势=RPS15≥80 · 启动=RPS15<80 且 RPS5≥80（按 RPS5 排）· 退潮=高 RPS15 短期明显回落；structure（Enrichment，可选）未跑时驱动列整列隐藏，meta 提示「结构穿透：未完成（Enrichment，可选）」而非红色异常。第三问支撑列仅在有确认行业时显示，未确认主题支撑显示 —。
   - **Structure 定位 Core/Enrichment 分离（v0.8.4）**：Layer② 分两层——**Core Facts**（RPS / rotation / theme confirmation）必须每日稳定生成，决定报告能否发布；**Enrichment**（industry structure / drive pattern）尽力生成、可降级，决定报告解释得有多好。run-day 在 calculate 与 report 之间插入 **offline-only Structure（soft-fail）**：缓存够 → 生成 `sw_industry_structure_{date}.parquet` 驱动列出现；缓存不够 → 记 unavailable/insufficient，日报照常发布。**绝不因 Structure 缺数据在 run-day 自动联网**；联网补数走独立入口 `industry structure --allow-online-fetch`（Structure Cache Refresh / Enrichment，可手动/定时/收盘后跑，非主链路）。`compute_drilldown` 新增 `offline` 参数：offline 时跳过 `fetch_cn_daily` 网络回退，仅用缓存 + legulegu 成分股涨幅列。
   - **收尾修正（v0.8.4）**：① 第一问一句话按**表内位置**生成（核心=表前3，正在快速增强=表第4-5名），与 Top5 表严格一一对应，杜绝「下面为什么没有 XX」的疑惑；③ 第三问「判断」列从重复计数（「1 个进入观察区」）改造成**人话判断**（`_theme_judgment`：已确认→「X 已确认支撑，Y 距观察门还差 N」；接近→「最强 X 接近观察门，差 N」；未确认→「焦点行业均未进入观察区，最强 X，尚未形成行业共振」）。
-  - **统一 Tier Gate 确认（v0.9.1/v0.9.2）**：三个主题（AI 基础设施 / 中国汽车全球化 / 高现金流资产）确认从「申万行业 Gate」统一升级为 **Theme → Tier basket → 个股趋势 → Theme confirmation → 申万行业 Evidence**。`config/themes_two_directions.yaml` 每主题下新增 `tiers` 定义段（每个 Tier 的 `universe_tiers` 映射 stock_universe.yaml 成分股归属，不重复维护股票清单）；`indicators.yaml` 新增 `tier_confirmation` 阈值（tier_gate_strong=70 / tier_gate_observe=55 / broad_fraction=0.5 / strong_trend_min=70）。每个 Tier 自算：**Tier Strength**（加权复合分 0.5×median(trend_score)+0.3×上涨比例+0.2×强趋势占比，0-100 非横截面 RPS）/ 上涨比例 / Trend Score 中位数 / 强趋势股票数量 / 龙头贡献度。产物 `data/processed/sw_industry/tier_confirmation_{date}.parquet`（含 trade_date/run_date/generated_at/data_status/source 元数据，全部配置了 tiers 的主题统一落此文件，兼容旧命名 `ai_tier_confirmation` 读取），主报告第三问改为「每主题独立区块」（头部状态 + Tier 表（Tier/状态/Strength/上涨比例/Trend中位/强趋势/驱动）+ 判断 + 申万交叉证据）。**申万行业保留为 Evidence，不再是主题确认 Gate**；Layer③ `evaluate_themes` 对配置了 tiers 的主题统一改用 Tier 门控（主题确认 = ≥1 个 Tier 进入确认门，BROAD = ≥broad_fraction），无 tiers 配置的主题（如未来新主题）维持原行业 Gate。run-day 顺序调整：`stock-metrics(-online)` 提前到 `sw-rps-confirm` 之前（Tier 确认消费个股趋势产物）；个股数据缺失时 Tier 确认降级 unavailable、主题回退行业 Gate，不阻塞发布。rule_version v0.7.0→v0.8.0。
+  - **统一 Tier Gate 确认（v0.9.1/v0.9.2）**：三个主题（AI 基础设施 / 中国汽车全球化 / 高现金流资产）确认从「申万行业 Gate」统一升级为 **Theme → Tier basket → 个股趋势 → Theme confirmation → 申万行业 Evidence**。`config/theme_registry.yaml` 每主题下新增 `tiers` 定义段（每个 Tier 的 `universe_tiers` 映射 selection_universe.yaml 成分股归属，不重复维护股票清单）；`indicator_spec.yaml` 新增 `tier_confirmation` 阈值（tier_gate_strong=70 / tier_gate_observe=55 / broad_fraction=0.5 / strong_trend_min=70）。每个 Tier 自算：**Tier Strength**（加权复合分 0.5×median(trend_score)+0.3×上涨比例+0.2×强趋势占比，0-100 非横截面 RPS）/ 上涨比例 / Trend Score 中位数 / 强趋势股票数量 / 龙头贡献度。产物 `data/processed/sw_industry/tier_confirmation_{date}.parquet`（含 trade_date/run_date/generated_at/data_status/source 元数据，全部配置了 tiers 的主题统一落此文件，兼容旧命名 `ai_tier_confirmation` 读取），主报告第三问改为「每主题独立区块」（头部状态 + Tier 表（Tier/状态/Strength/上涨比例/Trend中位/强趋势/驱动）+ 判断 + 申万交叉证据）。**申万行业保留为 Evidence，不再是主题确认 Gate**；Layer③ `evaluate_themes` 对配置了 tiers 的主题统一改用 Tier 门控（主题确认 = ≥1 个 Tier 进入确认门，BROAD = ≥broad_fraction），无 tiers 配置的主题（如未来新主题）维持原行业 Gate。run-day 顺序调整：`stock-metrics(-online)` 提前到 `sw-rps-confirm` 之前（Tier 确认消费个股趋势产物）；个股数据缺失时 Tier 确认降级 unavailable、主题回退行业 Gate，不阻塞发布。rule_version v0.7.0→v0.8.0。
   - **状态 taxonomy（v0.9.2）**：分层状态机，`WATCH` 不再承担「接近确认」语义：
     - **Tier 层**（观察单元）：`STRONG 强势 / CONFIRMED 已确认 / WATCH 观察 / UNCONFIRMED 未确认 / UNAVAILABLE 数据不可用`。WATCH 只表示「值得观察但尚未满足确认条件」，**为什么观察由 `reason_code` 表达**（`near_threshold 接近确认 / breadth_insufficient breadth不足 / trend_emerging 趋势启动 / single_name_only 单点驱动`），展示层组合成「观察 · breadth不足」等，不把业务含义塞进 state。
     - **Theme 层**（投资主题确认广度）：`BROAD_CONFIRMED / CONFIRMED / NARROW_CONFIRMED / UNCONFIRMED / UNAVAILABLE`，**不使用 WATCH**——即使多个 Tier 处于观察，Theme 仍是 `UNCONFIRMED`，报告以「未确认 · N 个 Tier 进入观察」呈现；观察中 Tier 数（`n_watch_tiers`）单独输出供展示。
     - **申万行业**：只作 Evidence（展示「最接近观察门」等描述），不再决定 Theme status。
     - **Selection 个股/ETF 的 WATCH**（`STOCK_STATE_WATCH`、`STRONG_WATCH`）是候选资格状态，与确认状态体系不同标尺，保持不变。
 - **Layer ③**：候选对象 JSON 结构升级为 `layer3.buckets[].themes[]`（含 confirmed/expression/core_etf/sub_industry_etf/stock_watchlist/stock_candidates）。
-- 主题资产池：`config/stock_universe.yaml` 保持 theme → tier → assets；bucket 归属由 `config/themes_two_directions.yaml` 推导，不在两个配置重复维护。
+- 主题资产池：`config/selection_universe.yaml` 保持 theme → tier → assets；bucket 归属由 `config/theme_registry.yaml` 推导，不在两个配置重复维护。
+- **配置命名收敛（2026-08）**：`themes_two_directions.yaml` → `theme_registry.yaml`；原 `stock_universe.yaml` **拆分**为 `selection_universe.yaml`（Selection 固定资产池，进入候选/监控）+ `research_observations.yaml`（研究观察组，如中鼎股份，仅供 Research Basket、不参与 Layer③ 确认与候选）；`strategies.yaml` → `strategy_spec.yaml`、`indicators.yaml` → `indicator_spec.yaml`、`sw_industry_rps.yaml` → `industry_data.yaml`、`etf_buckets.yaml` → `etf_classification.yaml`、`research_baskets_stage_log.yaml` → `research_stage_log.yaml`（`execution.yaml`/`portfolio.yaml`/`research_baskets.yaml` 不变）。文件名参与 config_hash，重命名后 config_hash 变化属预期；完整映射见 config/README.md。
 - **跨主题资产语义**：同一资产可在多个 theme 注册（如 通信ETF 同时属 ai_infrastructure 与 high_cashflow）。
-  - 动态 ETF 候选按 `themes_two_directions.yaml` 关键词**首个命中**归属单一主题（bucket 顺序优先，不做跨主题复制）；
+  - 动态 ETF 候选按 `theme_registry.yaml` 关键词**首个命中**归属单一主题（bucket 顺序优先，不做跨主题复制）；
   - 固定池资产跨主题注册时，`recommended_actions` 按 (asset_type, code) **去重**，保留首个 bucket 的 primary 归属；
   - Position 权重归属属于 Layer 4（v0.4.3 不做），跨主题清单由 `select run` 输出 `config_issues.cross_theme_assets` 暴露。
-- **配置降级**：asset pool 存在未注册 theme（不在 themes_two_directions.yaml）时，其资产不进入任何候选。默认告警并标记 `degraded` 继续发布（报告顶部显示配置降级提示）；`select run --strict` 可中止发布。
-- **Future Themes（Not Enabled）**：Resource Cycle（有色/钢铁/煤炭）、High-end Equipment（高端装备）、Aerospace/Shipping（航空航天/船舶）等不在当前两方向，仅是「未启用」而非被否定，可在 `themes_two_directions.yaml` 重新打开；若启用商品类 theme，表达的是「权益/ETF 代理」（ETF + 申万有色行业 + 资源股），非商品期货趋势系统，须标 `maturity: PARTIAL`，不输出增配信号。
+- **配置降级**：asset pool 存在未注册 theme（不在 theme_registry.yaml）时，其资产不进入任何候选。默认告警并标记 `degraded` 继续发布（报告顶部显示配置降级提示）；`select run --strict` 可中止发布。
+- **Future Themes（Not Enabled）**：Resource Cycle（有色/钢铁/煤炭）、High-end Equipment（高端装备）、Aerospace/Shipping（航空航天/船舶）等不在当前两方向，仅是「未启用」而非被否定，可在 `theme_registry.yaml` 重新打开；若启用商品类 theme，表达的是「权益/ETF 代理」（ETF + 申万有色行业 + 资源股），非商品期货趋势系统，须标 `maturity: PARTIAL`，不输出增配信号。
 
 ## 每日运行（run-day）
 
@@ -101,11 +102,11 @@
 - **核心输出是结构化推荐对象**（JSON，`role: recommendation` / `version: 0.5.0`，含 `engine.version` 溯源），HTML 只是可视化
 - **多主题结构**：`layer3.buckets[].themes[]`（Core → AI基础设施 / Quality → 高现金流资产），逐主题独立确认与表达决策
 - **表达方式决策**基于 Layer② 上涨结构：广泛上涨→ETF、龙头主导→龙头个股、扩散→ETF核心+龙头卫星、未确认→仅观察
-- **确认机制显式化**：主题 confirmed = 任一焦点行业进入确认状态（`strength_level ∈ stock_selection.theme_confirm_states`，默认观察/强势）。为避免「20% 行业转强为何整主题确认」的误读，每主题输出 `confirmation_state`（BROAD_CONFIRMED / NARROW_CONFIRMED / WATCH / UNCONFIRMED）+ `confirm_evidence`（依据行业及 RPS15）+ `confirmation_breadth`（广泛/窄幅确认）+ `observing_industries`（进入观察区行业明细）；广度阈值（broad_fraction=0.5 / watch_proximity=70）在 config/indicators.yaml。**NARROW_CONFIRMED 语义**：主题仍开放整个资产池（存在性判定，不做子主题拆解），但表达决策显式标注「仅 X/N 行业支撑，宜观察」并压低表达强度（见 docs/STRATEGY_SPEC.md §7.1）
-- **个股准入与主题门控（Policy）**：`stock_selection` 参数在 config/strategies.yaml（v0.9.0 起四段嵌套：`trend.qualified_score=70` / `trend.allowed_trend_states=[S,A]` / `trend.rps15_min=80` / `theme_confirm_states=[观察,强势]`）；`indicators.yaml` 只保留生成 strength_level 的 observe_threshold（Observation）——策略可调整「哪些状态算确认」，但不能改阈值定义
-- **四段选筹（v0.9.0）**：Layer③ 个股/ETF 统一四段——**① trend**（趋势门，无趋势不进入买入候选）→ **② leadership**（主题内相对地位：个股按 score_trend 排名，LEADER=Top leader_rank_max / CORE=≤core_rank_max / NON_CORE；ETF 按 selection_score 排名，core_rank_max=1→LEADER、satellite_rank_max=3→CORE）→ **③ position**（历史位置/赔率；`config/strategies.yaml historical_position` 默认 `metric=ma60_deviation`——**乖离率 = (现价/MA60 − 1)×100**，MA60 取最近 `ma_window=60` 交易日收盘均值（点数不足 → UNKNOWN 按中性 MID 匹配）；**U 形两端皆差**：现价低于 MA60 超 `breakdown_pct=-15` → **BREAKDOWN（趋势破坏，禁止买入，即使 LEADER/CORE）**、低于 MA60 超 `low_below_pct=-5` → LOW（深度回调，赔率区）、高于 MA60 超 `high_above_pct=10` → HIGH（追高，不追）、中间 → MID；`metric=price_percentile` 为旧口径（756 交易日分位 ≤30% LOW / ≤70% MID / >70% HIGH）保留作可切换；**历史低位只提高赔率，不产生趋势**）→ **④ signal**（`signal_policy` 规则顺序匹配：LEADER×LOW→STRONG_BUY、LEADER×MID→BUY、CORE×LOW→BUY、CORE×MID→WATCH、position HIGH→HOLD、position BREAKDOWN→WAIT、fallback WAIT；ETF 复用同一词汇表）。`recommended` 由信号门控：主题确认 ∧ signal∈{STRONG_BUY,BUY}（HIGH 位不追高、BREAKDOWN 破位不买、CORE×MID 不推荐）；`state`（WATCH/QUALIFIED/RECOMMENDED）仍是趋势+主题资格状态，与信号分开放置，字段输出 `leadership_level / theme_rank / position_level / position_pct / position_lookback_days / signal`（ma60_deviation 下 `position_pct`=乖离率 %（可负）、`position_lookback_days`=ma_window）。position 价格历史离线读取（个股=processed CSV / ETF=raw parquet），按 trade_date 截断防 look-ahead；数据不足按中性 MID 匹配（position_level=UNKNOWN 显式保留）
+- **确认机制显式化**：主题 confirmed = 任一焦点行业进入确认状态（`strength_level ∈ stock_selection.theme_confirm_states`，默认观察/强势）。为避免「20% 行业转强为何整主题确认」的误读，每主题输出 `confirmation_state`（BROAD_CONFIRMED / NARROW_CONFIRMED / WATCH / UNCONFIRMED）+ `confirm_evidence`（依据行业及 RPS15）+ `confirmation_breadth`（广泛/窄幅确认）+ `observing_industries`（进入观察区行业明细）；广度阈值（broad_fraction=0.5 / watch_proximity=70）在 config/indicator_spec.yaml。**NARROW_CONFIRMED 语义**：主题仍开放整个资产池（存在性判定，不做子主题拆解），但表达决策显式标注「仅 X/N 行业支撑，宜观察」并压低表达强度（见 docs/STRATEGY_SPEC.md §7.1）
+- **个股准入与主题门控（Policy）**：`stock_selection` 参数在 config/strategy_spec.yaml（v0.9.0 起四段嵌套：`trend.qualified_score=70` / `trend.allowed_trend_states=[S,A]` / `trend.rps15_min=80` / `theme_confirm_states=[观察,强势]`）；`indicator_spec.yaml` 只保留生成 strength_level 的 observe_threshold（Observation）——策略可调整「哪些状态算确认」，但不能改阈值定义
+- **四段选筹（v0.9.0）**：Layer③ 个股/ETF 统一四段——**① trend**（趋势门，无趋势不进入买入候选）→ **② leadership**（主题内相对地位：个股按 score_trend 排名，LEADER=Top leader_rank_max / CORE=≤core_rank_max / NON_CORE；ETF 按 selection_score 排名，core_rank_max=1→LEADER、satellite_rank_max=3→CORE）→ **③ position**（历史位置/赔率；`config/strategy_spec.yaml historical_position` 默认 `metric=ma60_deviation`——**乖离率 = (现价/MA60 − 1)×100**，MA60 取最近 `ma_window=60` 交易日收盘均值（点数不足 → UNKNOWN 按中性 MID 匹配）；**U 形两端皆差**：现价低于 MA60 超 `breakdown_pct=-15` → **BREAKDOWN（趋势破坏，禁止买入，即使 LEADER/CORE）**、低于 MA60 超 `low_below_pct=-5` → LOW（深度回调，赔率区）、高于 MA60 超 `high_above_pct=10` → HIGH（追高，不追）、中间 → MID；`metric=price_percentile` 为旧口径（756 交易日分位 ≤30% LOW / ≤70% MID / >70% HIGH）保留作可切换；**历史低位只提高赔率，不产生趋势**）→ **④ signal**（`signal_policy` 规则顺序匹配：LEADER×LOW→STRONG_BUY、LEADER×MID→BUY、CORE×LOW→BUY、CORE×MID→WATCH、position HIGH→HOLD、position BREAKDOWN→WAIT、fallback WAIT；ETF 复用同一词汇表）。`recommended` 由信号门控：主题确认 ∧ signal∈{STRONG_BUY,BUY}（HIGH 位不追高、BREAKDOWN 破位不买、CORE×MID 不推荐）；`state`（WATCH/QUALIFIED/RECOMMENDED）仍是趋势+主题资格状态，与信号分开放置，字段输出 `leadership_level / theme_rank / position_level / position_pct / position_lookback_days / signal`（ma60_deviation 下 `position_pct`=乖离率 %（可负）、`position_lookback_days`=ma_window）。position 价格历史离线读取（个股=processed CSV / ETF=raw parquet），按 trade_date 截断防 look-ahead；数据不足按中性 MID 匹配（position_level=UNKNOWN 显式保留）
 - **策略语义分层**：`strategies.{ai_20,ai_ma,hc_20}` 回答「入场后持有多久/怎么退出」（回测/组合层），与四段选筹「选哪个标的」是两件事，互不重叠
-- ETF 候选动态从 Layer① rotation 全市场按 `themes_two_directions.yaml` 主题关键词选（趋势门控 + 流动性 + 评分 + 去重）；`etf_pool` 为全部关键词命中池（含未达趋势门/流动性不足/同类去重落选，供「⑤ 观察」展示未入选原因）
+- ETF 候选动态从 Layer① rotation 全市场按 `theme_registry.yaml` 主题关键词选（趋势门控 + 流动性 + 评分 + 去重）；`etf_pool` 为全部关键词命中池（含未达趋势门/流动性不足/同类去重落选，供「⑤ 观察」展示未入选原因）
 - **个股趋势读取预计算产物**：`outputs/stock_metrics/stock_metrics_{trade_date}.parquet`（统一 schema：asset_id/trade_date/close/return_5d/return_20d/trend_score/score_trend/watch_level/action/risk_flags/volatility_20d/drawdown_20d/source/data_status/source_trade_date/lag_days）
 - **Selection 默认禁止联网（v0.4.3）**：Layer③ 是纯消费/纯决策层，只读 Layer① ETF rotation + Layer② confirmation + 预计算个股趋势；缺个股输入不自动重试，按 `data_status=missing / selection_status=unavailable / reason=stock_trend_input_missing` 局部降级，不阻塞整体
 - **个股行情由 run-day 自动更新**：`make run-day` 的 `stock-metrics-online` 自动增量抓取个股行情（Observation 构建，不依赖手工补数）；`make run-day-offline` 或 `stock-metrics` 仅读缓存。曾出现个股缓存停更（如长江电力 08-03→08-05 下跌被旧数据判成 100 分），stale 降级兜底后需重跑 run-day 自动补数
@@ -113,7 +114,7 @@
 - **覆盖率报告**：selection JSON/HTML 带 `coverage`（etf_reused / stock_inputs_loaded / selection_coverage / selection_coverage_pct / degraded_assets / online_fetches）
 - **在线补数仅显式**：`select run --allow-online-fetch` 或 `stock-metrics --allow-online-fetch`（轻量重试：初试+1 次、缓存优先、无缓存记 missing）；run-day 始终离线
 - 个股趋势按 `as_of_date = trade_date` 截断，避免使用目标日期之后的盘中/最新数据（look-ahead）
-- 分层资产池：`config/stock_universe.yaml`（theme → tier → assets，bucket 由 themes_two_directions.yaml 推导），已废弃扁平 `stock_pool.csv`
+- 分层资产池：`config/selection_universe.yaml`（theme → tier → assets，bucket 由 theme_registry.yaml 推导），已废弃扁平 `stock_pool.csv`
 - **Parity 兼容**：replay 读引擎内存输出（结构未变）；parity `_selection_entity_map` 兼容新（recommendation/watchlist/monitoring）与旧（core_etf/stock_watchlist）两种 JSON 结构
 - 命令：
   ```bash
@@ -209,7 +210,7 @@ make test             # 全部测试
   - 分 ETF：fixed/ma 的 Top5 贡献仅 ~19%（74 只分散）；signal_exit ~40%
   - 成本：fixed_20 在 20bp 仍 +2.83% 稳健；signal_exit 边收益几乎被成本吃光（0.56%→0.16%）——确认其高换手劣势
 - **Universe 范围**（`--universe-mode`，产物记录 universe_mode/universe_size/universe_config_hash）：
-  - `configured`（默认）= config/stock_universe.yaml 资产池（AI 8 / HC 6）；`theme-matched` = 全市场关键词（AI 74 / HC 19）
+  - `configured`（默认）= config/selection_universe.yaml 资产池（AI 8 / HC 6）；`theme-matched` = 全市场关键词（AI 74 / HC 19）
   - 默认：backtest trades/sensitivity → configured；event-study → theme-matched（信号普适性）
 - **四组矩阵（fixed_20，2024-01..2026-05）**：
   | 组 | n | 胜率 | 均值 | PF | 排除最强年 | Top5占比 |
@@ -227,7 +228,7 @@ make test             # 全部测试
 
 - **定位**：共享现金账户模拟（组合层）——有限资金下整个策略组合的表现；回答「整个账户好不好」，与 v0.5.2 Trade（一笔交易好不好）分层
 - **模块**：`engine.py`（账户引擎：逐日撮合/盯市）、`allocation.py`（仓位分配：equal-weight/max_positions/max_weight_per_asset）、`nav.py`（NAV+绩效+基准）、`metrics.py`（报告）、`simulate.py`（编排）
-- **主题级策略配置**：`config/strategies.yaml`（策略规则按主题配置，不共用全局 Entry/Exit）——AI 主策略 fixed_20（MA20 作对照）、HC 主策略 fixed_20
+- **主题级策略配置**：`config/strategy_spec.yaml`（策略规则按主题配置，不共用全局 Entry/Exit）——AI 主策略 fixed_20（MA20 作对照）、HC 主策略 fixed_20
 - **资金规则**：initial_capital / max_positions / equal-weight / max_weight_per_asset / no_leverage / no_pyramiding / next_open / fee+slippage；不做 ATR
 - **Portfolio Construction 实验**（`backtest construction`，不改入场/出场规则，只改组合构建）——单维度扫描，基线=等权/max5/AI50/cash100：
   - **Top-N 排名**（3/5/10）：实体越多越好，缩减宇宙只会更差（top_10=18.4% > top_3=8.0%）
@@ -259,11 +260,11 @@ make test             # 全部测试
 
 - **定位**：统一策略规格事实源——「代码定义规则、配置定义策略、产物记录来源、回测验证变化」
 - **Strategy = Strategy Specification + Rule Implementation + Execution Semantics + Validation Evidence**；config 单独不等于完整 Strategy（见 `docs/STRATEGY_SPEC.md`）
-- **配置分层**：`themes_two_directions.yaml`（主题） / `stock_universe.yaml`（资产池） / `strategies.yaml`（主题级 entry/exit + strategy_id） / `indicators.yaml`（RPS 窗口/信号门限/确认阈值） / `execution.yaml`（fee/slippage/model） / `portfolio.yaml`（资金/持仓/权重）
+- **配置分层**：`theme_registry.yaml`（主题） / `selection_universe.yaml`（资产池） / `strategy_spec.yaml`（主题级 entry/exit + strategy_id） / `indicator_spec.yaml`（RPS 窗口/信号门限/确认阈值） / `execution.yaml`（fee/slippage/model） / `portfolio.yaml`（资金/持仓/权重）
 - **统一 Loader**（业务代码不直接读 YAML，frozen typed + Schema 校验，生产路径无隐藏默认值）：`load_strategy_spec / load_indicator_spec / load_execution_spec / load_portfolio_spec`
 - **Hash 边界**：`config_hash`=全部策略配置（order-independent）；`universe_hash`=实际资产集合（排序）；`rule_version`=v0.7.0（算法变化才改）
 - **Provenance**：trades 带 `strategy_id / universe_hash / universe_config_hash / entry_score`；portfolio 资金参数来自 config（fee 5bp/slippage 5bp）
-- **已迁移的硬编码**：ETF 趋势门（signal.py 80/60）、RPS 窗口（rotation.py 15/20/60）、Selection 门限（qualified 70 / gate states / min amount）、confirmation 90/80/60 → 均从 indicators.yaml 读取；backtest entry.rps15_min / portfolio 资金参数 → 从 strategies/portfolio/execution.yaml 读取
+- **已迁移的硬编码**：ETF 趋势门（signal.py 80/60）、RPS 窗口（rotation.py 15/20/60）、Selection 门限（qualified 70 / gate states / min amount）、confirmation 90/80/60 → 均从 indicator_spec.yaml 读取；backtest entry.rps15_min / portfolio 资金参数 → 从 strategies/portfolio/execution.yaml 读取
 - **Parity 已验证**：Daily（20260803/20260731）、Trade（AI fixed_20 n=121 win 50.4%）、Portfolio（5 条 NAV 线）与迁移前完全一致
 - 命令：`python src/main.py ...` 行为不变；改策略参数只改 config、跑 Parity 验证
 
@@ -271,8 +272,8 @@ make test             # 全部测试
 
 - **四个观察指标**（ETF 横截面，全部为 Observation 事实，保留在 `rotation_{trade_date}.parquet` 供单只 ETF 补充展示）：
   - `Trend（趋势）` = **rps15**（15 日收益横截面百分位），仍是主排序与主指标
-  - `Today（今日）` = **rps1**（最新 1 日收益横截面百分位，`indicators.yaml rps.today_window`，默认 1）
-  - `Velocity（动量）` = **delta_rps15**（rps15 今日 − rps15 N 个交易日前，`indicators.yaml rps.velocity_window`，默认 5）
+  - `Today（今日）` = **rps1**（最新 1 日收益横截面百分位，`indicator_spec.yaml rps.today_window`，默认 1）
+  - `Velocity（动量）` = **delta_rps15**（rps15 今日 − rps15 N 个交易日前，`indicator_spec.yaml rps.velocity_window`，默认 5）
   - `Liquidity（流动性）` = **liquidity**（最近 5 日均成交额横截面百分位；Selection 的 amount_score 口径独立不受影响）
 - **仅展示，不参与排序/选择**：主排序仍按 rps15 降序；RPS1 / ΔRPS15 / liquidity 不进 Selection（Decision 仍只看 rps15 / TrendState / Amount）
 - **数据质量（P0-2）**：回溯 `data_quality.flag_window`（默认 60 交易日）内任一日 |收益| ≥ `max_single_day_return`（默认 20%）→ 判定异常（份额折算/除权/异常行情）。异常资产**不参与对应窗口的 RPS 横截面排名**，原值保留并标记 `data_quality_flag=corporate_action`。`rotation` 含 `return_1d` 列
@@ -281,7 +282,7 @@ make test             # 全部测试
 - **HTML 布局（etf_rotation_{date}.html，v0.7.1 三问三答）**：
   - ① 大类资产往哪里动：`cross_asset_direction` 按跨资产方向聚合（A股宽基/A股行业主题/港股/海外权益/债券/商品黄金/现金货币），每行 RPS15中位/5日变化/趋势活跃占比/代表ETF/当前方向
   - ② 趋势活跃 ETF：`active_etf_representatives` 按方向去重、每方向一只流动性最好代表，排序 STRONG_WATCH→BUY_CANDIDATE→WATCH→RPS15→流动性，正文展示 top 40 + 新增/退出活跃简报，完整名单 `watchlist_active_{date}.csv`
-  - ③ 我的主题 ETF：config/stock_universe.yaml 固定主题池（theme_etf+sub_industry_etf），按主题分组，RPS15/20/60 + RPS1/Δ + 流动性 + 状态
+  - ③ 我的主题 ETF：config/selection_universe.yaml 固定主题池（theme_etf+sub_industry_etf），按主题分组，RPS15/20/60 + RPS1/Δ + 流动性 + 状态
   - 页脚：日期｜数据状态｜异常数量（审计信息只进页脚一行）
 - **计算位置**：`rotation.compute_rotation_metrics`（rps1/delta_rps15/liquidity/return_1d/data_quality_flag）、`rotation.cross_asset_direction`（①）、`rotation.active_etf_representatives`（②）、`rotation._direction_key`（方向去重键）；`rotation.coverage`（口径）。报告纯排版消费
 - **Event Study 前置**：rps1 / delta_rps15 随每日 `rotation_{trade_date}.parquet` 累积落盘；运行满 1 个月后可用 `research replay range` + `research event-study` 验证「RPS1>95 / ΔRPS>20 之后前向收益是否有统计优势」，**确认有优势才考虑进入 Layer③**（当前不进入）

@@ -2,7 +2,7 @@
 Layer ② 主题确认（Theme Confirmation）— 多主题行业证据验证（v0.4.3 两方向）
 
 核心问题：每个主题是否被底层行业证据支持？
-职责：从 config/themes_two_directions.yaml 加载 bucket → theme → 申万二级行业焦点组，
+职责：从 config/theme_registry.yaml 加载 bucket → theme → 申万二级行业焦点组，
       对每个主题从中观行业层面验证趋势质量。SW 行业 / ETF / 参与率 / HHI
       都是 Theme 的确认因子，不是确认目标本身。
 
@@ -26,7 +26,7 @@ from src.common import themes as themes_cfg
 
 logger = logging.getLogger("sw_industry_rps.confirmation")
 
-# ── 多主题焦点组（v0.4.3：从 config/themes_two_directions.yaml 加载，不再硬编码） ──────────
+# ── 多主题焦点组（v0.4.3：从 config/theme_registry.yaml 加载，不再硬编码） ──────────
 # FOCUS_INDUSTRIES: 每项含 code/name/relevance/theme(theme key)/bucket(bucket key)
 FOCUS_INDUSTRIES: list[dict[str, str]] = [
     {
@@ -67,7 +67,7 @@ BUCKETS: dict[str, dict[str, Any]] = {
     for b in themes_cfg.load_buckets()
 }
 
-# 强势区 / 观察区阈值（来自统一 Strategy Specification config/indicators.yaml confirmation）
+# 强势区 / 观察区阈值（来自统一 Strategy Specification config/indicator_spec.yaml confirmation）
 def _confirmation_thresholds() -> tuple[float, float, float]:
     from src.common.spec.loaders import load_indicator_spec
     s = load_indicator_spec()

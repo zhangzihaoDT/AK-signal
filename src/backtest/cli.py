@@ -212,7 +212,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     p_port = sub.add_parser("portfolio", help="v0.6 共享账户组合模拟（单策略 + Core+Quality）")
     p_port.add_argument("--signals", default="", help="historical_signals parquet 路径")
-    p_port.add_argument("--config", default="", help="策略配置 yaml（默认 config/strategies.yaml）")
+    p_port.add_argument("--config", default="", help="策略配置 yaml（默认 config/strategy_spec.yaml）")
     p_port.add_argument("--initial-capital", type=float, default=_pspec().initial_capital)
     p_port.add_argument("--max-positions", type=int, default=_pspec().max_positions)
     p_port.add_argument("--max-weight", type=float, default=_pspec().max_weight_per_asset)

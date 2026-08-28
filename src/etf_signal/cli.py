@@ -1043,12 +1043,12 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
             except Exception:
                 continue
 
-        # ③ 我的主题 ETF 池（config/stock_universe.yaml theme_etf + sub_industry_etf）
+        # ③ 我的主题 ETF 池（config/selection_universe.yaml theme_etf + sub_industry_etf）
         theme_pool: list[dict] = []
         try:
             from src.selection.universe import load_universe_items
-            from src.common.paths import stock_universe_path
-            for item in load_universe_items(stock_universe_path()):
+            from src.common.paths import selection_universe_path
+            for item in load_universe_items(selection_universe_path()):
                 if item.tier in ("theme_etf", "sub_industry_etf"):
                     theme_pool.append({
                         "fund_code": item.asset.symbol,

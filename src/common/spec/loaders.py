@@ -80,7 +80,7 @@ def _themes_keys() -> set[str]:
 
 @lru_cache(maxsize=None)
 def load_indicator_spec() -> IndicatorSpec:
-    cfg = _read_yaml("indicators.yaml")
+    cfg = _read_yaml("indicator_spec.yaml")
     sch.validate_indicators(cfg)
     rps, ma = cfg["rps"], cfg["moving_average"]
     gates, conf = cfg["signal_gates"], cfg["confirmation"]
@@ -113,7 +113,7 @@ def load_indicator_spec() -> IndicatorSpec:
 @lru_cache(maxsize=None)
 def load_etf_selection_spec() -> EtfSelectionSpec:
     """Layer③ ETF 候选策略（准入 + 排序权重 + amount_score 口径 + 四段）。"""
-    cfg = _read_yaml("strategies.yaml")
+    cfg = _read_yaml("strategy_spec.yaml")
     sch.validate_etf_selection(cfg)
     es = cfg["etf_selection"]
     trend = es["trend"]
@@ -135,7 +135,7 @@ def load_etf_selection_spec() -> EtfSelectionSpec:
 @lru_cache(maxsize=None)
 def load_stock_selection_spec() -> StockSelectionSpec:
     """Layer③ 个股准入 + 主题门控 + 四段信号（Policy）。"""
-    cfg = _read_yaml("strategies.yaml")
+    cfg = _read_yaml("strategy_spec.yaml")
     sch.validate_stock_selection(cfg)
     ss = cfg["stock_selection"]
     trend = ss["trend"]
@@ -152,7 +152,7 @@ def load_stock_selection_spec() -> StockSelectionSpec:
 
 @lru_cache(maxsize=None)
 def load_strategy_specs() -> dict[str, StrategySpec]:
-    cfg = _read_yaml("strategies.yaml")
+    cfg = _read_yaml("strategy_spec.yaml")
     sch.validate_strategies(cfg, _themes_keys())
     out: dict[str, StrategySpec] = {}
     for key, s in cfg["strategies"].items():
@@ -219,15 +219,15 @@ def load_portfolio_spec() -> PortfolioSpec:
 
 def load_sw_industry_config() -> dict[str, Any]:
     """申万行业模块配置（regimes 阈值等）。"""
-    return _read_yaml("sw_industry_rps.yaml")
+    return _read_yaml("industry_data.yaml")
 
 
 @lru_cache(maxsize=None)
 def spec_config_files() -> list[Path]:
     """构成 Strategy Specification 的全部配置文件（供 config_hash）。"""
     names = [
-        "themes_two_directions.yaml", "stock_universe.yaml",
-        "strategies.yaml", "indicators.yaml", "execution.yaml", "portfolio.yaml",
-        "sw_industry_rps.yaml", "guojin_tradable_blacklist.csv",
+        "theme_registry.yaml", "selection_universe.yaml", "research_observations.yaml",
+        "strategy_spec.yaml", "indicator_spec.yaml", "execution.yaml", "portfolio.yaml",
+        "industry_data.yaml", "guojin_tradable_blacklist.csv",
     ]
     return [config_dir() / n for n in names]

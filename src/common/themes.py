@@ -1,8 +1,9 @@
 """
 多主题框架配置加载（v0.4.3）
 
-单一事实源：config/themes_two_directions.yaml（当前范围为两个方向：
-  Core · AI 基础设施（长期增长） / Quality · 高现金流资产（稳定现金流防守））。
+单一事实源：config/theme_registry.yaml（当前范围为两 bucket 三主题：
+  Core · AI 基础设施 / 中国汽车全球化（长期增长），
+  Quality · 高现金流资产（稳定现金流防守））。
 结构：bucket（组合意图） → theme（市场方向） → industries（申万二级行业）+ etf_keywords。
 
 消费方：
@@ -19,7 +20,7 @@ from typing import Any
 
 import yaml
 
-from .paths import config_dir
+from .paths import theme_registry_path
 
 RELEVANCE_LABEL = {"core": "核心", "related": "相关"}
 
@@ -35,7 +36,7 @@ class ThemeIndustry:
 class ThemeTier:
     key: str
     label: str
-    universe_tiers: tuple[str, ...]  # 对应 stock_universe.yaml 的 tier key
+    universe_tiers: tuple[str, ...]  # 对应 selection_universe.yaml 的 tier key
 
 
 @dataclass(frozen=True)
@@ -81,11 +82,11 @@ _cfg: dict[str, Any] | None = None
 
 
 def themes_config_path() -> Path:
-    return config_dir() / "themes_two_directions.yaml"
+    return theme_registry_path()
 
 
 def load_themes_config(path: Path | None = None) -> dict[str, Any]:
-    """加载 themes_two_directions.yaml 原始 dict（内存缓存）。"""
+    """加载 theme_registry.yaml 原始 dict（内存缓存）。"""
     global _cfg
     if _cfg is not None and path is None:
         return _cfg

@@ -1,4 +1,4 @@
-# 组合构建参数（v0.6.1）— 组合层配置；Entry/Exit 策略参数在 strategies.yaml，不混入本文件
+# 组合构建参数（v0.6.1）— 组合层配置；Entry/Exit 策略参数在 strategy_spec.yaml，不混入本文件
 
 portfolio:
   initial_capital: 1000000

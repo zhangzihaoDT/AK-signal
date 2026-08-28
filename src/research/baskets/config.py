@@ -9,7 +9,7 @@ import json
 
 import yaml
 
-from src.common.paths import config_dir, stock_universe_path
+from src.common.paths import config_dir, research_observations_path, selection_universe_path
 
 
 def load_baskets(path: Path | None = None) -> dict[str, dict[str, Any]]:
@@ -32,10 +32,32 @@ def basket_config_hash(basket: dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
+def _load_universe_sections(universe_path: Path | None = None) -> dict[str, Any]:
+    """合并加载篮子资产的两个来源（2026-08 配置拆分后分属两文件）：
+
+    - themes（Selection 固定资产池）     ← config/selection_universe.yaml
+    - observation_groups（研究观察组）   ← config/research_observations.yaml
+
+    universe_path 非空时作为单一覆盖文件（测试/离线重放用），两个 section 都从它读取。
+    """
+    if universe_path is not None:
+        with universe_path.open(encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    universe: dict[str, Any] = {}
+    for path, section in ((selection_universe_path(), "themes"),
+                          (research_observations_path(), "observation_groups")):
+        if not path.exists():
+            continue
+        with path.open(encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        if section in data:
+            universe[section] = data[section]
+    return universe
+
+
 def expand_constituents(basket: dict[str, Any], universe_path: Path | None = None) -> list[dict[str, Any]]:
-    """从 stock_universe.yaml 展开篮子资产，保留 source group 元数据。"""
-    with (universe_path or stock_universe_path()).open(encoding="utf-8") as f:
-        universe = yaml.safe_load(f) or {}
+    """从 selection_universe.yaml / research_observations.yaml 展开篮子资产，保留 source group 元数据。"""
+    universe = _load_universe_sections(universe_path)
     source = basket["source"]
     source_type, source_key = source["type"], source["key"]
     if source_type == "observation_group":

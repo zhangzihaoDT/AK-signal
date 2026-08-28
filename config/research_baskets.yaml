@@ -1,5 +1,5 @@
 # Research Layer 主题篮子配置。
-# 标的清单复用 stock_universe.yaml；本文件只定义研究篮子、权重与排除规则。
+# 标的清单复用 selection_universe.yaml（主题）与 research_observations.yaml（观察组）；本文件只定义研究篮子、权重与排除规则。
 #
 # Schema v1（2026-08 稳定基线）：
 #   observation_groups 下每个 listed_assets 携带三个正交字段——

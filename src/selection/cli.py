@@ -20,7 +20,7 @@ import pandas as pd
 
 from src.common.paths import (
     etf_signal_daily_dir, etf_signal_signals_dir, etf_signal_master_dir,
-    sw_industry_confirmation_dir, stock_universe_path, outputs_dir,
+    sw_industry_confirmation_dir, selection_universe_path, outputs_dir,
 )
 from .universe import load_universe_items, detect_unregistered_themes, cross_theme_assets
 from . import selection, report as sel_report
@@ -297,14 +297,14 @@ def cmd_run(args: argparse.Namespace) -> None:
                 alignment.get("alignment_status"), sel_date, alignment.get("industry_lag_days"))
 
     # ── 输入：个股趋势（调用 Trend Engine 计算，不读独立报告） ─────
-    universe_items = load_universe_items(stock_universe_path())
+    universe_items = load_universe_items(selection_universe_path())
     logger.info("universe: %d assets", len(universe_items))
 
     # ── 配置健康检查：未注册主题 / 跨主题资产 ─────────────────────
     # 未注册 theme = 配置关系不完整（资产不进入任何候选）。默认告警继续并标记 degraded；
     # --strict 下阻止发布，避免未注册主题静默进入正式报告。
-    unregistered = detect_unregistered_themes(stock_universe_path())
-    cross_assets = cross_theme_assets(stock_universe_path())
+    unregistered = detect_unregistered_themes(selection_universe_path())
+    cross_assets = cross_theme_assets(selection_universe_path())
     config_issues: dict[str, Any] = {}
     if unregistered:
         config_issues["unregistered_themes"] = unregistered
@@ -313,7 +313,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         config_issues["cross_theme_assets"] = cross_assets
         logger.info("cross-theme assets (primary attribution = first bucket order): %s", list(cross_assets))
     if unregistered and getattr(args, "strict", False):
-        logger.error("strict mode: %d unregistered theme(s) in stock_universe.yaml — aborting publish", len(unregistered))
+        logger.error("strict mode: %d unregistered theme(s) in selection_universe.yaml — aborting publish", len(unregistered))
         return
 
     trend_df = pd.DataFrame()
@@ -459,7 +459,7 @@ def cmd_stock_metrics(args: argparse.Namespace) -> None:
         trade_date = rot_td or trend_inputs.latest_stock_metrics_trade_date() or date.today().strftime("%Y%m%d")
     logger.info("target trade_date: %s", trade_date)
 
-    universe_items = load_universe_items(stock_universe_path())
+    universe_items = load_universe_items(selection_universe_path())
     allow_online = getattr(args, "allow_online_fetch", False)
     df = trend_inputs.build_stock_metrics(
         universe_items,
@@ -482,7 +482,7 @@ def cmd_stock_metrics(args: argparse.Namespace) -> None:
 
 def cmd_universe(args: argparse.Namespace) -> None:
     """查看分层资产池（bucket → theme → tier → assets）。"""
-    universe_items = load_universe_items(stock_universe_path())
+    universe_items = load_universe_items(selection_universe_path())
     logger = build_logger(args.log_level)
     by_bucket: dict[str, list] = {}
     for item in universe_items:

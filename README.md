@@ -9,11 +9,11 @@
 | Core（核心） | AI 基础设施（不含 AI 应用） | 半导体 / 元件 / 通信设备 / 计算机设备 / 光学光电子 / 自动化设备 / 消费电子 |
 | Quality（质量） | 高现金流资产 | 电力 / 通信服务 / 铁路公路 / 航运港口 / 燃气 |
 
-- **主题定义**：`config/themes_two_directions.yaml`（bucket → theme → 行业 + ETF 关键词，单一事实源）
-- **资产池**：`config/stock_universe.yaml`（theme → tier → assets，bucket 由 themes 配置推导）
+- **主题定义**：`config/theme_registry.yaml`（bucket → theme → 行业 + ETF 关键词，单一事实源）
+- **资产池**：`config/selection_universe.yaml`（theme → tier → assets，bucket 由 themes 配置推导）
 - **Layer ② 改名「主题确认」**：确认目标是 Theme，SW 行业 / ETF / 参与率 / HHI 都是确认因子，不是目标本身
 - **顶层 Action 只回答方向**：BUY / OBSERVE / WAIT + Bucket + Theme；ETF / 股票 / 观察池全部落在下层 `buckets[].themes[]`
-- **Future Themes（Not Enabled）**：Resource Cycle / High-end Equipment / Aerospace / Shipping 等仅是未启用，可在 `themes_two_directions.yaml` 重新打开
+- **Future Themes（Not Enabled）**：Resource Cycle / High-end Equipment / Aerospace / Shipping 等仅是未启用，可在 `theme_registry.yaml` 重新打开
 
 ## 项目架构
 
@@ -65,7 +65,7 @@ pip install -r requirements.txt
 
 把 Layer ①（ETF 轮动）与 Layer ②（主题确认）的结论，压缩成「这个已确认主题用哪只 ETF、哪类股票交易」。核心是**执行对象压缩层**，不是又一层强弱排名。按 bucket → theme 逐主题输出候选。
 
-- 输入：Layer① rotation + Layer② confirmation + 分层资产池 `config/stock_universe.yaml` + 主题定义 `config/themes_two_directions.yaml`
+- 输入：Layer① rotation + Layer② confirmation + 分层资产池 `config/selection_universe.yaml` + 主题定义 `config/theme_registry.yaml`
 - 个股趋势由 **Trend Engine**（`trend_engine`）现场计算，不读独立报告
 - 表达方式决策基于上涨结构：广泛上涨→ETF、龙头主导→龙头个股、扩散→ETF核心+龙头卫星、未确认→仅观察
 - 顶层 Action 只回答「今天投哪个方向」（BUY/OBSERVE/WAIT + Bucket + Theme）；ETF/股票/观察池落在下层
@@ -113,7 +113,7 @@ RPS_N     = 横截面百分位排名(return_N)        (0-100, 越高越好, 并�
 delta_rps15 = 当日 RPS15 - 上日 RPS15
 ```
 
-状态规则（阈值可在 `config/sw_industry_rps.yaml` 中调整）：
+状态规则（阈值可在 `config/industry_data.yaml` 中调整）：
 
 | 状态 | 条件 |
 |------|------|

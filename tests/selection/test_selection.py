@@ -305,10 +305,10 @@ class TestAmountScore:
 
 
 class TestEtfMinAmountConfig:
-    """回归保护：ETF_MIN_AMOUNT 必须来自 config/strategies.yaml，禁止硬编码覆盖。
+    """回归保护：ETF_MIN_AMOUNT 必须来自 config/strategy_spec.yaml，禁止硬编码覆盖。
 
     曾出现 selection.py 在模块加载后硬编码 `ETF_MIN_AMOUNT = 50_000_000`
-    覆盖 config 值导致 config drift 的缺陷（改 strategies.yaml 不生效）。
+    覆盖 config 值导致 config drift 的缺陷（改 strategy_spec.yaml 不生效）。
     """
 
     def test_module_constant_matches_config(self):

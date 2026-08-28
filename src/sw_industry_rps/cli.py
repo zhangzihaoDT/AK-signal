@@ -26,7 +26,7 @@ import pandas as pd
 
 from src.common.paths import (
     project_root, sw_industry_raw_dir, sw_industry_processed_dir,
-    sw_industry_rps_output_dir, sw_industry_rps_config_path,
+    sw_industry_rps_output_dir, industry_data_config_path,
 )
 from src.common.run_context import RunContext
 from src.common.manifest import write_run_manifest, read_latest_run
@@ -51,7 +51,7 @@ def build_logger(level: str = "INFO") -> logging.Logger:
 
 def load_config() -> dict:
     import yaml
-    cfg_path = sw_industry_rps_config_path()
+    cfg_path = industry_data_config_path()
     if cfg_path.exists():
         with open(cfg_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
@@ -1180,7 +1180,7 @@ def cmd_confirm(args: argparse.Namespace) -> None:
     """Layer ② 主题确认（Theme Confirmation）：主题行业证据 + 龙头/广度 + ETF—行业背离。
 
     流程：
-      1. 计算两方向主题焦点行业（config/themes_two_directions.yaml）的 RPS 明细（确认/强弱/加速）
+      1. 计算主题焦点行业（config/theme_registry.yaml）的 RPS 明细（确认/强弱/加速）
       2. 对进入强势区/观察区的重点行业做成分股穿透（驱动分类）
       3. 落结构化明细 confirmation_{date}.parquet（含 bucket/theme 列）
       4. 生成 sw_industry_confirmation_{date}.html（按 Bucket → Theme 展示）

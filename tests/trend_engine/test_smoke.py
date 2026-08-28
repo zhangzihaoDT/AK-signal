@@ -22,14 +22,14 @@ from src.main import SW_INDUSTRY_COMMANDS, main as main_router
 def test_project_root_resolves_to_akignal():
     root = project_root()
     assert (root / "src" / "trend_engine").is_dir()
-    assert (root / "config" / "stock_universe.yaml").is_file()
+    assert (root / "config" / "selection_universe.yaml").is_file()
 
 
 def test_load_universe_has_assets():
     root = project_root()
-    universe_path = root / "config" / "stock_universe.yaml"
+    universe_path = root / "config" / "selection_universe.yaml"
     items = load_universe_items(universe_path)
-    assert len(items) > 0, "stock_universe.yaml should contain at least one asset"
+    assert len(items) > 0, "selection_universe.yaml should contain at least one asset"
     symbols = {item.asset.symbol for item in items}
     assert "300308" in symbols, "Expected 中际旭创（AI 基础设施）in universe"
     assert "600900" in symbols, "Expected 长江电力（高现金流资产）in universe"
@@ -119,7 +119,7 @@ def test_offline_smoke_with_mock_data(tmp_path):
     (data_dir / "processed").mkdir(parents=True, exist_ok=True)
     (data_dir / "state").mkdir(parents=True, exist_ok=True)
 
-    universe = config_dir / "stock_universe.yaml"
+    universe = config_dir / "selection_universe.yaml"
     universe.write_text(
         "themes:\n"
         "  test:\n"
