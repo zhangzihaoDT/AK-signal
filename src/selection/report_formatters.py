@@ -247,6 +247,23 @@ def fmt_position_header(row: dict[str, Any] | None = None) -> str:
     return "偏离MA60%" if _position_metric() == "ma60_deviation" else "位置分位"
 
 
+def fmt_leadership(row: dict[str, Any]) -> str:
+    """主题内地位的人类语义（展示层）：机器码 LEADER/CORE/NON_CORE 转可读。
+
+    ETF 的 CORE = 卫星/细分产品地位（rank≤satellite_rank_max），
+    直接显示 "CORE" 会被误读为「结构核心 ETF」，故展示为「细分核心」。
+    底层 leadership_level 机器码不变。
+    """
+    lvl = str(row.get("leadership_level", "") or "")
+    if lvl == "LEADER":
+        return "龙头"
+    if lvl == "CORE":
+        return "细分核心" if str(row.get("asset_type", "") or "") == "etf" else "核心"
+    if lvl == "NON_CORE":
+        return "非核心"
+    return "—" if not lvl else lvl
+
+
 # ── ETF 状态 ─────────────────────────────────────────────────────────
 
 ETF_TREND_STATUS_CN = {
@@ -471,6 +488,7 @@ FORMATTERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "etf_audit_reason": fmt_etf_audit_reason,
     "etf_strength": fmt_etf_strength,
     "etf_position": fmt_etf_position,
+    "leadership": fmt_leadership,
 }
 
 HEADER_FORMATTERS: dict[str, Callable[[Any], str]] = {

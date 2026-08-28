@@ -54,7 +54,7 @@ KNOWN_FORMATTERS = {
     "position_pct", "position_header", "etf_trend_status", "trade_state",
     "display_state_tag", "theme_role", "participation", "audit_reason",
     "etf_theme_role", "etf_audit_reason", "etf_strength", "etf_position",
-    "audit_category",
+    "audit_category", "leadership",
 }
 
 

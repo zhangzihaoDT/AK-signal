@@ -119,7 +119,7 @@ def _render_executive(spec: ReportSpec, vm: ReportViewModel) -> str:
         chips = []
         for a in vm.actionable:
             signal = str(a.get("signal", "") or "")
-            lead = str(a.get("leadership_level", "") or "")
+            lead = FORMATTERS["leadership"](a)
             pos = str(a.get("position_level", "") or "")
             theme = str(a.get("theme_label", "") or "")
             meta = " · ".join(x for x in (signal, lead, pos) if x)
@@ -180,7 +180,7 @@ def _render_narratives(spec: ReportSpec, vm: ReportViewModel) -> str:
 
 def _execution_line(a: dict[str, Any], label: str) -> str:
     signal = str(a.get("signal", "") or "")
-    lead = str(a.get("leadership_level", "") or "")
+    lead = FORMATTERS["leadership"](a)
     pos = str(a.get("position_level", "") or "")
     meta = " · ".join(x for x in (signal, lead, pos) if x)
     reason = str(a.get("reason", "") or a.get("reject_reason", "") or "")
