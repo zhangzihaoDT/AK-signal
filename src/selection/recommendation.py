@@ -29,19 +29,31 @@ def _num(v: Any) -> float | None:
 
 
 def _etf_reject_reason(a: dict[str, Any]) -> str:
-    """ETF 未推荐原因（Policy 标注，基于引擎 reason_codes）。"""
+    """ETF 未推荐原因（Policy 标注，基于引擎 reason_codes + position 上下文）。"""
     codes = a.get("reason_codes") or []
+    reason = ""
     if "dedup_lost" in codes:
-        return "同类方向已有代表入选"
-    if "below_trend_gate" in codes and "low_liquidity" in codes:
-        return "未达趋势门且流动性不足"
-    if "below_trend_gate" in codes:
-        return "未达趋势门"
-    if "low_liquidity" in codes:
-        return "流动性不足"
-    if not a.get("recommended"):
-        return "排名未进推荐"
-    return ""
+        reason = "同类方向已有代表入选"
+    elif "below_trend_gate" in codes and "low_liquidity" in codes:
+        reason = "未达趋势门且流动性不足"
+    elif "below_trend_gate" in codes:
+        reason = "未达趋势门"
+    elif "low_liquidity" in codes:
+        reason = "流动性不足"
+    elif not a.get("recommended"):
+        reason = "排名未进推荐"
+    # position 上下文（v0.10 observability）：中期破位 / 追高 等可行动原因
+    pos = _position_metric_label()
+    pct = a.get("position_pct")
+    if a.get("position_level") == "BREAKDOWN":
+        pct_txt = "—" if pct is None else f"{abs(pct):g}%"
+        detail = f"现价深破 60 日线 {pct_txt}" if pos == "60 日线乖离" else f"历史低位（{pct_txt} 分位）"
+        return (reason + " · " + detail) if reason else detail
+    if a.get("signal") == "HOLD":
+        pct_txt = "—" if pct is None else f"{pct:g}%"
+        detail = f"现价高于 60 日线 {pct_txt}，追高不买" if pos == "60 日线乖离" else f"历史高位（{pct_txt} 分位），不追高"
+        return (reason + " · " + detail) if reason else detail
+    return reason
 
 
 def _stock_reject_reason(a: dict[str, Any]) -> str:
@@ -49,6 +61,8 @@ def _stock_reject_reason(a: dict[str, Any]) -> str:
     codes = a.get("reason_codes") or []
     if a.get("selection_status") == "unavailable":
         return "数据缺失"
+    if "monitor_only" in codes:
+        return "monitor-only tier（研究迁移，仅观察不参与候选）"
     if "stale_data" in codes:
         return "数据滞后，信号降级"
     flags = a.get("risk_flags") or []
@@ -263,8 +277,10 @@ def _watchlist_block(theme_obj: dict[str, Any], max_etf: int = 6, max_stocks: in
         _stock_watch_entry(a) for a in all_stocks
         if a.get("code") not in stock_rec_codes and not a.get("recommended")
     ]
-    # 观察池排序：趋势合格 > 风险警戒（有原因可读）> 未达标；同组按趋势分降序
+    # 观察池排序：可交易候选优先（monitor-only 研究迁移 Tier 靠后）；
+    # 同组内：趋势合格 > 风险警戒（有原因可读）> 未达标；再按趋势分降序
     watch_stocks.sort(key=lambda a: (
+        a.get("participation") == "monitor_only",
         a.get("state") != "QUALIFIED",
         a.get("state") != "WATCH",
         -(a.get("score_trend") if a.get("score_trend") is not None else -1e9),

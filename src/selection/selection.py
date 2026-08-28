@@ -31,6 +31,11 @@ from typing import Any
 import pandas as pd
 
 from src.common import themes as themes_cfg
+from src.common.asset_state import (
+    LEVEL_NORMAL, LEVEL_STRONG, LEVEL_UNKNOWN, LEVEL_WEAK,
+    TECH_DIM_MOMENTUM, TECH_DIM_RELATIVE_STRENGTH, TECH_DIM_TREND, TECH_DIMS,
+    compose_blocking_flags, compose_data_quality_flags, tech_diag_from_json,
+)
 from src.selection import four_stage
 
 logger = logging.getLogger("selection")
@@ -97,6 +102,13 @@ ETF_TREND_STATUS_LABELS = {
 STOCK_STATE_WATCH = "WATCH"
 STOCK_STATE_QUALIFIED = "QUALIFIED"
 STOCK_STATE_RECOMMENDED = "RECOMMENDED"
+
+# tier 参与语义（config/selection_universe.yaml tier 级 participation 字段）：
+#   tradeable（默认）  正常参与状态机/排名/信号/候选
+#   monitor_only      研究迁移 Tier：只进入 stock-metrics 与「核心资产监控」，
+#                     不参与主题内排名与四段信号，不因主题确认获得候选资格
+PARTICIPATION_TRADEABLE = "tradeable"
+PARTICIPATION_MONITOR_ONLY = "monitor_only"
 # 个股趋势合格门槛（来自 config/strategy_spec.yaml stock_selection.trend.qualified_score）
 # 主题确认门槛（Layer③ 门控 = stock_selection.theme_confirm_states；与 Layer② 生成
 # strength_level 的 observe_threshold 无关——那是 Observation，本层只消费状态）
@@ -217,6 +229,7 @@ TIER_ROLE_MAP = {
     "semiconductor_equipment": "UPSTREAM",
     "semiconductor_components": "LEADER",
     "liquid_cooling": "UPSTREAM",
+    "auto_thermal_ai_cooling": "UPSTREAM",
     "high_speed_interconnect": "LEADER",
     "server_power": "UPSTREAM",
     "oem_global": "LEADER",
@@ -244,6 +257,124 @@ def _clean_trend_status(v: Any) -> str:
     return ETF_TREND_STATUS_LABELS.get(s, s)
 
 
+# ── v0.10 资产状态语义（technical_diagnostics / blocking_flags / data_quality_flags） ──
+
+def _etf_technical_diagnostics(row: pd.Series) -> dict[str, dict[str, Any]]:
+    """ETF 技术诊断（Layer① facts 派生，零新增计算，只读分类不改决策）。
+
+    - trend（趋势）: account_candidates.trend_state 映射
+        BUY_CANDIDATE / STRONG_WATCH → STRONG；WATCH → NORMAL；OUT_OF_SCOPE → WEAK；缺失 → UNKNOWN
+    - momentum（动量）: ΔRPS15 主判据（velocity 视角）
+        Δ≥+5 → STRONG；Δ≤−5 → WEAK；之间 → NORMAL；缺失（历史不足）→ UNKNOWN；rps1 作补充 flag
+    - relative_strength（相对强弱）: rps15 全市场横截面分档
+        ≥80 → STRONG；≥60 → NORMAL；<60 → WEAK；缺失 → UNKNOWN
+    """
+    ts = str(row.get("trend_state", "") or "")
+    trend_level = {
+        "BUY_CANDIDATE": LEVEL_STRONG,
+        "STRONG_WATCH": LEVEL_STRONG,
+        "WATCH": LEVEL_NORMAL,
+        "OUT_OF_SCOPE": LEVEL_WEAK,
+    }.get(ts, LEVEL_UNKNOWN)
+
+    delta = row.get("delta_rps15")
+    mom_flags: list[str] = []
+    if pd.notna(delta):
+        d = float(delta)
+        if d >= 5:
+            mom_level = LEVEL_STRONG
+        elif d <= -5:
+            mom_level = LEVEL_WEAK
+        else:
+            mom_level = LEVEL_NORMAL
+        mom_flags.append("delta_rps15_positive" if d > 0 else "delta_rps15_negative")
+    else:
+        mom_level = LEVEL_UNKNOWN
+    rps1 = row.get("rps1")
+    if pd.notna(rps1):
+        r = float(rps1)
+        mom_flags.append("rps1_hot" if r >= 80 else "rps1_cold" if r <= 20 else "")
+    mom_flags = [f for f in mom_flags if f]
+
+    rps15 = row.get("rps15")
+    if pd.notna(rps15):
+        r = float(rps15)
+        rs_level = LEVEL_STRONG if r >= 80 else (LEVEL_NORMAL if r >= 60 else LEVEL_WEAK)
+    else:
+        rs_level = LEVEL_UNKNOWN
+
+    return {
+        TECH_DIM_TREND: {"level": trend_level, "flags": []},
+        TECH_DIM_MOMENTUM: {"level": mom_level, "flags": mom_flags},
+        TECH_DIM_RELATIVE_STRENGTH: {"level": rs_level, "flags": []},
+    }
+
+
+def _diag_has_unknown(diag: dict[str, Any]) -> bool:
+    """技术诊断任一维度 UNKNOWN（历史不足）→ 用于 data_quality INSUFFICIENT_HISTORY。"""
+    if not diag:
+        return False
+    return any((diag.get(dim) or {}).get("level") == LEVEL_UNKNOWN for dim in TECH_DIMS)
+
+
+def _etf_data_quality(row: pd.Series) -> list[str]:
+    """ETF 数据质量来源（Layer① rotation 已有 facts，规范化透传）。
+
+    当前透传 rotation.data_quality_flag（corporate_action）；卡片侧
+    detect_risks（extreme_return / possible_split / stale_data）属 Layer① 独立产物，
+    不在 Layer③ 输入范围内，不在此处伪造。
+    """
+    flags: list[str] = []
+    dq = str(row.get("data_quality_flag", "") or "").strip()
+    if dq and dq.lower() != "nan":
+        flags.append(dq)  # compose_data_quality_flags 内部会 .upper() 规范为 CORPOTATE_ACTION 等码
+    return flags
+
+
+def _apply_etf_semantics(cand: AssetCandidate, row: pd.Series, theme_confirmed: bool | None) -> None:
+    """给 ETF 候选补齐 v0.10 语义字段（technical_diagnostics / data_quality / blocking）。
+
+    只读分类与透传，不改决策字段（recommended / signal 等由既有逻辑决定）。
+    """
+    cand.technical_diagnostics = _etf_technical_diagnostics(row)
+    cand.data_quality_flags = compose_data_quality_flags(
+        data_status="current", selection_status="available",
+        insufficient_history=_diag_has_unknown(cand.technical_diagnostics),
+        etf_flags=_etf_data_quality(row))
+    cand.blocking_flags = compose_blocking_flags(
+        reason_codes=cand.reason_codes, position_level=cand.position_level,
+        state=cand.state, signal=cand.signal, participation=cand.participation or "tradeable",
+        theme_confirmed=theme_confirmed, risk_gate_passed=cand.risk_gate_passed)
+
+
+def _candidate_blocking(cand: AssetCandidate, theme_confirmed: bool | None = None) -> list[str]:
+    """归集 blocking_flags（共享语义接口）：为什么不能交易。STALE/MISSING 归 data_quality。"""
+    return compose_blocking_flags(
+        reason_codes=cand.reason_codes,
+        position_level=cand.position_level,
+        state=cand.state,
+        signal=cand.signal,
+        participation=cand.participation,
+        theme_confirmed=theme_confirmed,
+        risk_gate_passed=cand.risk_gate_passed,
+    )
+
+
+def _candidate_data_quality(
+    cand: AssetCandidate,
+    *,
+    insufficient_history: bool = False,
+    etf_flags: Any = None,
+) -> list[str]:
+    """归集 data_quality_flags（共享语义接口）：数据是否可信。"""
+    return compose_data_quality_flags(
+        data_status=cand.data_status,
+        selection_status=cand.selection_status,
+        insufficient_history=insufficient_history,
+        etf_flags=etf_flags,
+    )
+
+
 @dataclass
 class AssetCandidate:
     code: str
@@ -255,6 +386,10 @@ class AssetCandidate:
     rps15: float | None = None
     rps20: float | None = None
     rps60: float | None = None
+    # v0.10.1 Observation factual passthrough：ETF 产品级 Today/Velocity 事实原值透传
+    # （Layer① rotation 已算好的 rps1 / delta_rps15，仅复制进候选 dict 供审计详情展示，不参与决策）
+    rps1: float | None = None
+    delta_rps15: float | None = None
     return_5d: float | None = None
     return_20d: float | None = None
     trend_status: str = ""
@@ -280,11 +415,22 @@ class AssetCandidate:
     # 风险门控：趋势达标 ≠ 可行动，风险警戒/剔除观察等门控单独记录
     risk_gate_passed: bool = True
     risk_flags: list[str] = field(default_factory=list)
+    # v0.10 语义重构：technical_diagnostics（技术状态，Stock/ETF 各自实现）+
+    # blocking_flags（为什么不能交易，共享语义接口）+ data_quality_flags（数据是否可信）
+    # 三者是既有字段的语义投影（分类/归集/透传），不制造新事实；risk_flags/reason_codes 保留为底层事实。
+    technical_diagnostics: dict[str, Any] = field(default_factory=dict)
+    blocking_flags: list[str] = field(default_factory=list)
+    data_quality_flags: list[str] = field(default_factory=list)
     selection_score: float | None = None
     reason: str = ""
     # 资产池 tier 归属（universe 原始赛道标签，如 computing_chip/光模块；role 是其聚合归类）
     tier: str = ""
     tier_label: str = ""
+    # tier 参与语义：tradeable（默认，可交易候选）/ monitor_only（研究迁移 Tier，仅监控）
+    participation: str = "tradeable"
+    # monitor_only tier 的商业化阶段（来自 research_observations.yaml，只读联接展示）
+    evidence_stage: str = ""
+    revenue_evidence: str = ""
     # 四段信号（v0.9.0）：trend → leadership → position → signal
     leadership_level: str = ""          # LEADER / CORE / NON_CORE（主题内相对地位）
     theme_rank: int | None = None       # 主题内可比分排名（1 起）
@@ -652,6 +798,7 @@ def theme_etf_pool(
     master_df: pd.DataFrame,
     theme: str,
     trade_date: str | None = None,
+    theme_confirmed: bool | None = None,
 ) -> list[AssetCandidate]:
     """该主题全部关键词命中的 ETF 池（趋势门控与流动性只标注不硬过滤），供观察池展示。
 
@@ -717,17 +864,19 @@ def theme_etf_pool(
             asset_type="etf",
             bucket="",
             theme=theme,
-            rps15=_round(row.get("rps15")),
-            rps20=_round(row.get("rps20")),
-            rps60=_round(row.get("rps60")),
-            return_5d=_round(row.get("return_5d")),
-            return_20d=_round(row.get("return_20d")),
-            trend_status=_clean_trend_status(row.get("trend_state", "")),
-            trend_metric_name="rps15",
-            trend_metric_value=_round(row.get("rps15")),
-            metric_scope="etf_cross_section",
-            strategy_score=_round(row.get("selection_score")),
-            reason_codes=codes,
+        rps15=_round(row.get("rps15")),
+        rps20=_round(row.get("rps20")),
+        rps60=_round(row.get("rps60")),
+        rps1=_round(row.get("rps1")),
+        delta_rps15=_round(row.get("delta_rps15")),
+        return_5d=_round(row.get("return_5d")),
+        return_20d=_round(row.get("return_20d")),
+        trend_status=_clean_trend_status(row.get("trend_state", "")),
+        trend_metric_name="rps15",
+        trend_metric_value=_round(row.get("rps15")),
+        metric_scope="etf_cross_section",
+        strategy_score=_round(row.get("selection_score")),
+        reason_codes=codes,
             rank_change_5d=_round(row.get("rank_change_5d")),
             liquidity=_round(row.get("amount")),
             tradable=bool(row.get("account_tradable", False)),
@@ -747,6 +896,7 @@ def theme_etf_pool(
             sig_code = f"signal_{signal.lower()}"
             if sig_code not in cand.reason_codes:
                 cand.reason_codes = cand.reason_codes + [sig_code]
+        _apply_etf_semantics(cand, row, theme_confirmed)
         out.append(cand)
     return out
 
@@ -844,6 +994,24 @@ def _trend_change_fields(
     return out
 
 
+_EVIDENCE_CACHE: dict[str, dict[str, dict[str, str]]] = {}
+
+
+def _observation_evidence(item: Any) -> dict[str, str]:
+    """monitor-only tier 的商业化阶段（research_observations.yaml 只读联接，进程内缓存）。
+
+    单一事实源：阶段字段只在 research_observations.yaml 维护（stage log 守护），
+    这里只按 evidence_source 观察组 key 联接展示，不制造新事实。
+    """
+    src = str(getattr(item, "evidence_source", "") or "")
+    if not src:
+        return {}
+    if src not in _EVIDENCE_CACHE:
+        from src.selection.universe import load_observation_evidence
+        _EVIDENCE_CACHE[src] = load_observation_evidence(src)
+    return _EVIDENCE_CACHE[src].get(str(item.asset.symbol), {})
+
+
 def select_stock_watchlist(
     universe_items: list[Any],
     theme: str,
@@ -857,6 +1025,10 @@ def select_stock_watchlist(
     降级与风险警戒同样保留，用于监控状态变化。
     趋势数据缺失（data_status=missing）的标的标记 selection_status=unavailable，
     不进入任何候选（不阻塞整体 Selection）。
+
+    monitor-only tier（participation=monitor_only，研究迁移 Tier）：
+    进入监控（趋势/变化/风险/商业化阶段照常计算），但不参与主题内排名与
+    四段信号，state 恒 WATCH、recommended 恒 False —— 不因主题确认获得候选资格。
 
     v0.9.0 四段：可用候选先按 score_trend 做主题内排名（theme_rank），再补
     leadership / position / signal；recommended 由信号门控（主题确认 ∧ BUY 类信号）。
@@ -877,6 +1049,8 @@ def select_stock_watchlist(
         role = TIER_ROLE_MAP.get(item.tier)
         if role is None:
             continue
+        participation = str(getattr(item, "participation", PARTICIPATION_TRADEABLE) or PARTICIPATION_TRADEABLE)
+        monitor_only = participation == PARTICIPATION_MONITOR_ONLY
 
         # 从 Trend Engine 结果读取趋势
         trend_row = None
@@ -917,7 +1091,18 @@ def select_stock_watchlist(
                 reason="stock_trend_input_missing",
                 tier=item.tier,
                 tier_label=item.tier_label,
+                participation=participation,
             )
+            if monitor_only and "monitor_only" not in cand.reason_codes:
+                cand.reason_codes = list(cand.reason_codes) + ["monitor_only"]
+            # v0.10 语义字段：数据缺失 → data_quality=MISSING_DATA；无技术诊断；blocking 不误报风险
+            cand.technical_diagnostics = {}
+            cand.data_quality_flags = compose_data_quality_flags(
+                data_status=cand.data_status, selection_status=cand.selection_status)
+            cand.blocking_flags = compose_blocking_flags(
+                reason_codes=cand.reason_codes, position_level="", state=cand.state,
+                signal="", participation=cand.participation,
+                theme_confirmed=theme_confirmed, risk_gate_passed=None)
             _append_by_role(cand, role, leaders, high_beta, equipment)
             continue
 
@@ -929,6 +1114,54 @@ def select_stock_watchlist(
         risk_flags_raw = str(_tv("risk_flags", "") or "")
         risk_flags = [f.strip() for f in risk_flags_raw.split("，") if f.strip()] if risk_flags_raw else []
         risk_gate_passed = action_txt not in ("风险警戒", "剔除观察") and not risk_flags
+        if monitor_only:
+            # 研究迁移 Tier（monitor-only）：只监控不交易 —— 趋势/变化/风险/商业化阶段
+            # 照常计算展示，但不参与主题内排名与四段信号，不因主题确认获得候选资格
+            # （state 恒 WATCH、recommended 恒 False；leadership/position/signal 留空）。
+            ev = _observation_evidence(item)
+            cand = AssetCandidate(
+                code=item.asset.symbol,
+                name=item.asset.name,
+                role=role,
+                asset_type="stock",
+                bucket=item.bucket,
+                theme=theme,
+                score_trend=score_trend,
+                trend_status=_clean_trend_status(watch_level),
+                trend_metric_name="score_trend",
+                trend_metric_value=score_trend,
+                metric_scope="absolute_technical",
+                strategy_score=score_trend,
+                reason_codes=["monitor_only"],
+                tradable=True,
+                recommended=False,
+                state=STOCK_STATE_WATCH,
+                data_status=data_status,
+                selection_status="available",
+                score_change_1d=change["score_change_1d"],
+                state_change=change["state_change"],
+                days_in_state=change["days_in_state"],
+                last_trend_qualified_date=change["last_trend_qualified_date"],
+                risk_gate_passed=risk_gate_passed,
+                risk_flags=risk_flags,
+                reason="monitor-only tier（仅监控，不参与候选）",
+                tier=item.tier,
+                tier_label=item.tier_label,
+                participation=participation,
+                evidence_stage=ev.get("evidence_stage", ""),
+                revenue_evidence=ev.get("revenue_evidence", ""),
+            )
+            # v0.10 语义字段：monitor-only 只监控不交易；技术诊断照常透传
+            diag = tech_diag_from_json(_tv("technical_diagnostics"))
+            cand.technical_diagnostics = diag
+            cand.data_quality_flags = compose_data_quality_flags(
+                data_status=data_status, insufficient_history=_diag_has_unknown(diag))
+            cand.blocking_flags = compose_blocking_flags(
+                reason_codes=cand.reason_codes, position_level="", state=cand.state,
+                signal="", participation=cand.participation,
+                theme_confirmed=theme_confirmed, risk_gate_passed=risk_gate_passed)
+            _append_by_role(cand, role, leaders, high_beta, equipment)
+            continue
         reason_codes: list[str] = []
         # stale 降级（Policy）：数据滞后时不给出推荐信号（分数基于过期数据，不代表当前趋势）
         lag = _tv("lag_days")
@@ -974,6 +1207,15 @@ def select_stock_watchlist(
             tier=item.tier,
             tier_label=item.tier_label,
         )
+        # v0.10 语义字段：技术诊断从 stock_metrics parquet 透传；blocking 待四段信号后补全
+        diag = tech_diag_from_json(_tv("technical_diagnostics"))
+        cand.technical_diagnostics = diag
+        cand.data_quality_flags = compose_data_quality_flags(
+            data_status=data_status, insufficient_history=_diag_has_unknown(diag))
+        cand.blocking_flags = compose_blocking_flags(
+            reason_codes=reason_codes, position_level="", state=state,
+            signal="", participation=participation,
+            theme_confirmed=theme_confirmed, risk_gate_passed=risk_gate_passed)
         available.append(cand)
         available_market[id(cand)] = item.asset.market
 
@@ -1002,6 +1244,11 @@ def select_stock_watchlist(
                 cand.reason_codes = cand.reason_codes + [sig_code]
             if cand.reason:
                 cand.reason = f"{cand.reason} · {_signal_reason(cand)}"
+        # v0.10：四段信号后补全 blocking_flags（position_level / signal 此时已确定）
+        cand.blocking_flags = compose_blocking_flags(
+            reason_codes=cand.reason_codes, position_level=cand.position_level,
+            state=cand.state, signal=cand.signal, participation=cand.participation,
+            theme_confirmed=theme_confirmed, risk_gate_passed=cand.risk_gate_passed)
         _append_by_role(cand, cand.role, leaders, high_beta, equipment)
 
     return leaders, high_beta, equipment
@@ -1201,14 +1448,15 @@ def build_candidates(
                 # 核心 ETF：主题内评分最高 1 只（rank=1 → LEADER）
                 c = top.iloc[0]
                 core_etf.append(_to_etf_candidate(
-                    c, "CORE_ETF", bucket_cfg.key, key, "主题评分最高", rank=1, trade_date=trade_date))
+                    c, "CORE_ETF", bucket_cfg.key, key, "主题评分最高", rank=1, trade_date=trade_date,
+                    theme_confirmed=meta["confirmed"]))
                 # 细分 ETF：其余不同方向各取 1 只（最多 2，rank 2..3 → CORE）
                 for i, (_, r) in enumerate(top.iloc[1:].iterrows()):
                     if len(sub_industry_etf) >= 2:
                         break
                     sub_industry_etf.append(_to_etf_candidate(
                         r, "SUB_INDUSTRY_ETF", bucket_cfg.key, key, "细分方向代表",
-                        rank=i + 2, trade_date=trade_date))
+                        rank=i + 2, trade_date=trade_date, theme_confirmed=meta["confirmed"]))
 
             # 个股固定观察池（全量）+ 动态候选（按状态门控后的子集）
             leaders, high_beta, equipment = select_stock_watchlist(
@@ -1237,7 +1485,8 @@ def build_candidates(
                 return v
 
             # ETF 观察池（全部关键词命中 + 原因标注；core/sub 逻辑不变，仅补全事实）
-            etf_pool = theme_etf_pool(rotation_df, account_df, master_df, key, trade_date=trade_date)
+            etf_pool = theme_etf_pool(rotation_df, account_df, master_df, key, trade_date=trade_date,
+                                      theme_confirmed=meta["confirmed"])
 
             # 表达可执行性（observability）：结构表达 ≠ 可执行表达（Layer③ 产品可得性）
             eligible_etf_count = sum(1 for e in etf_pool if _etf_trend_eligible(e))
@@ -1436,6 +1685,7 @@ def _to_etf_candidate(
     *,
     rank: int | None = None,
     trade_date: str | None = None,
+    theme_confirmed: bool | None = None,
 ) -> AssetCandidate:
     """ETF 候选（core/sub）：rank 为主题内排名（按 selection_score），据此补四段信号。
 
@@ -1452,6 +1702,8 @@ def _to_etf_candidate(
         rps15=_round(row.get("rps15")),
         rps20=_round(row.get("rps20")),
         rps60=_round(row.get("rps60")),
+        rps1=_round(row.get("rps1")),
+        delta_rps15=_round(row.get("delta_rps15")),
         return_5d=_round(row.get("return_5d")),
         return_20d=_round(row.get("return_20d")),
         trend_status=_clean_trend_status(row.get("trend_state", "")),
@@ -1481,6 +1733,7 @@ def _to_etf_candidate(
             cand.reason_codes = cand.reason_codes + [sig_code]
         if cand.reason:
             cand.reason = f"{cand.reason} · {_signal_reason(cand)}"
+    _apply_etf_semantics(cand, row, theme_confirmed)
     return cand
 
 

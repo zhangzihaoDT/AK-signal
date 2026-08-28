@@ -18,6 +18,20 @@ FIELDS = ("evidence_stage", "revenue_evidence", "capacity_stage")
 
 STAGE_LOG_FILENAME = "research_stage_log.yaml"
 
+# 商业化阶段中文描述（展示层映射，不改事实；与 research_observations.yaml 的固定枚举一一对应）。
+EVIDENCE_STAGE_CN: dict[str, str] = {
+    "VALIDATION": "客户验证",
+    "DESIGN_WIN": "设计定标",
+    "ORDER": "已获订单",
+    "SMALL_BATCH": "小批量供货",
+    "MASS_PRODUCTION": "批量量产",
+}
+
+
+def evidence_stage_cn(stage: str) -> str:
+    """把 evidence_stage 枚举转成中文描述；未知值原样返回。"""
+    return EVIDENCE_STAGE_CN.get(str(stage).strip().upper(), stage or "")
+
 
 def stage_log_path() -> Path:
     return config_dir() / STAGE_LOG_FILENAME

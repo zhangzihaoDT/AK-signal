@@ -26,6 +26,10 @@
 #   high_speed_interconnect 高速互连/铜缆（立讯/沃尔核材/兆龙/鼎通）
 #   server_power        服务器电源（麦格米特/欧陆通）
 #   liquid_cooling      液冷/散热（英维克）
+#   auto_thermal_ai_cooling 汽车热管理 → AI 液冷（中鼎/银轮/飞龙 + 跨主题注册的拓普/三花；
+#                        2026-08 由观察组 auto_tier1_ai_infra 纳入，participation=monitor_only：
+#                        只监控不交易，evidence_source 指向 research_observations.yaml 阶段事实源。
+#                        升级路径：① 转正式 Tier（删 participation）→ ② 独立新 Theme → ③ 退回 Research Basket）
 #   oem_global          整车全球化（比亚迪/上汽/长城）
 #   battery_global      电池全球化（宁德/亿纬）
 #   global_ev_components 电动化核心零部件（三花/拓普/科达利/伯特利）
@@ -35,6 +39,12 @@
 #   toll_road           收费公路（宁沪高速/粤高速A/招商公路）
 #   port_operator       港口（上港集团/招商港口/青岛港）
 #   cyclical_power_watch 周期电力观察（华能国际，火电周期，不占核心）
+#
+# tier 参与语义（participation，tier 级字段）：
+#   tradeable（默认）  正常参与状态机 / 主题内排名 / 四段信号 / 交易候选
+#   monitor_only      仅监控：进入 stock-metrics 与「核心资产监控」，不参与主题内排名与信号、
+#                     不产生候选资格；可配 evidence_source 指向 research_observations.yaml
+#                     观察组，报告展示商业化阶段（evidence_stage 等）
 #
 # sw_industry: 关联的申万二级行业代码（用于注入 Layer ② 行业确认信号）
 #   属于该主题 industries → 注入 strength_level / 驱动分类
@@ -95,6 +105,19 @@ themes:
         label: "液冷 / 散热"
         assets:
           - {symbol: "002837", name: "英维克", market: CN, sw_industry: "801072.SI", note: "AI 数据中心液冷"}
+      - key: auto_thermal_ai_cooling
+        label: "汽车热管理 → AI 液冷"
+        # 研究迁移 Tier（monitor-only）：进入 stock-metrics / 核心资产监控，
+        # 不参与主题内排名与四段信号，不因主题确认获得交易候选资格。
+        # 商业化阶段事实源 = research_observations.yaml 的观察组（本文件不重复维护阶段字段）。
+        participation: monitor_only
+        evidence_source: auto_tier1_ai_infra
+        assets:
+          - {symbol: "000887", name: "中鼎股份", market: CN, sw_industry: "801093.SI", note: "AI液冷：液冷整机柜/CDU/微通道冷板/快插/管路 · 订单约3,800万（商业化阶段见 research_observations.yaml）"}
+          - {symbol: "002126", name: "银轮股份", market: CN, sw_industry: "801093.SI", note: "AI液冷：数据中心换热/液冷验证阶段（阶段见 research_observations.yaml）"}
+          - {symbol: "002536", name: "飞龙股份", market: CN, sw_industry: "801093.SI", note: "服务器液冷：与HP/英维克/台达/施耐德/维谛/联想等合作 · 部分客户项目已量产"}
+          - {symbol: "601689", name: "拓普集团", market: CN, sw_industry: "801093.SI", note: "AI液冷（首批订单15亿为液冷服务器+储能+机器人等新行业合计）· 跨主题注册（china_auto_global）"}
+          - {symbol: "002050", name: "三花智控", market: CN, sw_industry: "801093.SI", note: "数据中心液冷热管理零部件 · 阀/泵/换热器/控制器 · 跨主题注册（china_auto_global）"}
 
   high_cashflow:
     label: "高现金流资产"

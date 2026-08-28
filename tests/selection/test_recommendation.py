@@ -186,6 +186,20 @@ class TestRejectReasons:
         assert "中期趋势破坏" in rec._stock_reject_reason(a)
         assert "37.6" in rec._stock_reject_reason(a)
 
+    def test_etf_breakdown_position_context(self):
+        """v0.10：ETF 破位原因带 position 上下文（如「现价深破 60 日线 37.6%」）。"""
+        a = {"reason_codes": ["below_trend_gate"], "recommended": False,
+             "position_level": "BREAKDOWN", "position_pct": -37.6}
+        r = rec._etf_reject_reason(a)
+        assert "未达趋势门" in r
+        assert "37.6" in r
+
+    def test_etf_hold_position_context(self):
+        a = {"reason_codes": ["theme_confirmed"], "recommended": False,
+             "position_level": "HIGH", "position_pct": 12.0, "signal": "HOLD"}
+        r = rec._etf_reject_reason(a)
+        assert "12" in r and "追高" in r
+
     def test_stock_hold(self):
         """追高（HOLD）文案按 ma60_deviation 措辞。"""
         a = {"state": "RECOMMENDED", "signal": "HOLD", "position_level": "HIGH",

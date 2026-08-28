@@ -74,16 +74,17 @@ def _overlap_html(overlap: pd.DataFrame) -> str:
         "成分", "篮子A", "A 证据阶段", "A 组", "A 贡献(pt)",
         "篮子B", "B 证据阶段", "B 组", "B 贡献(pt)",
     ]
+    from .stage_log import evidence_stage_cn
     rows = []
     for _, row in overlap.iterrows():
         cells = [
             f"{html.escape(str(row['name']))}（{row['symbol']}）",
             html.escape(str(row["basket_a"])),
-            html.escape(str(row["evidence_stage_a"])) or "—",
+            html.escape(evidence_stage_cn(str(row["evidence_stage_a"]))) or "—",
             html.escape(str(row["group_a"])),
             row["contribution_pct_a"],
             html.escape(str(row["basket_b"])),
-            html.escape(str(row["evidence_stage_b"])) or "—",
+            html.escape(evidence_stage_cn(str(row["evidence_stage_b"]))) or "—",
             html.escape(str(row["group_b"])),
             row["contribution_pct_b"],
         ]

@@ -20,6 +20,7 @@ import pandas as pd
 import yaml
 
 from src.common import themes as themes_cfg
+from src.common.paths import research_observations_path
 from src.trend_engine.asset import Asset
 
 logger = logging.getLogger("selection.universe")
@@ -60,6 +61,11 @@ class UniverseItem:
     note: str = ""
     update_policy: str = "daily"
     priority: str = "B"
+    # tier 参与语义（config/selection_universe.yaml tier 级字段）：
+    #   tradeable（默认）= 正常候选资格；monitor_only = 仅监控不交易（研究迁移 Tier）
+    participation: str = "tradeable"
+    # monitor_only tier 的商业化阶段事实源（research_observations.yaml 观察组 key）
+    evidence_source: str = ""
 
 
 def load_universe(path: Path) -> dict[str, Any]:
@@ -120,6 +126,8 @@ def load_universe_items(path: Path) -> list[UniverseItem]:
                     note=str(a.get("note", "")).strip(),
                     update_policy=str(a.get("update_policy", "daily")).strip().lower(),
                     priority=str(a.get("priority", "B")).strip().upper(),
+                    participation=str(tier_cfg.get("participation", "tradeable")).strip().lower(),
+                    evidence_source=str(tier_cfg.get("evidence_source", "")).strip(),
                 ))
 
     logger.info("universe loaded: %d assets across %d themes", len(items), len(themes))
@@ -135,6 +143,41 @@ def detect_unregistered_themes(path: Path) -> list[str]:
     cfg = load_universe(path)
     registered = set(themes_cfg.load_themes())
     return [k for k in (cfg.get("themes", {}) or {}) if k not in registered]
+
+
+def load_observation_evidence(group_key: str) -> dict[str, dict[str, str]]:
+    """加载研究观察组的商业化阶段事实（config/research_observations.yaml）。
+
+    monitor-only tier 通过 evidence_source 指向观察组 key；本函数按 symbol 返回
+    该组 listed_assets 的阶段字段（evidence_stage / revenue_evidence / capacity_stage /
+    subgroup_label / note），供「核心资产监控」展示商业化阶段。
+
+    单一事实源纪律：阶段字段只在 research_observations.yaml 维护（stage log 守护），
+    selection_universe 不重复登记；本函数只做只读联接，不制造新事实。
+    """
+    out: dict[str, dict[str, str]] = {}
+    if not group_key:
+        return out
+    path = research_observations_path()
+    if not path.exists():
+        logger.warning("research_observations.yaml not found: %s", path)
+        return out
+    with open(path, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    group = (cfg.get("observation_groups") or {}).get(group_key) or {}
+    for sub_key, sub in (group.get("groups") or {}).items():
+        for a in (sub.get("listed_assets") or []):
+            symbol = str(a.get("symbol", "")).strip()
+            if not symbol:
+                continue
+            out[symbol] = {
+                "evidence_stage": str(a.get("evidence_stage", "")).strip(),
+                "revenue_evidence": str(a.get("revenue_evidence", "")).strip(),
+                "capacity_stage": str(a.get("capacity_stage", "")).strip(),
+                "subgroup_label": str(sub.get("label", sub_key)).strip(),
+                "note": str(a.get("note", "")).strip(),
+            }
+    return out
 
 
 def cross_theme_assets(path: Path) -> dict[str, list[str]]:

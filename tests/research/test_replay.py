@@ -218,7 +218,10 @@ class TestRangeReplayIntegration:
 
         r = rng[rng["trade_date"] == "20260803"].reset_index(drop=True)
         s = single.reset_index(drop=True)
-        assert len(r) == len(s) == 1333
+        # 行数随 universe 规模变化（如 2026-08 monitor-only tier 纳入 +5），
+        # 只断言区间与单日期一致 + 规模下限，不硬编码具体行数
+        assert len(r) == len(s)
+        assert len(r) > 1000
 
         def _key(df):
             return df.set_index(["layer", "entity_type", "entity_code"])

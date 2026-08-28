@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 
 
@@ -11,8 +13,15 @@ def trend_bucket(score: int) -> str:
     return "weak"
 
 
-def build_risk_flags(row: pd.Series) -> list[str]:
-    flags: list[str] = []
+def _technical_machine_flags(row: pd.Series) -> dict[str, list[str]]:
+    """技术诊断机器码（按维度归组），不做等级判断。
+
+    Returns:
+        {dim: [flag_code, ...]}，flag_code 见 src.common.asset_state.TECH_FLAG_SHORT。
+    """
+    from src.common.asset_state import (
+        TECH_DIM_MOMENTUM, TECH_DIM_RELATIVE_STRENGTH, TECH_DIM_TREND,
+    )
 
     close = row.get("close")
     ma20 = row.get("ma20")
@@ -22,27 +31,117 @@ def build_risk_flags(row: pd.Series) -> list[str]:
     rsi14 = row.get("rsi14")
     rs20 = row.get("relative_strength_20d")
 
+    trend: list[str] = []
     if pd.notna(close):
         if pd.notna(ma20) and float(close) < float(ma20):
-            flags.append("跌破MA20")
+            trend.append("below_ma20")
         if pd.notna(ma60) and float(close) < float(ma60):
-            flags.append("跌破MA60")
+            trend.append("below_ma60")
         if pd.notna(ma120) and float(close) < float(ma120):
-            flags.append("跌破MA120")
+            trend.append("below_ma120")
 
+    momentum: list[str] = []
     if pd.notna(macd_hist) and float(macd_hist) < 0:
-        flags.append("MACD转弱")
-
+        momentum.append("macd_weak")
     if pd.notna(rsi14):
         r = float(rsi14)
         if r > 70:
-            flags.append("RSI偏热")
+            momentum.append("rsi_hot")
         if r < 40:
-            flags.append("RSI偏弱")
+            momentum.append("rsi_weak")
 
+    relative_strength: list[str] = []
     if pd.notna(rs20) and float(rs20) < 0:
-        flags.append("RS为负")
+        relative_strength.append("rs_negative")
 
+    return {
+        TECH_DIM_TREND: trend,
+        TECH_DIM_MOMENTUM: momentum,
+        TECH_DIM_RELATIVE_STRENGTH: relative_strength,
+    }
+
+
+def build_technical_diagnostics(row: pd.Series) -> dict[str, dict[str, Any]]:
+    """个股技术状态诊断（Observation，只读分类，不改确认 Policy）。
+
+    Returns:
+        {dim: {"level": STRONG/NORMAL/WEAK/UNKNOWN, "flags": [flag_code, ...]}}
+    维度语义：
+      - trend（趋势）：close 相对 MA20/60/120 的位置结构
+      - momentum（动量）：MACD 柱体 + RSI 动能
+      - relative_strength（相对强弱）：近 20 日相对沪深300 收益正负
+    level 判定：
+      - trend：任一下破 → WEAK；全部站稳 → STRONG；无 MA 数据 → UNKNOWN；其余 NORMAL
+      - momentum：MACD 弱或 RSI 弱 → WEAK；MACD>0 且 RSI≥50 → STRONG；无数据 → UNKNOWN；其余 NORMAL
+        （RSI 偏热为信息性 flag，不视为弱动量）
+      - relative_strength：RS<0 → WEAK；RS≥0 → STRONG；无数据 → UNKNOWN
+    """
+    from src.common.asset_state import (
+        LEVEL_NORMAL, LEVEL_STRONG, LEVEL_UNKNOWN, LEVEL_WEAK,
+        TECH_DIM_MOMENTUM, TECH_DIM_RELATIVE_STRENGTH, TECH_DIM_TREND,
+    )
+
+    flags = _technical_machine_flags(row)
+    close = row.get("close")
+    ma20 = row.get("ma20")
+    ma60 = row.get("ma60")
+    ma120 = row.get("ma120")
+    macd_hist = row.get("macd_hist")
+    rsi14 = row.get("rsi14")
+    rs20 = row.get("relative_strength_20d")
+
+    # trend
+    tf = flags[TECH_DIM_TREND]
+    has_ma = any(pd.notna(v) for v in (ma20, ma60, ma120))
+    if not has_ma:
+        trend_level = LEVEL_UNKNOWN
+    elif tf:
+        trend_level = LEVEL_WEAK
+    elif all(pd.notna(v) and float(close) >= float(v) for v in (ma20, ma60, ma120)):
+        trend_level = LEVEL_STRONG
+    else:
+        trend_level = LEVEL_NORMAL
+
+    # momentum
+    mf = flags[TECH_DIM_MOMENTUM]
+    if pd.isna(macd_hist) and pd.isna(rsi14):
+        mom_level = LEVEL_UNKNOWN
+    elif "macd_weak" in mf or "rsi_weak" in mf:
+        mom_level = LEVEL_WEAK
+    elif pd.notna(macd_hist) and float(macd_hist) > 0 and pd.notna(rsi14) and float(rsi14) >= 50:
+        mom_level = LEVEL_STRONG
+    else:
+        mom_level = LEVEL_NORMAL
+
+    # relative_strength
+    rf = flags[TECH_DIM_RELATIVE_STRENGTH]
+    if pd.isna(rs20):
+        rs_level = LEVEL_UNKNOWN
+    elif rf:
+        rs_level = LEVEL_WEAK
+    else:
+        rs_level = LEVEL_STRONG
+
+    return {
+        TECH_DIM_TREND: {"level": trend_level, "flags": tf},
+        TECH_DIM_MOMENTUM: {"level": mom_level, "flags": mf},
+        TECH_DIM_RELATIVE_STRENGTH: {"level": rs_level, "flags": rf},
+    }
+
+
+def build_risk_flags(row: pd.Series) -> list[str]:
+    """旧版技术风险中文 flag（backward compat，事实原值不破坏）。
+
+    由 build_technical_diagnostics 展平而来，输出与历史完全一致：
+    MA20/MA60/MA120 → MACD → RSI → RS。
+    """
+    from src.common.asset_state import TECH_DIMS, TECH_FLAG_LEGACY
+
+    diag = build_technical_diagnostics(row)
+    flags: list[str] = []
+    for dim in TECH_DIMS:
+        for flag in diag.get(dim, {}).get("flags", []):
+            flags.append(TECH_FLAG_LEGACY.get(flag, flag))
     return flags
 
 

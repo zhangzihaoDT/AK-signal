@@ -413,6 +413,65 @@ class TestStaleDegradation:
         assert "滞后" in c.reason
 
 
+class TestMonitorOnlyTier:
+    """monitor-only tier（研究迁移 Tier）：只监控不交易，不因主题确认获得候选资格。"""
+
+    def _item(self, symbol: str, participation: str = "tradeable", evidence_source: str = ""):
+        from src.selection.selection import PARTICIPATION_MONITOR_ONLY
+        from src.selection.universe import UniverseItem
+        from src.trend_engine.asset import Asset
+        return UniverseItem(
+            asset=Asset(symbol=symbol, name=symbol, market="CN",
+                        category="auto_thermal_ai_cooling" if participation == PARTICIPATION_MONITOR_ONLY else "leader"),
+            bucket="core", bucket_label="核心", theme="ai_infrastructure",
+            theme_label="AI 基础设施",
+            tier="auto_thermal_ai_cooling" if participation == PARTICIPATION_MONITOR_ONLY else "leader",
+            tier_label="汽车热管理 → AI 液冷" if participation == PARTICIPATION_MONITOR_ONLY else "龙头",
+            participation=participation, evidence_source=evidence_source)
+
+    def _trend(self, symbol: str, score: float):
+        return {"symbol": symbol, "data_status": "current", "score_trend": score,
+                "watch_level": "A", "action": "重点观察", "risk_flags": ""}
+
+    def test_monitor_only_never_recommended(self, monkeypatch):
+        monkeypatch.setattr("src.selection.four_stage.load_stock_close_history",
+                            lambda market, symbol, td=None, lb=None: [100.0] * 60 + [90.0])
+        equipment = selection.select_stock_watchlist(
+            [self._item("000887", participation="monitor_only", evidence_source="auto_tier1_ai_infra")],
+            "ai_infrastructure", pd.DataFrame([self._trend("000887", 90.0)]), theme_confirmed=True)[2]
+        c = equipment[0]
+        assert c.state == selection.STOCK_STATE_WATCH      # 恒 WATCH，不升级
+        assert c.recommended is False
+        assert c.signal == ""                              # 不参与四段信号
+        assert c.leadership_level == "" and c.theme_rank is None
+        assert "monitor_only" in c.reason_codes
+        assert c.participation == "monitor_only"
+        assert c.evidence_stage == "ORDER"                 # 商业化阶段来自 research_observations
+        assert c.revenue_evidence == ""
+
+    def test_monitor_only_does_not_consume_rank_slots(self, monkeypatch):
+        """monitor-only 高分不抢占主题内排名：可交易候选仍按自身分数获得 LEADER。"""
+        monkeypatch.setattr("src.selection.four_stage.load_stock_close_history",
+                            lambda market, symbol, td=None, lb=None: [100.0] * 60 + [90.0])
+        items = [self._item("000887", participation="monitor_only"),
+                 self._item("600001", participation="tradeable")]
+        trend = pd.DataFrame([self._trend("000887", 100.0), self._trend("600001", 90.0)])
+        leaders, _, equipment = selection.select_stock_watchlist(
+            items, "ai_infrastructure", trend, theme_confirmed=True)
+        assert equipment[0].code == "000887" and equipment[0].state == "WATCH"
+        assert leaders[0].code == "600001"
+        assert leaders[0].theme_rank == 1                  # 排名只计可交易候选
+        assert leaders[0].leadership_level == "LEADER"
+
+    def test_monitor_only_unavailable_keeps_flag(self):
+        item = self._item("000887", participation="monitor_only")
+        leaders, _, equipment = selection.select_stock_watchlist(
+            [item], "ai_infrastructure", pd.DataFrame(), theme_confirmed=True)
+        c = equipment[0]
+        assert c.selection_status == "unavailable"
+        assert "monitor_only" in c.reason_codes
+
+
 class TestFourStageIntegration:
     """v0.9.0 四段信号接入 select_stock_watchlist 的端到端行为。"""
 
@@ -502,4 +561,66 @@ class TestFourStageIntegration:
         assert by_code["600003"].theme_rank == 4 and by_code["600003"].leadership_level == "CORE"
         assert by_code["000001"].signal == "STRONG_BUY"  # LEADER × LOW
         assert by_code["600003"].signal == "BUY"         # CORE × LOW
+
+
+class TestEtfSemanticFields:
+    """v0.10：ETF 技术诊断从 Layer① facts 派生 + blocking/data_quality 归集。"""
+
+    def test_derivation_strong(self):
+        row = pd.Series({"trend_state": "BUY_CANDIDATE", "delta_rps15": 8.0, "rps1": 90.0,
+                         "rps15": 91.0, "data_quality_flag": ""})
+        d = selection._etf_technical_diagnostics(row)
+        assert d["trend"]["level"] == "STRONG"
+        assert d["momentum"]["level"] == "STRONG"
+        assert "delta_rps15_positive" in d["momentum"]["flags"]
+        assert d["relative_strength"]["level"] == "STRONG"
+
+    def test_derivation_delta_primary_and_insufficient(self):
+        """ΔRPS15 主判据；历史不足（delta 缺失）→ momentum UNKNOWN + INSUFFICIENT_HISTORY。"""
+        row = pd.Series({"trend_state": "WATCH", "delta_rps15": None, "rps1": None,
+                         "rps15": 65.0, "data_quality_flag": ""})
+        d = selection._etf_technical_diagnostics(row)
+        assert d["trend"]["level"] == "NORMAL"
+        assert d["momentum"]["level"] == "UNKNOWN"        # 历史不足
+        assert selection._diag_has_unknown(d) is True     # → data_quality INSUFFICIENT_HISTORY
+
+    def test_derivation_weak_and_corporate_action(self):
+        row = pd.Series({"trend_state": "OUT_OF_SCOPE", "delta_rps15": -8.0, "rps1": 5.0,
+                         "rps15": 8.0, "data_quality_flag": "corporate_action"})
+        d = selection._etf_technical_diagnostics(row)
+        assert d["trend"]["level"] == "WEAK"
+        assert d["momentum"]["level"] == "WEAK"
+        assert d["relative_strength"]["level"] == "WEAK"
+        cand = selection.AssetCandidate(code="588000", name="芯片ETF华夏", role="CORE_ETF",
+                                        asset_type="etf")
+        cand.reason_codes = ["below_trend_gate"]
+        cand.data_status = "current"
+        cand.selection_status = "available"
+        selection._apply_etf_semantics(cand, row, theme_confirmed=True)
+        assert cand.technical_diagnostics == d
+        assert "BELOW_TREND_GATE" in cand.blocking_flags
+        assert "CORPORATE_ACTION" in cand.data_quality_flags
+
+    def test_stale_goes_to_data_quality_not_blocking(self):
+        """个股 stale 降级：STALE_DATA 归 data_quality，不混 blocking。"""
+        from src.common.asset_state import tech_diag_to_json
+        from src.trend_engine.scoring import build_technical_diagnostics
+        row = pd.Series({"close": 90.0, "ma20": 100.0, "ma60": 95.0, "ma120": 93.0,
+                         "macd_hist": -1.0, "rsi14": 35.0, "relative_strength_20d": -0.1})
+        trend = pd.DataFrame([{"symbol": "000001", "data_status": "stale", "score_trend": 90.0,
+                               "watch_level": "A", "action": "重点观察", "risk_flags": "",
+                               "technical_diagnostics": tech_diag_to_json(
+                                   build_technical_diagnostics(row))}])
+        leaders, _, _ = selection.select_stock_watchlist(
+            [self._item("000001")], "ai_infrastructure", trend, theme_confirmed=True)
+        c = leaders[0]
+        assert c.data_quality_flags == ["STALE_DATA"]
+        assert "STALE_DATA" not in c.blocking_flags
+
+    def _item(self, symbol: str):
+        from src.selection.universe import UniverseItem
+        from src.trend_engine.asset import Asset
+        return UniverseItem(asset=Asset(symbol=symbol, name=symbol, market="CN", category="leader"),
+                            bucket="core", bucket_label="核心", theme="ai_infrastructure",
+                            theme_label="AI 基础设施", tier="leader", tier_label="龙头")
 

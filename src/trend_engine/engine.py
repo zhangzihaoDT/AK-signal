@@ -19,6 +19,7 @@ from typing import Any, Sequence
 
 import pandas as pd
 
+from src.common.asset_state import tech_diag_to_json
 from src.common.paths import (
     raw_dir as common_raw_dir,
     processed_dir as common_processed_dir,
@@ -472,6 +473,7 @@ def analyze_asset(
         "change": change,
         "relative_strength_20d": rs20,
         "risk_flags": scoring.risk_flags_text(latest_row),
+        "technical_diagnostics": tech_diag_to_json(scoring.build_technical_diagnostics(latest_row)),
         "reason": details.get("reason", ""),
         "note": note,
     }

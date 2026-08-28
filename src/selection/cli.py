@@ -415,7 +415,17 @@ def cmd_run(args: argparse.Namespace) -> None:
             meta["degraded"] = meta.get("degraded", "coverage") or "coverage"
     out_dir = outputs_dir() / "selection"
     json_path = selection.save_candidates_json(recommendation, out_dir, sel_date, meta=meta)
-    html_path = sel_report.render_selection_html(recommendation, out_dir, sel_date, meta=meta)
+    # v2 跨日对比（05 风险与变化）：按 date 取上一份 Layer③ JSON（fail-soft，缺/损坏不阻塞）
+    prev = None
+    try:
+        from .report_changes import load_previous, resolve_previous_path
+        prev_path = resolve_previous_path(out_dir, sel_date)
+        if prev_path:
+            prev = load_previous(prev_path)
+            logger.info("05 跨日对比：previous=%s", prev_path.name)
+    except Exception as exc:
+        logger.warning("previous selection load skipped: %s", exc)
+    html_path = sel_report.render_selection_html(recommendation, out_dir, sel_date, meta=meta, prev=prev)
 
     # 控制台摘要
     for bucket in recommendation.get("buckets", []):

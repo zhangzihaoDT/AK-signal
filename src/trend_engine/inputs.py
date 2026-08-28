@@ -33,7 +33,7 @@ STOCK_TIERS = {
     "leader", "high_beta", "equipment_upstream",
     "computing_chip", "optical_interconnect", "server_network",
     "semiconductor_equipment", "semiconductor_components",
-    "liquid_cooling", "high_speed_interconnect", "server_power",
+    "liquid_cooling", "auto_thermal_ai_cooling", "high_speed_interconnect", "server_power",
     "oem_global", "battery_global", "global_ev_components", "global_auto_components",
     "adas_lidar",
     "hydro_nuclear", "telecom_operator", "toll_road", "port_operator",
@@ -44,6 +44,7 @@ STOCK_TIERS = {
 STOCK_METRICS_COLUMNS = [
     "asset_id", "symbol", "trade_date", "date", "close",
     "return_5d", "return_20d", "trend_score", "score_trend", "watch_level", "action", "risk_flags",
+    "technical_diagnostics",
     "volatility_20d", "drawdown_20d",
     "name", "market", "source", "data_status", "source_trade_date", "lag_days",
 ]
@@ -183,6 +184,7 @@ def _normalize_row(
         "watch_level": str(row.get("watch_level", "") or ""),
         "action": str(row.get("action", "") or ""),
         "risk_flags": str(row.get("risk_flags", "") or ""),
+        "technical_diagnostics": str(row.get("technical_diagnostics", "") or ""),
         "volatility_20d": metrics["volatility_20d"],
         "drawdown_20d": metrics["drawdown_20d"],
         "name": str(row.get("name", symbol)),

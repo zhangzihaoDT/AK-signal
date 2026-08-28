@@ -1,0 +1,175 @@
+# Layer③ 报告声明式 Spec（v2）—— 报告结构真源
+#
+# 角色边界（冻结于 P0，见 docs/SELECTION_REPORT.md）：
+#   决策行为真源：src/selection/selection.py + recommendation.py
+#   报告结构真源：本文件（report_spec.yaml）
+#   人类可读说明：docs/SELECTION_REPORT.md
+#   HTML：Report Engine 解释本 Spec + ReportViewModel 的生成结果
+#
+# 纪律：
+#   - 本文件只描述「呈现什么」（结构 / 顺序 / 列 / 标签 / 条件 / 优先级），
+#     不描述「怎么算」；分类 / 叙事 / 变化日志等派生字段一律在 ReportViewModel，不污染核心 JSON。
+#   - 只解释异常：NORMAL 主题压缩，异常（degraded / changed / actionable）展开。
+#   - 修改本文件 = 修改报告内容；改后需同步 docs/SELECTION_REPORT.md 与 AGENTS.md。
+
+report:
+  spec_version: 2
+  id: selection
+  title: "③ 今日投资建议"
+  subtitle: "结论 → 比较 → 解释 → 行动 → 异常 → 证据 · 决策层只消费已落盘事实，禁止联网/重算"
+
+  # 多标签分类 → 单标签展示状态的优先级（Spec 控制，业务代码不硬编码）
+  display_priority: [degraded, changed, actionable, watch, normal]
+
+  sections:
+    - id: executive
+      priority: primary
+      renderer: decision_summary
+      title: "01 今日结论"
+    - id: theme_matrix
+      priority: primary
+      renderer: theme_matrix
+      title: "02 主题状态"
+    - id: narratives
+      priority: secondary
+      renderer: theme_narrative
+      title: "03 为什么"
+      # 严格 exception-based：正常主题不展开
+      expand: {only: [degraded, changed, actionable]}
+    - id: execution
+      priority: secondary
+      renderer: execution_cards
+      title: "04 怎么表达"
+      # 04 不遗漏正常机会：已确认/可行动/降级主题全部保留
+      include: [actionable, degraded, confirmed]
+      normal_mode: compact      # NORMAL 已确认主题：一行首选
+      exception_mode: expanded  # degraded/changed/actionable：首选/备选/不做全展开
+    - id: changes
+      priority: secondary
+      renderer: change_log
+      title: "05 风险与变化"
+    - id: audit
+      priority: appendix
+      collapsed: true
+      renderer: audit
+      title: "06 决策审计"
+      subtitle: "debug / audit console —— 回答「为什么它没有被推荐」，不用于第一遍阅读"
+
+  # ── 02 主题矩阵列定义 ──────────────────────────────────────────────
+  theme_matrix_columns:
+    - {key: theme_label,   header: 主题}
+    - {key: display_state, header: 状态,      fmt: display_state_tag}
+    - {key: action,        header: 今天怎么做}
+    - {key: primary,       header: 首选表达}
+    - {key: change,        header: 变化}
+
+  # ── 03 叙事（Spec 管结构与 clause 映射；代码管哪些事实支持哪个 clause） ──
+  narratives:
+    degraded_execution:
+      title: "{theme_label}｜结构判断与可执行产品不一致"
+      clauses:
+        - {when: concentration_high, text: "收益集中于少数核心资产，未扩散到 ETF"}
+        - {when: breadth_weak,       text: "行业强度尚未充分扩散"}
+        - {when: etf_ineligible,     text: "ETF {eligible_etf_count}/{etf_pool_total} 通过交易门（产品端不可执行）"}
+        - {when: stock_available,    text: "实际表达由 {structural_expression} 退化至 {execution_expression}"}
+        - {when: narrow_confirmed,   text: "确认面偏窄（仅 {n_observe}/{n_total} 焦点行业支撑）"}
+      evidence_labels: [结构判断, 实际执行, 合格ETF, 合格个股, 确认广度]
+    trend_diffusing:
+      title: "{theme_label}｜趋势仍在扩散"
+      clauses:
+        - {when: breadth_high,       text: "{n_strong}/{n_total} 焦点行业进入强势区，参与率维持高位"}
+        - {when: concentration_low,  text: "内部集中度未见明显恶化"}
+        - {when: etf_strong,         text: "ETF 同步处于全市场前列（中位 RPS15 {etf_median_rps15}）"}
+        - {when: consistent,         text: "结构判断与交易表达一致"}
+      evidence_labels: [中位参与率, 中位HHI, 中位Top3, 行业中位RPS15, ETF中位RPS15]
+    approaching:
+      title: "{theme_label}｜尚差一步"
+      clauses:
+        - {when: watch_near,         text: "最强行业 RPS15 {strongest_industry_rps15}，距离观察门还差 {distance_to_industry_confirm}"}
+        - {when: watch_far,          text: "焦点行业均未进入观察区（最强 {strongest_industry_rps15}）"}
+      evidence_labels: [最强行业RPS15, 距离确认, 代表ETF, ETF RPS15]
+
+  # ── 04 怎么表达：卡片标签 ──────────────────────────────────────────
+  execution_labels:
+    primary: 首选
+    alternative: 备选
+    not_consider: 不做什么
+
+  # ── 06 决策审计：全量矩阵列定义 ────────────────────────────────────
+  audit:
+    stock_matrix:
+      title: 个股状态矩阵
+      # 审计摘要（debug index）：先告诉有什么异常，再定位具体资产。计数 = 单标签互斥，求和 = 总行数。
+      summary:
+        - {id: breakdown,            label: 破位}
+        - {id: blocked,              label: 阻塞}
+        - {id: qualified_unselected, label: 合格未选}
+        - {id: recommended,          label: 推荐}
+        - {id: normal,               label: 正常观察}
+        - {id: monitor_only,         label: 仅监控}
+      source: monitoring.{leaders,high_beta,equipment}
+      sort: anomaly_first             # 异常优先：BREAKDOWN→BLOCKED→QUALIFIED→RECOMMENDED→NORMAL→MONITOR_ONLY
+      # 第一层 Decision Audit（默认展开）：决策语义优先；monitor_only/tier_label 等 provenance 下沉详情
+      columns:
+        - {key: name,              header: 标的}
+        - {key: __category__,      header: 分类,      fmt: audit_category}
+        - {key: __scope__,         header: 主题 / 角色, fmt: theme_role}
+        - {key: __conclusion__,    header: 当前结论,   fmt: monitor_conclusion}
+        - {key: __audit_reason__,  header: 为什么,     fmt: audit_reason}
+        - {key: __trend__,         header: 趋势,       fmt: trend_heat}
+        - {key: __trajectory__,    header: 变化,       fmt: trajectory}
+      # 第二层 Technical Detail（<details> 默认折叠）：底层证据按需展开
+      detail_columns:
+        - {key: name,               header: 标的}
+        - {key: _theme_label,       header: 主题}
+        - {key: tier_label,         header: 赛道}
+        - {key: participation,      header: 参与,      fmt: participation}
+        - {key: technical_diagnostics, header: 技术状态, fmt: technical}
+        - {key: blocking_flags,     header: 阻塞,      fmt: blocking}
+        - {key: data_quality_flags, header: 数据,      fmt: data_quality}
+        - {key: evidence_stage,     header: 证据阶段,  fmt: evidence, when: has_evidence}
+        - {key: score_change_1d,    header: 日变化,    fmt: change_1d}
+        - {key: score_trend,        header: 趋势分,    fmt: num}
+        - {key: signal,             header: 信号}
+        - {key: position_level,     header: 位置,      fmt: position_level}
+        - {key: position_pct,       header: 位置值,    fmt: position_pct, header_fmt: position_header}
+        - {key: data_status,        header: 数据状态}
+    etf_matrix:
+      title: ETF 状态矩阵
+      # ETF 审计问题与个股不同：这个主题有没有可交易 ETF 产品？卡在趋势/位置/流动性/排名？
+      summary:
+        - {id: breakdown,            label: 破位}
+        - {id: blocked,              label: 阻塞}
+        - {id: qualified_unselected, label: 合格未选}
+        - {id: recommended,          label: 推荐}
+        - {id: normal,               label: 正常观察}
+        - {id: dynamic_watch,        label: 动态观察}
+      source: etf_monitoring
+      sort: anomaly_first             # BREAKDOWN→BLOCKED→QUALIFIED→RECOMMENDED→NORMAL→DYNAMIC_WATCH
+      # 第一层 Decision Audit：ETF 决策链 = 主题确认→产品强度→趋势门→位置→流动性→排名
+      columns:
+        - {key: name,              header: ETF}
+        - {key: __category__,      header: 分类,      fmt: audit_category}
+        - {key: __scope__,         header: 主题 / 角色, fmt: etf_theme_role}
+        - {key: __conclusion__,    header: 当前结论,   fmt: etf_conclusion}
+        - {key: __audit_reason__,  header: 为什么,     fmt: etf_audit_reason}
+        - {key: __strength__,      header: 强度,       fmt: etf_strength}
+        - {key: __position__,      header: 位置,       fmt: etf_position}
+      # 第二层 Technical Detail（<details> 默认折叠）：rps1/delta_rps15 为 Layer① Observation 事实透传
+      detail_columns:
+        - {key: name,               header: ETF}
+        - {key: _theme_label,       header: 主题}
+        - {key: monitoring_source,  header: 来源}
+        - {key: theme_rank,         header: 主题排名,  fmt: num}
+        - {key: leadership_level,   header: 龙头/核心}
+        - {key: rps15,              header: RPS15,     fmt: num}
+        - {key: rps1,               header: RPS1,      fmt: num}
+        - {key: delta_rps15,        header: ΔRPS15,    fmt: num}
+        - {key: trend_status,       header: 趋势状态,  fmt: etf_trend_status}
+        - {key: liquidity,          header: 成交额,    fmt: liquidity}
+        - {key: position_level,     header: 位置,      fmt: position_level}
+        - {key: position_pct,       header: 位置值,    fmt: position_pct, header_fmt: position_header}
+        - {key: blocking_flags,     header: 阻塞,      fmt: blocking}
+        - {key: data_quality_flags, header: 数据,      fmt: data_quality}
+        - {key: signal,             header: 信号}
+        - {key: reject_reason,      header: 原因}

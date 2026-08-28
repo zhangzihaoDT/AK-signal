@@ -11,6 +11,7 @@ from src.common.paths import outputs_dir
 from .calculator import calculate_basket
 from .config import load_baskets
 from .report import compare_report, cross_basket_overlap, save_result
+from .stage_log import evidence_stage_cn
 
 
 def _out_dir() -> Path:
@@ -44,8 +45,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             for _, row in overlap.iterrows():
                 print(
                     f"  {row['symbol']} {row['name']}: {row['basket_a']}"
-                    f" (stage={row['evidence_stage_a'] or '—'}, contrib={row['contribution_pct_a']})"
-                    f" ∩ {row['basket_b']} (stage={row['evidence_stage_b'] or '—'}, contrib={row['contribution_pct_b']})"
+                    f" (stage={evidence_stage_cn(str(row['evidence_stage_a'])) or '—'}, contrib={row['contribution_pct_a']})"
+                    f" ∩ {row['basket_b']} (stage={evidence_stage_cn(str(row['evidence_stage_b'])) or '—'}, contrib={row['contribution_pct_b']})"
                 )
     return 0 if results else 1
 

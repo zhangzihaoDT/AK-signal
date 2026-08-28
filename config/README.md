@@ -27,6 +27,9 @@
   Tier 通过 `universe_tiers` 映射后者的 tier key。
 - `selection_universe.yaml` 与 `research_observations.yaml` 是两个互不重叠的宇宙：
   前者进入交易候选与「核心资产监控」，后者只供研究观察（如中鼎股份在后者）。
+- **研究迁移 Tier（participation=monitor_only）** 是两者的受控接口：
+  资产在 selection_universe 获得监控资格，但商业化阶段事实仍从 research_observations
+  只读联接（`evidence_source`），不产生交易候选资格（如 ai_infrastructure.auto_thermal_ai_cooling）。
 
 ## 命名迁移记录（2026-08）
 

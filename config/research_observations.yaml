@@ -5,7 +5,10 @@
 #   也不进入 stock-metrics / Selection「核心资产监控」。
 #   消费方：config/research_baskets.yaml（Research Basket 回测）、
 #           tools/fetch_observation_group_prices.py（观察组行情抓取）。
-#   Selection 固定资产池在 config/selection_universe.yaml，两文件不互相注册资产。
+#   Selection 固定资产池在 config/selection_universe.yaml。
+#   例外（2026-08-28）：auto_tier1_ai_infra 已纳入 selection_universe.yaml
+#   （ai_infrastructure.auto_thermal_ai_cooling tier）参与监控与交易候选；
+#   本文件仍是该组商业化阶段（evidence_stage 等）的研究事实源，stage log 以此为准。
 #
 # 当前观察组：
 #   observation_groups.scania_china_watch
