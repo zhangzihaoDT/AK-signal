@@ -493,10 +493,14 @@ def test_context_distance_formula():
 
 
 def test_context_success_fail_distinction():
-    """成功/失败区分：核心假设表存在且维度键完整。"""
+    """成功/失败区分：核心假设表存在且维度键完整。
+
+    历史 episode 数不硬编码（2B 汽车簇扩展会改变 episode 合并，
+    2026-08-31 加入零部件/新能源车 ETF 后 20→19），只断言结构完整。
+    """
     from src.research.etf_bottom.context_match import run_context_matching
     p = run_context_matching()
-    assert p["n_historical"] == 20
+    assert p["n_historical"] >= 18
     assert p["n_current"] == 6
     assert len(p["matches"]) == 6
     # 每个当前 episode 都有 Top3
