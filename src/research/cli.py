@@ -39,7 +39,13 @@ def main() -> None:
         basket_main()
         return
 
-    print("research subcommands: replay (single|parity|range), event-study, expression-regime, basket run")
+    if sub in ("etf-bottom", "etf_bottom", "bottom-study"):
+        from src.research.etf_bottom.cli import main as bottom_main
+        sys.argv = [sys.argv[0], *argv[1:]]
+        bottom_main()
+        return
+
+    print("research subcommands: replay (single|parity|range), event-study, expression-regime, basket run, etf-bottom")
     sys.exit(2)
 
 

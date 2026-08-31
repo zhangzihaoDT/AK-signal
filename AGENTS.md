@@ -305,3 +305,72 @@ make test             # 全部测试
 - **Event Study 前置**：rps1 / delta_rps15 随每日 `rotation_{trade_date}.parquet` 累积落盘；运行满 1 个月后可用 `research replay range` + `research event-study` 验证「RPS1>95 / ΔRPS>20 之后前向收益是否有统计优势」，**确认有优势才考虑进入 Layer③**（当前不进入）
 - **rule_version**：v0.7.1（报告消费/排版重写，算法与 parquet 不变）
 - 命令：`make etf-calculate` / `make etf-pipeline` 行为不变，产物自动含新列与新报告
+
+## Lane 2 Research（ETF 底部 / 估值研究，独立于每日 pipeline）
+
+- **定位**：检验「长期底部是否有赔率」「确认是否太晚」两大假设；**不依赖 tracking_index mapping**（纯价格状态），不进入 Layer ①/②/③ 生产链路，纯研究产物
+- **Stage 1a（2026-08-31 已完成）**：ETF 跟踪指数 mapping 可行性抽样（50 只 × 4 源）——结论：**mapping-first 路线不作为 Lane 2 关键路径**。SSE 官方 898 只无指数列、中证 2357 指数不可反查 ETF、东财 HTML 无跟踪字段；所有官方/第三方 reliable_rate=0、无 recommended_for_bulk。**HEURISTIC 仅 discovery hint**，不进入 valuation join / Double LOW sample / production（子串规则会产生「看起来像真的错误 mapping」，如创业板新能源→创业板指数）。报告：`outputs/research/etf_mapping/mapping_feasibility_report.json`；命令 `make etf-mapping-feasibility`（`python -m src.research.etf_mapping.cli`）
+- **Study 1 Price Bottom（2026-08-31）**：729 只 FULL ETF（raw 历史 ≥756 交易日）价格底部赔率研究。模块 `src/research/etf_bottom/`（`research etf-bottom` / `make etf-bottom`）：
+  - **状态机**：P756（756 交易日 close 分位 ≤20% 低位）→ DD30（30 日高点回撤）→ MA20/MA60 recovery（低位段内**首次从下方上穿**，非入场当天）→ 前向 20/60/120 日。连续低位合并为一个 entry；左截断（P756 首个可算日即低位）标记 `left_censored` 不参与恢复分布
+  - **关键口径**：核心结果剔除货币/债券（价格近零波动，P756 无意义）；基准=同市场横截面中位前向收益；复权用东财本地 raw close，单日 |ret|≥20% 标记 `corp_action` 审计列不剔除；事件独立性用 `_n_non_overlap`（相邻事件间隔≥horizon）
+  - **结果（核心口径，剔除货币/债券）**：PRICE_LOW 20D +0.4%/胜率49%、60D +1.3%/44%、120D **+5.0%/53%**（长期低位有温和正赔率，短中期弱）；PRICE_LOW_DD30（n=71，47 ETF）120D +21.3%/75%（**深跌更有赔率**，但 93% 事件集中在 2025-2026，时间代表性弱，不可外推）；**MA20 recovery 120D +1.6%/45%、20D -2.9%/21%；MA60 recovery 更差（120D +0.3%/42%、20D -4.2%/12%）**——「等 MA20/MA60 确认反而更差，等确认太晚」得到支持，与 8 月 AI 研究一致；`PROBE 2%` 依据不足，不建议把 MA20 恢复作为入场确认
+  - **产物**：`outputs/research/etf_bottom/`（study1_result.json / events.parquet / study1_price_bottom.html / universe.parquet / taxonomy_audit.json）
+  - **Taxonomy 旁路（research-only，不改生产 classifier）**：`calibrate_etf_type` 修正生产 classifier 顺序缺陷（宽基先于行业会把「创业板新能源」划入宽基）；关键词只匹配 ETF 标识之前的片段，避免经理名后缀（「中证500ETF中银证券」的证券）误判行业暴露；审计输出 taxonomy_audit.json（当前 0 conflict / 729）
+  - **Valuation Layer = Enrichment（side project）**：mapping 与 valuation 是两个独立问题；PE/PB history 尚未实现，`valuation_ready=false`；待 Price Bottom 出现明确增益后再评估是否投入真实 PE/PB 数据工程
+- **Study 1B Deep Stress Robustness（2026-08-31）**：对 PRICE_LOW×DD30（120D +21.3%）做三重压力测试，`robustness.py`（随 `make etf-bottom` 自动生成 `study1b_deep_stress.html`）：
+  - **三重检验**：① 年份去集中（`year_breakdown` / `exclude_recent`）② ETF 重复暴露（`concentration` 每 ETF 事件数 + `cluster_bootstrap`）③ 参数选择效应（`parameter_sensitivity` P756∈{10..30}×DD30∈{-0.15..-0.30} 扫描）
+  - **两种 bootstrap**：ETF 块（块=单只 ETF 全部事件，重抽样单位=ETF，处理组内相关）vs 年份块（重抽样单位=年份，处理时间聚类）
+  - **结论：未通过候选策略升级门槛（6 项检查 4 项失败）**——① 多年份不全正：有 120D 年份 2023 +0.3% / 2024 -4.0% / **2025 +27.9%** / 2026 -36.9%（n=1，右截断）；② 去除 2025-26 后 ≤2024 仅 5 事件、120D -1.4%；③ ETF 块 bootstrap p=1.0 显著但**年份块 p=0.68 不显著（95%CI [-18.3%,+27.1%] 含 0）**——+21.3% 主要由 2025 单年撑起；④ 参数不单调：DD30=-0.20 是孤峰（+21.3%），更深 -0.25 仅 +6.2%。**不开始 2% Probe、不开始 Valuation Layer、不进入 portfolio simulation**；待积累跨年份深跌样本后再重估
+  - **口径**：事件独立性用非重叠计数；右截断（2026 事件 120D 未到期）在年份分解中显式体现；`_gate_assessment` 把 cluster 显著升级为「ETF 块与年份块均显著」双门槛，参数单调升级为「更深门槛不劣化」（-0.20 孤峰判失败）
+- **Price Bottom Map（2026-08-28，横截面市场状态研究）**：模块 `src/research/etf_bottom/price_map.py` + `price_map_report.py`（`research etf-bottom --price-map --date 2026-08-28` / `make etf-bottom-price-map`）：
+  - **定位**：与 Study 1/1B 分离——这是**市场状态研究**（哪里低），不是赔率研究（低了会不会涨）。先画地图，不做前向收益/显著性/寻优。措辞统一「价格底部 / Price Position」，不叫「估值底部」（接 PE/PB 后才升级为 Price×Valuation Bottom 四象限）
+  - **锚点**：`as_of_date` 显式传入（正式快照 2026-08-28），所有窗口严格截断 `<= as_of`，输出 `last_trade_date / stale_days`（停牌不悄悄漂移研究锚点）
+  - **指标**：`price_pos_N = (close-low_N)/(high_N-low_N)×100`、`distance_to_low_N = close/low_N-1`，N∈{60,120,360}
+  - **折算（窗口级）**：检测器命名 `possible_corporate_action`（单日 |ret|≥20%，疑似份额折算/公司行为，非事实断言）；折算落在 N 窗口内 → 仅该窗口置空标 `unreliable_N`（60⊂120⊂360）；**360D 污染或历史不足 → 整体 bottom_state=UNRELIABLE**（其余窗口值保留）；不构造复权体系，宁可少样本不造假低位
+  - **bottom_state（互斥 5 状态）**：DEEP_BOTTOM（60/120/360 全 ≤20%）/ RECOVERING_FROM_BOTTOM（60>20 且 120/360≤20%）/ RECENT_BOTTOM（60≤20 且 360>20）/ NORMAL / UNRELIABLE；`long_term_bottom` 是**独立 bool**（120 且 360≤20），非状态——HTML 顶部用树形展示「长期底部 N = 仍在底部(DEEP) + 已开始修复(RECOVERING)」
+  - **口径**：货币/债券近零波动排除出底部状态（P 分位无意义）；`full_60/120/360_sample` 三档样本标记，历史 120-359D 只算窗口指标不定义状态；taxonomy 复用 `calibrate_etf_type`（经理名后缀已修）
+  - **2026-08-28 结果**：1288 只 ETF（≥60D）→ 360D 完整 965；DEEP_BOTTOM 6（游戏传媒/汽车/智能汽车）、RECOVERING 23（游戏/传媒/软件/影视/旅游/建材/钢铁等长期低位 + 近期修复）、RECENT_BOTTOM 148、UNRELIABLE 360（= 323 历史不足 + 65 折算污染）
+  - **产物**：`outputs/research/etf_bottom/price_map_20260828.{csv,parquet,json,html}`
+- **Study 2 Price Bottom State Odds（2026-08-31）**：模块 `src/research/etf_bottom/state_odds.py` + `state_odds_report.py`（`research etf-bottom --state-odds` / `make etf-bottom-odds`）：
+  - **研究问题**：历史进入 DEEP_BOTTOM / RECOVERING / RECENT_BOTTOM 后，未来 20/60/120D 收益分布差异（729 FULL ETF）
+  - **事件语义**：off→on 转换（前一日非该状态），连续状态内不重复计数；货币/债券不产生事件；折算窗口级污染（`_window_ca_flags`，折算点后短窗口先恢复长窗口后恢复）
+  - **结果（含/剔除折算两列）**：DEEP 60D +4.4%/胜率54%、120D +4.0%/51%（中期最优但 MAE 深 -11.3%）；RECOVERING 20D +2.2% 短期最好但 120D 衰减至 +0.8%/42%；RECENT 全 horizon 弱（+0.3~1.2%、中位负）——「近期回调非长期便宜无赔率」
+  - **时间代表性警示（Study 1B 教训）**：三状态 120D 在 2023 均告负（DEEP -9.4%）、2024/2025 全正——是**市场普遍上涨年份效应**非底部特有 alpha；DEEP +4.0% 由 2024/2025 撑起，2021/2023 为负，**不可外推「低位即买入」**
+  - **产物**：`state_odds_result.{json,html}` + `state_odds_events.parquet`
+- **Study 2A Current Bottom ETF Drilldown（2026-08-31）**：模块 `src/research/etf_bottom/drilldown.py` + `drilldown_report.py`（`research etf-bottom --drilldown` / `make etf-bottom-drilldown`）：
+  - **研究问题**：当前 29 只长期底部 ETF，逐只回看自身历史低位先例的前向收益——「有历史支持的低位」还是「只是看起来便宜」
+  - **事件语义**：long_term_bottom 的 off→on 转换；当前仍在低位段记 `is_current_episode` 不参与历史统计；前向 20/60/120D，无 look-ahead
+  - **支持级别**：历史支持 = 先例≥2 且 120D 中位>0 且胜率≥50%；历史不支持 = 先例≥2 但 120D 中位≤0 或胜率<50%；证据不足 = 先例<2 或 120D 前向样本 n=0（先例过近未到期，如 2026 年先例）
+  - **结果（15 支持 / 9 不支持 / 5 证据不足）**：历史支持集中游戏传媒/影视/软件/汽车/消费（如 游戏ETF华夏 120D 历史 +50.3%/胜率83%、影视ETF银华 +20.8%/78%）；历史不支持集中建材/钢铁/军工/旅游（钢铁ETF国泰 -2.6%/胜率20%、军工龙头富国 -7.8%/11%）；证据不足 = 通用航空、汽车ETF广发（先例不足）+ 软件ETF华安/易方达、港股通汽车（先例全在 2026 未到期）
+  - **产物**：`state_odds_drilldown.{json,html}` + `state_odds_drilldown_events.parquet`
+- **Study 2B Bottom Episode Clustering（2026-08-31）**：模块 `src/research/etf_bottom/episodes.py` + `episodes_report.py`（`research etf-bottom --episodes` / `make etf-bottom-episodes`）：
+  - **研究问题**：把同产业高度同步的 ETF 底部事件压缩成独立产业周期 episode——「15 只历史支持」在去除同产业+同周期重复暴露后还剩多少独立证据（独立性检验）
+  - **两层合并**：Layer 1 ETF 低位期（同一 ETF 相邻 entry 间隔 <ETF_MERGE_DAYS=40 交易日合并，解决 off→on 反复触发拆碎同一底部周期）；Layer 2 产业 episode（同簇 ETF 低位期起始间隔 <EPISODE_OVERLAP_DAYS=20 交易日合并）
+  - **产业簇（研究专用硬编码，汽车链合并为大簇）**：游戏传媒(7) / 汽车产业链(智能汽车×4+智能网联+汽车国泰+汽车广发+港股通汽车=8) / 软件大数据(4) / 消费文旅(4) / 周期(建材+钢铁=3) / 军工航空(2)；货币 ETF 华安日日鑫剔除
+  - **口径**：episode 收益=参与 ETF 各自低位期起始日起 ret_120（等权，**中位判定上涨**，不用 mean）；当前 2026 episode 无 ret_120 不参与历史上涨比例
+  - **结果（历史独立周期上涨比例）**：汽车产业链 3/4、游戏传媒 3/5（A 类，独立周期多且多数上涨）；软件大数据 1/2、消费文旅 1/2（B 类中等）；**周期 1/4、军工航空 1/3（C 类，低位后少反弹）**——与 Study 2A「建材/钢铁/军工历史不支持」互证；关键洞察：episode 压缩后「参与 ETF 数」是独立性核心（游戏 2022=5/7、2024 两次 7/7 全同步=真产业周期）
+  - **产物**：`bottom_episodes.{json,html,parquet}`
+- **Study 2C Current Episode Context Matching（2026-08-31）**：模块 `src/research/etf_bottom/context.py` + `context_match.py` + `context_report.py`（`research etf-bottom --context-match` / `make etf-bottom-context`）：
+  - **研究问题**：2026 当前 6 个产业底部 episode 在事前定义 context 上更接近历史成功还是失败底部；核心假设 = 底部是否有效，关键不是「有多低」而是「低位时市场/产业是否已开始改善」
+  - **五维 context（连续变量进距离，标签只作展示）**：Market（HS300 60/120D + 729 FULL breadth 60D）· Industry relative（excess 60/120D）· Bottom depth（pos60/120/360 + distance360 + dd60）· Synchronization（initial_participation_ratio + entries_last_20d）· Recovery（deep_ratio/recovering_ratio，分母=当天有效 ETF 数）
+  - **No look-ahead 规则（用户锁定）**：context 只用 episode.start 当日可观察信息；2B 的 ex-post 字段（final_participation_ratio/duration/final_n_etfs）只进审计不进距离；Z-score scaler 只 fit 历史 episode（20 个）再 transform 全部；start-date Universe 分两类（产业相对强弱=当天簇内全部有效 ETF；底部深度/修复=当天实际 DEEP/RECOVERING 的 ETF）
+  - **距离**：五维等权（20%×5）为主、30/25/20/15/10 为 sensitivity；组内 z² 平均开方再加权平方和开方；outcome = ret120 median >0（primary）/ >10%（strong-success 经济阈值）
+  - **结果（核心假设）**：成功 vs 失败底部 dd60 几乎无差（-16.0% vs -15.3%）、pos360 无差（18.7 vs 18.9）——「跌得多深」不是区分因素；**区分维度是产业超额更负（-7.0% vs -2.0%，own_decline 成功率 67% vs following_market 20%）+ pos120 更高（24.4 vs 12.0，已开始修复）+ market 60D 没那么差（-3.5% vs -6.7%）**——「产业独跌超跌 + 已开始修复」而非「市场整体改善」是好坏底的关键
+  - **当前 episode 匹配**：汽车/游戏传媒最相似于 2024-05/07 成功底部（ret120 +29.6%/+53.9%）；软件大数据最相似 2023-10 失败底部（-17.7%）；周期/军工最相似失败底部（-9.5%）；两套权重 Top3 成员大部分一致（仅排名微调）
+  - **Feature set 冻结（2026-08-31，`FEATURE_SET_VERSION=2C-v1`）**：五维特征定义（CONTINUOUS_FEATURES）与权重（EQUAL_WEIGHTS/SENS_WEIGHTS）已用 `MappingProxyType` 只读化并在 `test_context_feature_set_frozen` 锁定——改动会改变历史 episode 的 reference space 与匹配结果，必须显式解除冻结、过 Parity 并说明理由
+  - **产物**：`context_matching.{json,html}` + `context_features.parquet`
+- **Study 2D Context Broad-Sample Replication（2026-08-31）**：模块 `src/research/etf_bottom/replication.py` + `replication_report.py`（`research etf-bottom --context-replication` / `make etf-bottom-context-replication`）：
+  - **定位**：验证 2C 的 20 个 episode 发现在更大样本上的复现——13855 个长期底部 entry（636 ETF，850 日期）；**非 OOS**（同段 2021-2026 历史），真正 OOS 留给未来数据
+  - **冻结特征（entry 当日，不用未来）**：asset_excess_60d/120d（单 ETF vs HS300，**改名 asset 不冒充 industry**）+ price_pos_60/120/360 + dd60 + market_ret_60d
+  - **双 outcome**：primary = excess_vs_etf_market_120d（ret120 − ETF 横截面中位，即已有 excess_120 列）；secondary = excess_vs_hs300_120d（ret120 − HS300 前向，ClosePanel 同日 horizon）
+  - **双 aggregation**：event-weighted（每 entry 一票）+ ETF-balanced（ETF × quintile 组内 median 后每 ETF 一票）；报告 n_entries/n_etfs/n_entry_dates/n_non_overlap 四元组
+  - **两层 quintile**：Layer1 全样本绝对 quintile（pooled 单调性）；Layer2 年内 quintile（**主判据**，2021-2025 主年份，2026 仅 28 成熟 120D entry 作早期观察不参与判据）
+  - **结果（关键）**：① `price_pos_120`（已修复）5/5 主年份 spread 非负 → **REPLICATED 最稳健**；② `asset_excess_60d` 全样本单调（Q1 +5.0%→Q5 +1.0%，ETF-balanced 同向）**但年内 2021-2023 反向（超跌组更差）、2024-2025 正向** → 「超跌→更好」是**反弹年效应非独立 alpha**，PARTIAL；③ `dd60`（深度）Pooled 显示越深越好（Q1 +6.0% vs Q5 -3.7%）→ **2C「深度无关」被 2024/2025 反弹年证伪（深层领涨），2023 及以前不成立**——有价值证伪；④ market_ret_60d 方向不稳
+  - **产物**：`context_replication.{json,html}` + `context_replication_events.parquet`
+- **Study 2E Repair Structure Validation（2026-08-31）**：模块 `src/research/etf_bottom/repair_structure.py` + `repair_structure_report.py`（`research etf-bottom --repair` / `make etf-bottom-repair`）：
+  - **定位**：停止 feature discovery——不新增变量，只验证 `price_pos_120` surviving signal 的结构，三问：① state 内是否成立（composition effect）② 控制 pos60 后是否仍成立（interaction effect）③ date 一票制
+  - **Q1 composition**：DEEP / RECOVERING 内部各自 pos120 quintile。结果：全样本几乎无单调（Q1 +0.5%→Q5 +0.7%），DEEP 内部 Q1→Q5 +2.6% 但主要靠 Q5 格（pos120 最高）拉起——state 内部信号弱于全样本
+  - **Q2 interaction（主判据）**：pos120 × pos60 3×3 主 + 2×2 robustness。**目标格（pos60 低仍在底 × pos120 高已修复）在 mean（+4.4%）与 median（+0.6%）均领先**，且是唯一 median 为正的格子；date-weighted 仍领先（target +1.1% vs 全样本 -1.1%）——「中期修复 × 短期再探底」结构在 event/ETF/date 三档 weighting 全成立
+  - **Adjudication**：`INTERACTION_STRUCTURE`（严格判定：3×3 与 2×2 的 mean+median 且 date-weighted 均领先才判）；**不判 CONTINUOUS_SIGNAL**——DEEP pos120 Q5 格内 pos60 低子格 +4.4% vs pos60 高子格 +2.2%，效果集中在 target 结构而非 pos120 连续值；也非 COMPOSITION_EFFECT（状态构成无法解释 target 格领先）
+  - **限定**：target 格样本较小（676 entry / 166 日期），为稀有结构组合；结论描述性，不做显著性
+  - **产物**：`repair_structure.{json,html}`

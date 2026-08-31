@@ -13,6 +13,7 @@ SRC_MAIN = src/main.py
 	stock-metrics stock-metrics-online \
 	replay-single replay-parity replay-range event-study \
 	backtest-trades backtest-sensitivity backtest-matrix backtest-portfolio backtest-construction \
+	etf-bottom etf-bottom-price-map etf-bottom-odds etf-bottom-drilldown etf-bottom-episodes etf-bottom-context etf-bottom-context-replication etf-bottom-repair etf-mapping-feasibility \
 	test install clean
 
 help: ## 显示帮助信息
@@ -184,6 +185,35 @@ backtest-portfolio: ## [v0.6] 共享账户组合模拟（单策略 + Core+Qualit
 
 backtest-construction: ## [v0.6] 组合构建实验（Top-N/加权/持仓/比例/现金）
 	$(PYTHON) $(SRC_MAIN) backtest construction --signals $(SIGNALS)
+
+# ── Lane 2 Research（ETF 估值/底部研究） ────────────────────────
+
+etf-bottom: ## [Lane2] Study 1 Price Bottom：729 FULL ETF 长期底部赔率（P756/DD30/MA20/MA60 恢复）
+	$(PYTHON) $(SRC_MAIN) research etf-bottom
+
+etf-bottom-price-map: ## [Lane2] Price Bottom Map：2026-08-28 横截面低位地图（60/120/360D 价格位置）
+	$(PYTHON) $(SRC_MAIN) research etf-bottom --price-map --date 2026-08-28
+
+etf-bottom-odds: ## [Lane2] Study 2 State Odds：进入底部状态后的 20/60/120D 前向收益
+	$(PYTHON) $(SRC_MAIN) research etf-bottom --state-odds
+
+etf-bottom-drilldown: ## [Lane2] Study 2A Drilldown：当前 29 只长期底部 ETF 逐只历史赔率
+	$(PYTHON) $(SRC_MAIN) research etf-bottom --drilldown
+
+etf-bottom-episodes: ## [Lane2] Study 2B Episodes：产业底部周期压缩（去同产业重复暴露）
+	$(PYTHON) $(SRC_MAIN) research etf-bottom --episodes
+
+etf-bottom-context: ## [Lane2] Study 2C Context Matching：当前底部 vs 历史 episode context 匹配
+	$(PYTHON) $(SRC_MAIN) research etf-bottom --context-match
+
+etf-bottom-context-replication: ## [Lane2] Study 2D Replication：2C 发现在大样本（13.8k entry）上的复现
+	$(PYTHON) $(SRC_MAIN) research etf-bottom --context-replication
+
+etf-bottom-repair: ## [Lane2] Study 2E Repair Structure：price_pos_120 结构验证（composition/interaction/date-weighting）
+	$(PYTHON) $(SRC_MAIN) research etf-bottom --repair
+
+etf-mapping-feasibility: ## [Lane2] Stage 1a ETF 跟踪指数 mapping 可行性抽样探测
+	$(PYTHON) -m src.research.etf_mapping.cli --sample-n 10
 
 # ── 开发维护 ──────────────────────────────────────────────────
 

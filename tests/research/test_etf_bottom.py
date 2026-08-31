@@ -1,0 +1,642 @@
+"""Study 1 Price Bottom 核心逻辑测试（纯离线，确定性）。"""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from src.research.etf_bottom.states import _pct_rank_rolling, compute_states, extract_events
+from src.research.etf_bottom.universe import calibrate_etf_type
+from src.research.etf_bottom.returns import ClosePanel
+from src.research.etf_bottom.study import count_non_overlap, summarize
+
+
+def _mk_price(n: int = 900, seed: int = 0) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    rets = rng.normal(0.001, 0.02, n)
+    # 注入一段深跌+低位区域（-2.5%×80 天，保证 P756 跌破 20% 阈值）
+    rets[300:380] = -0.025
+    close = 100 * np.cumprod(1 + rets)
+    dates = pd.bdate_range("2023-01-02", periods=n)
+    return pd.DataFrame({"date": dates, "close": close, "fund_code": "999999"})
+
+
+def test_pct_rank_rolling_first_values_nan():
+    close = np.arange(1.0, 30.0)
+    out = _pct_rank_rolling(close, 20)
+    assert np.isnan(out[:19]).all()
+    assert np.isnan(out[19:]).sum() == 0
+    # 单调递增序列，当前值恒为窗口内最高 → 百分位 100
+    assert out[19] == 100.0
+
+
+def test_compute_states_columns_and_low_zone():
+    d = _mk_price()
+    s = compute_states(d)
+    for col in ["ma20", "ma60", "p756", "dd30", "dd120", "price_low", "price_low_dd30", "above_ma20", "above_ma60", "corp_action"]:
+        assert col in s.columns
+    # 深跌段内应存在低位
+    assert s["price_low"].any()
+    # 无份额折算（合成数据）
+    assert not s["corp_action"].any()
+
+
+def test_extract_events_merges_consecutive_low():
+    d = _mk_price()
+    s = compute_states(d)
+    ev = extract_events(s)
+    assert len(ev) > 0
+    # 事件类型覆盖
+    types = {e["event_type"] for e in ev}
+    assert "PRICE_LOW" in types
+    # entry 日必须是 off→on 转换点：前一日不在低位
+    for e in ev:
+        if e["event_type"] == "PRICE_LOW":
+            idx = e["seg_start_idx"]
+            assert idx > 0
+            assert not bool(s["price_low"].iloc[idx - 1])
+            assert bool(s["price_low"].iloc[idx])
+    # MA20_RECOVERY 的 days_low_to_ma20 必须 ≥ 1（上穿，非 entry 当天）
+    for e in ev:
+        if e["event_type"] == "MA20_RECOVERY":
+            assert e["days_low_to_ma20"] is not None and e["days_low_to_ma20"] >= 1
+
+
+def test_extract_events_censored_recovery():
+    d = _mk_price()
+    # 构造永不恢复的样本：持续下跌到末尾
+    n = 900
+    rets = np.linspace(0, -0.004, n)
+    close = 100 * np.cumprod(1 + rets)
+    dates = pd.bdate_range("2023-01-02", periods=n)
+    dd = pd.DataFrame({"date": dates, "close": close, "fund_code": "999998"})
+    s = compute_states(dd)
+    ev = [e for e in extract_events(s) if e["event_type"] == "PRICE_LOW"]
+    assert any(e["days_low_to_ma20"] is None for e in ev)
+
+
+def test_calibrate_etf_type_manager_suffix_not_exposure():
+    # 经理名后缀（ETF 之后）不构成行业暴露
+    assert calibrate_etf_type("中证500ETF中银证券", "")["calibrated_type"] == "broad"
+    assert calibrate_etf_type("创业板ETF中银证券", "")["calibrated_type"] == "broad"
+    # 真实行业暴露在 ETF 之前
+    assert calibrate_etf_type("创业板新能源ETF富国", "")["calibrated_type"] == "industry"
+    assert calibrate_etf_type("证券ETF", "")["calibrated_type"] == "industry"
+    assert calibrate_etf_type("港股央企红利ETF永赢", "")["calibrated_type"] == "dividend"
+
+
+def test_close_panel_forward_and_benchmark():
+    # 构造两只 ETF 的 close 面板
+    idx = pd.bdate_range("2024-01-02", periods=100)
+    a = pd.Series(np.arange(100.0, 200.0), index=idx)
+    b = pd.Series(np.arange(200.0, 100.0, -1.0), index=idx)
+    p = ClosePanel(pd.DataFrame({"A": a, "B": b}))
+    fwd = p.forward_returns("A", idx[0], (20, 60))
+    assert fwd[20] == pytest.approx(120.0 / 100.0 - 1.0)
+    bench = p.benchmark_forward(idx[0], (20,))
+    assert bench[20] is not None
+    exc = p.excursions("A", idx[0], (20,))
+    mfe, mae = exc[20]
+    assert mfe is not None and mae is not None
+
+
+def test_summarize_structure():
+    idx = pd.bdate_range("2024-01-02", periods=100)
+    a = pd.Series(np.arange(100.0, 200.0), index=idx)
+    p = ClosePanel(pd.DataFrame({"A": a}))
+    ev = pd.DataFrame([{
+        "fund_code": "A", "entry_date": idx[5], "event_type": "PRICE_LOW",
+        "days_low_to_ma20": 5, "days_low_to_ma60": None, "etf_type": "broad",
+    }])
+    aug = pd.DataFrame(ev)
+    for h in (20, 60, 120):
+        f = p.forward_returns("A", idx[5], (h,))
+        aug[f"ret_{h}"] = aug["fund_code"].map(lambda _: f[h])
+        aug[f"bench_{h}"] = 0.0
+        aug[f"excess_{h}"] = aug[f"ret_{h}"]
+        aug[f"mfe_{h}"] = 0.0
+        aug[f"mae_{h}"] = 0.0
+    summ = summarize(aug)
+    assert "PRICE_LOW" in summ
+    assert summ["PRICE_LOW"]["_meta"]["n_events"] == 1
+    assert count_non_overlap(aug, 20) == 1
+
+
+# ── Study 1B Deep Stress Robustness ──────────────────────────────
+
+def test_robustness_year_breakdown_and_exclude():
+    from src.research.etf_bottom.robustness import year_breakdown, exclude_recent
+    # 构造跨两年的事件：2023 正、2024 负
+    dates = [pd.Timestamp("2023-06-01"), pd.Timestamp("2024-06-01")]
+    ev = pd.DataFrame({
+        "fund_code": ["A", "B"],
+        "fund_name": ["x", "y"],
+        "entry_date": dates,
+        "event_type": ["PRICE_LOW_DD30", "PRICE_LOW_DD30"],
+        "etf_type": ["industry", "industry"],
+        "ret_20": [0.02, -0.02], "ret_60": [0.05, -0.05], "ret_120": [0.10, -0.10],
+    })
+    yrs = year_breakdown(ev, "PRICE_LOW_DD30")
+    assert {y["year"] for y in yrs} == {2023, 2024}
+    # exclude_recent：去除 2024 之后（<=2024）应含全部 2 事件
+    exc = exclude_recent(ev, "PRICE_LOW_DD30", through_year=2024)
+    assert exc["<= 2024"]["n"] == 2
+    assert exc["> 2024"]["n"] == 0
+
+
+def test_robustness_year_cluster_isolates_single_year():
+    """构造单一年份正收益、其他年份为 0/负 → 年份块 bootstrap 应显著弱于 ETF 块。"""
+    from src.research.etf_bottom.robustness import cluster_bootstrap
+    # 2025 年 20 只 ETF 各 1 事件 +0.30；2023/2024 各 2 只 ±0
+    rows = []
+    for code in [f"E{i:03d}" for i in range(20)]:
+        rows.append({"fund_code": code, "entry_date": pd.Timestamp("2025-03-01"),
+                     "event_type": "PRICE_LOW_DD30", "etf_type": "industry", "ret_120": 0.30})
+    for y in (2023, 2024):
+        for code in [f"F{y}{i}" for i in range(2)]:
+            rows.append({"fund_code": code, "entry_date": pd.Timestamp(f"{y}-06-01"),
+                         "event_type": "PRICE_LOW_DD30", "etf_type": "industry", "ret_120": 0.0})
+    ev = pd.DataFrame(rows)
+    res = cluster_bootstrap(ev, "PRICE_LOW_DD30", horizon=120, n_boot=200)
+    yb = res["year_cluster_bootstrap"]
+    # ETF 块（按 ETF 重抽样）显著
+    assert res["mean_p_gt0"] >= 0.95
+    # 年份块 p 应明显更低（时间聚类暴露单年依赖）
+    assert yb["mean_p_gt0"] < res["mean_p_gt0"]
+
+
+def test_robustness_concentration_counts():
+    from src.research.etf_bottom.robustness import concentration
+    ev = pd.DataFrame({
+        "fund_code": ["A", "A", "B"],
+        "fund_name": ["a", "a", "b"],
+        "entry_date": pd.to_datetime(["2025-01-01", "2025-02-01", "2025-03-01"]),
+        "event_type": ["PRICE_LOW_DD30"] * 3,
+        "ret_120": [0.1, 0.2, 0.3],
+    })
+    c = concentration(ev, "PRICE_LOW_DD30")
+    assert c["total_events"] == 3
+    assert c["n_etfs"] == 2
+    assert c["max_events_per_etf"] == 2
+    assert c["top_etfs"][0]["fund_code"] == "A"
+
+
+def test_robustness_parameter_sensitivity_monotone_signal():
+    """参数扫描：更深 DD30 门槛事件数不增加（更严格 → 子集），返回结构完整。"""
+    from src.research.etf_bottom.robustness import parameter_sensitivity
+    from src.research.etf_bottom.states import compute_states
+    # 合成深跌 ETF（先上冲再长下杀，确保 P756 破 20、DD30 深跌发生在段内）
+    n = 900
+    rng = np.random.default_rng(7)
+    rets = rng.normal(0.0005, 0.015, n)
+    rets[:200] = 0.004
+    rets[300:400] = -0.05
+    close = 100 * np.cumprod(1 + rets)
+    dates = pd.bdate_range("2023-01-02", periods=n)
+    st = compute_states(pd.DataFrame({"date": dates, "close": close, "fund_code": "deep"}))
+    assert st["price_low"].sum() > 0, "合成深跌应触发低位"
+
+    res = parameter_sensitivity({"deep": st}, p_low_values=(20.0,), dd30_values=(-0.15, -0.20, -0.25))
+    scan = res["scan"]
+    assert len(scan) == 3
+    # 更深门槛事件数不增加（子集单调）
+    counts = [r["n"] for r in scan]
+    assert counts[0] >= counts[1] >= counts[2]
+
+
+# ── Price Bottom Map（横截面低位地图） ───────────────────────────
+
+def _mk_series(prices, start: str = "2025-01-01") -> pd.DataFrame:
+    return pd.DataFrame({
+        "date": pd.bdate_range(start, periods=len(prices)),
+        "close": prices,
+    })
+
+
+def test_price_map_deep_bottom_classification():
+    """平滑下跌到低位 → DEEP_BOTTOM + long_term_bottom=True。"""
+    from src.research.etf_bottom.price_map import compute_row
+    import numpy as np
+    up = np.linspace(100, 300, 300)
+    down = 300 * np.exp(np.linspace(0, np.log(0.5), 80))
+    d = _mk_series(np.concatenate([up, down]), "2025-01-01")
+    r = compute_row("A", "测试ETF", "broad", d, pd.Timestamp("2026-08-28"))
+    assert r["price_pos_60"] <= 20
+    assert r["price_pos_120"] <= 20
+    assert r["price_pos_360"] <= 20
+    assert r["bottom_state"] == "DEEP_BOTTOM"
+    assert r["long_term_bottom"] is True
+
+
+def test_price_map_corp_action_window_level():
+    """折算只在 360D 窗口内（120D 外）→ 仅 360D 污染，60/120 保留，整体 UNRELIABLE。"""
+    from src.research.etf_bottom.price_map import compute_row
+    import numpy as np
+    n = 500
+    base = np.linspace(100, 160, n)
+    base[200] = base[199] * 0.5  # 折算在 idx 200（360D 内、120D 外）
+    d = _mk_series(base, "2024-10-01")
+    r = compute_row("E", "早前折算", "theme", d, pd.Timestamp("2026-08-28"))
+    assert r["unreliable_60"] is False
+    assert r["unreliable_120"] is False
+    assert r["unreliable_360"] is True
+    assert r["price_pos_60"] is not None
+    assert r["price_pos_120"] is not None
+    assert r["price_pos_360"] is None
+    assert r["bottom_state"] == "UNRELIABLE"
+
+
+def test_price_map_corp_action_in_60d_pollutes_all():
+    """折算在 60D 内 → 60⊂120⊂360 三窗口全污染，整体 UNRELIABLE。"""
+    from src.research.etf_bottom.price_map import compute_row
+    import numpy as np
+    n = 500
+    base = np.linspace(100, 160, n)
+    base[-5] = base[-6] * 0.5  # 折算在最近 60D 内
+    d = _mk_series(base, "2024-10-01")
+    r = compute_row("F", "近期折算", "theme", d, pd.Timestamp("2026-08-28"))
+    assert r["unreliable_60"] is True
+    assert r["unreliable_120"] is True
+    assert r["unreliable_360"] is True
+    assert r["bottom_state"] == "UNRELIABLE"
+
+
+def test_price_map_states_mutually_exclusive():
+    """bottom_state 5 状态互斥：每只 ETF 恰好一个状态，且长期底部=DEEP+RECOVERING。"""
+    from src.research.etf_bottom.price_map import build_price_map
+    df = build_price_map("2026-08-28")
+    assert df["bottom_state"].nunique() <= 5
+    # 每行唯一状态
+    assert not df.duplicated(subset=["fund_code"]).any()
+    # 长期底部 = DEEP + RECOVERING（排除货币/债券）
+    lt = df[df["long_term_bottom"] == True]
+    allowed = {"DEEP_BOTTOM", "RECOVERING_FROM_BOTTOM"}
+    assert set(lt["bottom_state"]).issubset(allowed)
+    # 货币/债券不出现在底部状态
+    bottom = df[df["bottom_state"].isin(allowed)]
+    assert not bottom["etf_type"].isin(["money", "bond"]).any()
+
+
+# ── Study 2 Price Bottom State Odds ──────────────────────────────
+
+def _smooth_deep_series(n: int = 800, start: str = "2023-01-02") -> pd.DataFrame:
+    """平滑下跌到底部（无折算），供状态机测试。"""
+    import numpy as np
+    up = np.linspace(100, 300, n // 2)
+    down = 300 * np.exp(np.linspace(0, np.log(0.4), n - n // 2))
+    return pd.DataFrame({"date": pd.bdate_range(start, periods=n), "close": np.concatenate([up, down]), "fund_code": "TEST"})
+
+
+def test_state_odds_daily_series_deep_bottom():
+    from src.research.etf_bottom.state_odds import daily_state_series
+    d = _smooth_deep_series()
+    s = daily_state_series(d)
+    assert "bottom_state" in s.columns
+    # 平滑序列无折算 → 无 unreliable
+    assert not s["unreliable_60"].any()
+    assert not s["unreliable_120"].any()
+    assert not s["unreliable_360"].any()
+    # 尾部应进入 DEEP_BOTTOM
+    assert (s["bottom_state"] == "DEEP_BOTTOM").sum() > 0
+
+
+def test_state_odds_corp_action_recovery_window():
+    """折算点后短窗口先恢复、长窗口后恢复（窗口级污染语义）。"""
+    from src.research.etf_bottom.state_odds import _window_ca_flags
+    import numpy as np
+    n = 500
+    ca = np.zeros(n, dtype=bool)
+    ca[300] = True  # 折算在 idx 300
+    u60 = _window_ca_flags(ca, 60)
+    u360 = _window_ca_flags(ca, 360)
+    # 折算后 60D 窗口：idx 360 起应恢复 False（60D 窗口滑过 300）
+    assert not u60[365:400].any()
+    # 360D 窗口：idx 300 后仍污染（窗口覆盖折算点）
+    assert u360[330:360].any()
+
+
+def test_state_odds_extract_events_off_on():
+    """off→on 转换语义：连续在状态内只记一次 entry。"""
+    from src.research.etf_bottom.state_odds import daily_state_series, extract_state_entries
+    d = _smooth_deep_series()
+    s = daily_state_series(d)
+    ev = extract_state_entries(s, "industry")
+    # 每个状态的 entry 日必须是 off→on：前一日非该状态
+    for e in ev:
+        idx = s.index[s["date"] == pd.Timestamp(e["entry_date"])]
+        if len(idx):
+            i = idx[0]
+            assert s["bottom_state"].iloc[i] == e["state"]
+            if i > 0:
+                assert s["bottom_state"].iloc[i - 1] != e["state"]
+    # 事件类型覆盖三种底部状态
+    states = {e["state"] for e in ev}
+    assert states.issubset({"DEEP_BOTTOM", "RECOVERING_FROM_BOTTOM", "RECENT_BOTTOM"})
+
+
+def test_state_odds_money_bond_no_events():
+    from src.research.etf_bottom.state_odds import daily_state_series, extract_state_entries
+    import numpy as np
+    n = 800
+    close = np.full(n, 100.0) + np.random.default_rng(0).normal(0, 0.0005, n)
+    d = pd.DataFrame({"date": pd.bdate_range("2023-01-02", periods=n), "close": close})
+    s = daily_state_series(d)
+    ev = extract_state_entries(s, "money")
+    assert ev == []
+    ev2 = extract_state_entries(s, "bond")
+    assert ev2 == []
+
+
+# ── Study 2A Current Bottom ETF Drilldown ─────────────────────────
+
+def test_drilldown_long_term_entries_off_on():
+    """long_term_bottom 的 off→on 转换：连续低位段合并为一次 entry，当前段单独标记。"""
+    from src.research.etf_bottom.drilldown import _long_term_entries
+    from src.research.etf_bottom.state_odds import daily_state_series
+    d = _smooth_deep_series()
+    s = daily_state_series(d)
+    entries = _long_term_entries(s)
+    assert len(entries) > 0
+    # 当前仍在低位 → 最后一段是 current episode
+    assert any(e["is_current_episode"] for e in entries)
+    # 历史 entry 不重叠（每段独立）
+    dates = [e["entry_date"] for e in entries]
+    assert len(dates) == len(set(dates))
+
+
+def test_drilldown_support_level_logic():
+    """支持级别：先例≥2 且 120D 中位>0 且胜率≥50% → 历史支持；120D 无样本 → 证据不足。"""
+    from src.research.etf_bottom.drilldown import run_drilldown
+    p = run_drilldown()
+    assert len(p["etfs"]) == 29
+    levels = p["support_summary"]
+    assert sum(levels.values()) == 29
+    assert set(levels.keys()) == {"历史支持", "历史不支持", "证据不足"}
+    # 证据不足组：要么先例<2，要么 120D 样本 n=0
+    for r in p["etfs"]:
+        if r["support_level"] == "证据不足":
+            assert r["n_hist_entries"] < 2 or r["hist"]["120"]["n"] == 0
+    # 历史支持组：120D 中位>0 且胜率≥50%
+    for r in p["etfs"]:
+        if r["support_level"] == "历史支持":
+            h = r["hist"]["120"]
+            assert h["median"] > 0 and h["win_rate"] >= 0.5
+    # 每只 ETF 的当前段信息存在（华安日日鑫为货币 ETF，边界天数可能为 0）
+    for r in p["etfs"]:
+        assert "days_in_current_bottom" in r["current"]
+        assert r["current"]["days_in_current_bottom"] >= 0
+
+
+# ── Study 2B Bottom Episode Clustering ───────────────────────────
+
+def test_episodes_etf_low_periods_merge():
+    """ETF 级合并：同一 ETF 相邻 entry 间隔 < merge_days 合并为一个低位期。"""
+    from src.research.etf_bottom.episodes import _etf_low_periods
+    from src.research.etf_bottom.state_odds import daily_state_series
+    d = _smooth_deep_series()
+    s = daily_state_series(d)
+    periods = _etf_low_periods(s, merge_days=40)
+    assert len(periods) >= 1
+    # 当前段标记
+    assert any(p["is_current"] for p in periods)
+    # 期不重叠
+    for i in range(1, len(periods)):
+        assert periods[i]["start"] > periods[i - 1]["end"]
+
+
+def test_episodes_cluster_merge():
+    """产业级合并：同簇多 ETF 低位期重叠/相邻 → 一个 episode。"""
+    from src.research.etf_bottom.episodes import _cluster_episodes
+    periods = pd.DataFrame([
+        {"fund_code": "A", "start": pd.Timestamp("2024-01-05"), "end": pd.Timestamp("2024-01-20"), "is_current": False},
+        {"fund_code": "B", "start": pd.Timestamp("2024-01-12"), "end": pd.Timestamp("2024-02-01"), "is_current": False},
+        {"fund_code": "C", "start": pd.Timestamp("2025-06-01"), "end": pd.Timestamp("2025-06-15"), "is_current": True},
+    ])
+    eps = _cluster_episodes(periods, "测试簇")
+    assert len(eps) == 2
+    assert eps[0]["n_etfs_participating"] == 2  # A+B 合并
+    assert eps[0]["fund_codes"] == ["A", "B"]
+    assert eps[1]["is_current"] is True
+
+
+def test_episodes_up_rule_is_median():
+    """episode 上涨判定 = 参与 ETF 的 ret_120 中位 > 0（用户口径）。"""
+    from src.research.etf_bottom.episodes import _episode_returns
+    import numpy as np
+    # 构造 3 只 ETF 的 period 收益：[-0.5, 0.2, 0.3] → 中位 0.2 > 0 → 上涨
+    period_returns = {
+        ("A", pd.Timestamp("2024-01-05")): {"ret_120": -0.5},
+        ("B", pd.Timestamp("2024-01-12")): {"ret_120": 0.2},
+        ("C", pd.Timestamp("2024-02-01")): {"ret_120": 0.3},
+    }
+    ep = {"fund_codes": ["A", "B", "C"], "start": pd.Timestamp("2024-01-01"), "end": pd.Timestamp("2024-03-01")}
+    r = _episode_returns(ep, period_returns)
+    assert r["episode_up"] is True
+    assert r["ret120_median"] == pytest.approx(0.2)
+
+
+def test_episodes_summary_consistency():
+    """episodes 汇总：历史周期数、上涨数、上涨比例一致；当前 episode 不参与历史比例。"""
+    from src.research.etf_bottom.episodes import run_episodes, INDUSTRY_CLUSTERS
+    p = run_episodes()
+    assert p["n_etf_low_periods"] > 0
+    for cluster, s in p["summary"].items():
+        eps = p["clusters"][cluster]
+        n_hist = sum(1 for e in eps if not e["is_current"])
+        assert s["n_episodes_historical"] == n_hist
+        assert s["n_episodes_up"] <= n_hist
+        # 每个簇都有当前 episode（2026 处于底部）
+        assert any(e["is_current"] for e in eps)
+    # 所有簇参与 ETF 集合不重叠
+    all_codes = [c for codes in INDUSTRY_CLUSTERS.values() for c in codes]
+    assert len(all_codes) == len(set(all_codes))
+
+
+# ── Study 2C Current Episode Context Matching ────────────────────
+
+def test_context_no_lookahead_fields_absent_from_distance():
+    """No look-ahead：ex-post 字段（final_participation_ratio/duration）不进距离特征。"""
+    from src.research.etf_bottom.context import CONTINUOUS_FEATURES
+    feats = {f for grp in CONTINUOUS_FEATURES.values() for f in grp}
+    for forbidden in ("final_participation_ratio", "episode_duration_days", "final_n_etfs", "n_etfs_participating"):
+        assert forbidden not in feats, f"ex-post 字段 {forbidden} 不应进入距离"
+
+
+def test_context_scaler_fits_historical_only():
+    """Scaler 只 fit 历史 episode（user 锁定）。"""
+    from src.research.etf_bottom.context_match import _scaler_historical, compute_episode_contexts
+    df = compute_episode_contexts()
+    scaler = _scaler_historical(df)
+    # scaler 只含历史 episode 的统计量
+    hist = df[df["is_current"] == False]
+    for f, s in scaler.items():
+        vals = pd.to_numeric(hist[f], errors="coerce").dropna()
+        if len(vals) > 1:
+            assert abs(s["mean"] - float(vals.mean())) < 1e-6
+
+
+def test_context_distance_formula():
+    """距离 = 组内 z² 平均开方，再加权平方和开方（用户口径）。"""
+    from src.research.etf_bottom.context_match import _dim_distance, _total_distance
+    from src.research.etf_bottom.context import EQUAL_WEIGHTS, CONTINUOUS_FEATURES
+    z = {f: 0.0 for grp in CONTINUOUS_FEATURES.values() for f in grp}
+    z2 = dict(z)
+    for f in CONTINUOUS_FEATURES["market"]:
+        z2[f] = 3.0  # 只在 market 维度拉开
+    # market 维度距离应为 sqrt(mean(9)) = 3
+    d = _dim_distance(z, z2, "market")
+    assert d == pytest.approx(3.0)
+    # 总距离：market 组 d²=9，w=0.2 → sqrt(0.2*9)=sqrt(1.8)
+    D = _total_distance(z, z2, EQUAL_WEIGHTS)
+    assert D == pytest.approx(np.sqrt(0.2 * 9))
+
+
+def test_context_success_fail_distinction():
+    """成功/失败区分：核心假设表存在且维度键完整。"""
+    from src.research.etf_bottom.context_match import run_context_matching
+    p = run_context_matching()
+    assert p["n_historical"] == 20
+    assert p["n_current"] == 6
+    assert len(p["matches"]) == 6
+    # 每个当前 episode 都有 Top3
+    for eid, m in p["matches"].items():
+        assert len(m["top3_equal"]) == 3
+        assert len(m["top3_sensitivity"]) == 3
+    # feature_stats 覆盖五维
+    from src.research.etf_bottom.context import CONTINUOUS_FEATURES
+    for grp, feats in CONTINUOUS_FEATURES.items():
+        for f in feats:
+            assert f in p["feature_stats"], f"{f} 缺少统计"
+
+
+def test_context_feature_set_frozen():
+    """Feature set 已冻结（2C-v1, 2026-08-31）：五维定义与权重不可变。
+
+    改动 feature set 会改变历史 episode 的 reference space 与匹配结果，
+    必须显式解除冻结并说明理由。此测试锁定当前冻结内容。
+    """
+    from src.research.etf_bottom import context as ctx
+    assert ctx.FEATURE_SET_VERSION == "2C-v1"
+    assert ctx.FEATURE_SET_FROZEN_AT == "2026-08-31"
+    # 五维顺序
+    assert ctx.DIM_GROUP_ORDER == ("market", "industry_relative", "bottom_depth", "synchronization", "recovery")
+    # 特征集合冻结
+    assert dict(ctx.CONTINUOUS_FEATURES) == {
+        "market": ("market_ret_60d", "market_ret_120d", "market_breadth_60d"),
+        "industry_relative": ("industry_excess_60d", "industry_excess_120d"),
+        "bottom_depth": ("pos60", "pos120", "pos360", "distance_360", "dd60"),
+        "synchronization": ("initial_participation_ratio", "entries_last_20d"),
+        "recovery": ("deep_ratio", "recovering_ratio"),
+    }
+    # 权重冻结
+    assert dict(ctx.EQUAL_WEIGHTS) == {g: 0.2 for g in ctx.DIM_GROUP_ORDER}
+    assert dict(ctx.SENS_WEIGHTS) == {"market": 0.30, "industry_relative": 0.25,
+                                       "bottom_depth": 0.20, "synchronization": 0.15, "recovery": 0.10}
+    # 只读：尝试修改应抛 TypeError
+    with pytest.raises(TypeError):
+        ctx.CONTINUOUS_FEATURES["market"] = ("x",)
+
+
+# ── Study 2D Context Broad-Sample Replication ────────────────────
+
+def test_replication_entry_layer_features():
+    """entry 层特征增强：asset_excess / price_pos / dd60 / 双 outcome 可计算。"""
+    from src.research.etf_bottom.replication import _load_bottom_entries, enhance_entries
+    entries = _load_bottom_entries()
+    sample = entries.sample(5, random_state=1).copy()
+    enh = enhance_entries(sample)
+    for _, r in enh.iterrows():
+        assert r["asset_excess_60d"] is not None
+        assert r["asset_excess_120d"] is not None
+        assert r["price_pos_120"] is not None
+        assert r["dd60"] is not None
+        assert r["market_ret_60d"] is not None
+        assert r["excess_vs_etf_market_120d"] is not None
+        # no look-ahead：特征全部是 entry 当日（不含未来）
+        assert "asset_excess_120d" in r
+
+
+def test_replication_quintile_labels():
+    """绝对 quintile 与年内 quintile 标签正确（Q1=最弱）。"""
+    from src.research.etf_bottom.replication import _quintile_labels, _quintile_by_year
+    s = pd.Series([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    q = _quintile_labels(s)
+    assert q.tolist() == ["Q1", "Q1", "Q2", "Q2", "Q3", "Q3", "Q4", "Q4", "Q5", "Q5"]
+    df = pd.DataFrame({"v": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] * 2, "y": [2021] * 10 + [2022] * 10})
+    qy = _quintile_by_year(df["v"], df["y"])
+    assert qy.isna().sum() == 0
+    assert (qy == "Q1").sum() == 4  # 每年 2 个 Q1
+
+
+def test_replication_asset_excess_direction():
+    """asset_excess_60d：全样本 Q1（最超跌）超额应 > Q5（最强），方向与 2C 一致。"""
+    from src.research.etf_bottom.replication import run_replication
+    p = run_replication()
+    ev = p["layer1"]["asset_excess_60d"]["event_weighted"]
+    q1 = ev[0]["excess_etf_market"]
+    q5 = ev[-1]["excess_etf_market"]
+    assert q1 > q5, "相对超跌组（Q1）后续超额应高于最强组（Q5）"
+    # ETF-balanced 同向
+    bal = p["layer1"]["asset_excess_60d"]["etf_balanced"]
+    assert bal[0]["excess_etf_market"] > bal[-1]["excess_etf_market"]
+
+
+def test_replication_layer3_structure():
+    """Layer3 方向一致性表结构完整，2026 不进入主年份判据。"""
+    from src.research.etf_bottom.replication import run_replication, YEARS_MAIN
+    p = run_replication()
+    assert len(p["layer3"]) >= 5
+    # 主年份 = 2021-2025，2026 被排除
+    assert YEARS_MAIN == [2021, 2022, 2023, 2024, 2025]
+    for r in p["layer2"]["asset_excess_60d"]["by_year"]:
+        assert r["year"] in YEARS_MAIN + [2026]
+        assert r["is_main_year"] == (r["year"] in YEARS_MAIN)
+
+
+# ── Study 2E Repair Structure Validation ─────────────────────────
+
+def test_repair_q1_composition_structure():
+    """Q1：全样本 + DEEP + RECOVERING 三组 pos120 quintile 结构完整。"""
+    from src.research.etf_bottom.repair_structure import q1_composition, _load
+    df = _load()
+    q1 = q1_composition(df)
+    for st in ["ALL", "DEEP_BOTTOM", "RECOVERING_FROM_BOTTOM"]:
+        assert len(q1[st]["quintiles"]) == 5
+        for q in q1[st]["quintiles"]:
+            assert q["n"] > 0
+
+
+def test_repair_q2_interaction_target():
+    """Q2：target 格（pos60 低 × pos120 高）应存在且样本充足。"""
+    from src.research.etf_bottom.repair_structure import q2_interaction, _load
+    df = _load()
+    q3 = q2_interaction(df, grid=3)
+    t = q3["target_cell"]
+    assert t is not None and t["n"] > 0
+    assert t["pos120_quintile"] == "Q3" and t["pos60_quintile"] == "Q1"
+
+
+def test_repair_q3_date_weighted():
+    """Q3：date-weighted 每日期一票；target 结构 date-weighted 信息存在。"""
+    from src.research.etf_bottom.repair_structure import q3_date_weighted, _load
+    df = _load()
+    q3 = q3_date_weighted(df)
+    assert "ALL" in q3 and "DEEP_BOTTOM" in q3 and "RECOVERING_FROM_BOTTOM" in q3
+    t = q3["_target_date_weighted"]
+    assert t["target_n_dates"] > 0
+    assert t["target_median"] is not None
+    assert t["all_median"] is not None
+
+
+def test_repair_adjudication_present():
+    """adjudication 四假设裁决存在且 verdict 合法。"""
+    from src.research.etf_bottom.repair_structure import run_repair
+    p = run_repair()
+    ad = p["adjudication"]
+    assert ad["verdict"] in ("INTERACTION_STRUCTURE", "CONTINUOUS_SIGNAL", "COMPOSITION_EFFECT", "NO_STABLE_SIGNAL")
+    # 证据键完整
+    for k in ("q1_all_direction", "q2_3x3_target_lead_mean", "q2_3x3_target_lead_median",
+              "q2_2x2_target_lead_mean", "q2_2x2_target_lead_median",
+              "q3_target_date_weighted_median", "q3_all_date_weighted_median", "q3_target_date_lead"):
+        assert k in ad["evidence"], f"{k} 缺失"
