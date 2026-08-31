@@ -673,6 +673,9 @@ def test_current_eval_stage_logic():
     cut120, cut60 = load_frozen_cutpoints()
     watch = load_watch_etfs()
     assert len(watch) >= 10
+    # watch_etf（monitor_only）也必须纳入关注表，不能缺格
+    assert any((w["fund_code"] == "159512" and w["tier"] == "watch_etf" and w["participation"] == "monitor_only")
+               for w in watch.to_dict("records"))
     # 构造：p120=37.8（离开 domain）但 p60=11.7（低）→ 必须 OUT_OF_DOMAIN 而非 target
     res = eval_one("159819", "人工智能ETF易方达", "ai_infrastructure", cut120, cut60)
     assert res["stage"] == "OUT_OF_DOMAIN", f"159819 p120={res.get('p120')} 应离开 domain（需<=20）"
