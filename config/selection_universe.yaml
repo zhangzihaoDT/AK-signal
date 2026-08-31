@@ -164,7 +164,27 @@ themes:
 
   china_auto_global:
     label: "中国汽车全球化"
+    # 语义分层（避免误读）：本主题的研究对象是「中国汽车全球化 thesis」。
+    #   ETF 层 = 中国汽车产业景气/市场 beta observable（跟踪的是汽车行业/智能汽车/新能源车/零部件指数，
+    #            不筛选海外收入占比/海外产能/全球订单）→ 表达「中国汽车行业现在怎么样」；
+    #   个股层 = 全球化 thesis 的精确表达（明确标注境外收入/海外产能/海外配套）→ 表达「全球化逻辑」。
+    #   ETF 景气 ≠ 全球化验证：不要把汽车 ETF 上涨读作「全球化逻辑被验证」。
     tiers:
+      - key: theme_etf
+        label: "主题 ETF"
+        assets:
+          - {symbol: "516110", name: "汽车ETF国泰", market: CN, sw_industry: "801095.SI", note: "汽车产业 beta observable（非全球化筛选）· 中证800汽车与零部件指数"}
+          - {symbol: "515250", name: "智能汽车ETF富国", market: CN, sw_industry: "801095.SI", note: "智能化/ADAS/汽车电子 beta · 中证智能汽车主题指数（非全球化筛选）"}
+      - key: sub_industry_etf
+        label: "细分行业 ETF"
+        assets:
+          - {symbol: "562700", name: "汽车零部件ETF华夏", market: CN, sw_industry: "801093.SI", note: "零部件产业 beta（重仓含三花/福耀/拓普/银轮，但按行业市值非全球化筛选）"}
+          - {symbol: "515030", name: "新能源车ETF华夏", market: CN, sw_industry: "801737.SI", note: "电池+电动化产业链 beta（补宁德/亿纬一侧，非全球化筛选）"}
+      - key: watch_etf
+        label: "观察 ETF"
+        participation: monitor_only
+        assets:
+          - {symbol: "159512", name: "汽车ETF广发", market: CN, sw_industry: "801095.SI", note: "中证全指汽车 · 另一套汽车行业指数口径观察/交叉验证"}
       - key: oem_global
         label: "整车全球化"
         assets:
