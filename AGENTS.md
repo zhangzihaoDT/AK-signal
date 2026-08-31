@@ -373,4 +373,9 @@ make test             # 全部测试
   - **Q2 interaction（主判据）**：pos120 × pos60 3×3 主 + 2×2 robustness。**目标格（pos60 低仍在底 × pos120 高已修复）在 mean（+4.4%）与 median（+0.6%）均领先**，且是唯一 median 为正的格子；date-weighted 仍领先（target +1.1% vs 全样本 -1.1%）——「中期修复 × 短期再探底」结构在 event/ETF/date 三档 weighting 全成立
   - **Adjudication**：`INTERACTION_STRUCTURE`（严格判定：3×3 与 2×2 的 mean+median 且 date-weighted 均领先才判）；**不判 CONTINUOUS_SIGNAL**——DEEP pos120 Q5 格内 pos60 低子格 +4.4% vs pos60 高子格 +2.2%，效果集中在 target 结构而非 pos120 连续值；也非 COMPOSITION_EFFECT（状态构成无法解释 target 格领先）
   - **限定**：target 格样本较小（676 entry / 166 日期），为稀有结构组合；结论描述性，不做显著性
-  - **产物**：`repair_structure.{json,html}`
+  - **产物**：`repair_structure.{json,html}`（含 `discovery_universe.cut_points`：pos120 tertile [-0.001, 9.88, 15.82, 20.0]、pos60 tertile [-0.001, 14.55, 22.12, 100.0]——**pos120 上限 20 即 long_term_bottom 定义边界**，2E 只在「长期底部 entry」域内成立）
+- **Current Watch ETF Evaluation（2026-08-31）**：模块 `src/research/etf_bottom/current_eval.py`（`research etf-bottom --current-eval` / `make etf-bottom-current-eval`）：
+  - **三级分类（用户锁定，读 2E 冻结 cut points 原样不重解释）**：reliable? no→UNRELIABLE（折算污染/历史不足）→ current_long_term_bottom? no→OUT_OF_DOMAIN → else 应用 2E cut points → TARGET（pos60 Q1×pos120 Q3）/ IN_DOMAIN_NON_TARGET；再附 2A self-history + 跨年稳健性
+  - **关键 domain 守卫**：long_term_bottom = pos120≤20 且 pos360≤20。**p120>20 的标的（即使 p60 低、数值像 target）必须 OUT_OF_DOMAIN**——它们已反弹离开 2E discovery domain，不能误判 target（159819 AI 易方达 p120=37.8 即如此）
+  - **13 只关注 ETF 结果：0 TARGET / 5 UNRELIABLE / 8 OUT_OF_DOMAIN**——半导体512480/芯片159995/512760/通信515880/515050 折算污染（UNRELIABLE，其中 512760/515050 折算已滑出 60D 窗口但仍在 120D 污染期）；AI/云计算/电力/电信/公用/交运 p360>20 已离开长期底部域（OUT_OF_DOMAIN）
+  - **产物**：`current_watch_eval.json`

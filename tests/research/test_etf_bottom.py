@@ -640,3 +640,38 @@ def test_repair_adjudication_present():
               "q2_2x2_target_lead_mean", "q2_2x2_target_lead_median",
               "q3_target_date_weighted_median", "q3_all_date_weighted_median", "q3_target_date_lead"):
         assert k in ad["evidence"], f"{k} 缺失"
+
+
+def test_repair_discovery_universe_persisted():
+    """repair_structure.json 落盘 discovery_universe + cut_points（供原样读取）。"""
+    import json
+    from src.research.etf_bottom import STUDY_DIR
+    rs = json.loads((STUDY_DIR / "repair_structure.json").read_text(encoding="utf-8"))
+    assert "discovery_universe" in rs
+    du = rs["discovery_universe"]
+    assert "cut_points" in du
+    cp120 = du["cut_points"]["price_pos_120"]
+    cp60 = du["cut_points"]["price_pos_60"]
+    # 切分点边界合理：pos120 上限=20（long_term_bottom 定义），3 tertile
+    assert len(cp120) == 4 and len(cp60) == 4
+    assert abs(cp120[-1] - 20.0) < 1e-6  # pos120 上限即 domain 边界
+
+
+def test_current_eval_stage_logic():
+    """当前关注 ETF 评估：reliable→domain→target 三级分类。
+
+    关键：p120>20 的标的必须 OUT_OF_DOMAIN（不能误判 target），
+    即使 p60 低。这是用户锁定的 no-look-ahead domain 守卫。
+    """
+    from src.research.etf_bottom.current_eval import (
+        load_watch_etfs, load_frozen_cutpoints, eval_one, tertile,
+    )
+    cut120, cut60 = load_frozen_cutpoints()
+    watch = load_watch_etfs()
+    assert len(watch) >= 10
+    # 构造：p120=37.8（离开 domain）但 p60=11.7（低）→ 必须 OUT_OF_DOMAIN 而非 target
+    res = eval_one("159819", "人工智能ETF易方达", "ai_infrastructure", cut120, cut60)
+    assert res["stage"] == "OUT_OF_DOMAIN", f"159819 p120={res.get('p120')} 应离开 domain（需<=20）"
+    # tertile 切分正确：p120=37.8 在 Q3（>15.82），但 domain 守卫优先
+    assert tertile(37.8, cut120) == "Q3"
+    assert tertile(11.7, cut60) == "Q1"

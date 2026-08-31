@@ -161,6 +161,21 @@ def cmd_repair(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_current_eval(args: argparse.Namespace) -> int:
+    from .current_eval import run_current_eval
+
+    payload = run_current_eval()
+    print(f"eval json : {STUDY_DIR / 'current_watch_eval.json'}")
+    print("stage_summary:", payload["stage_summary"])
+    print("cut_points source:", payload["cut_points_source"])
+    print("\n逐只：")
+    for e in payload["etfs"]:
+        h = e.get("history", {})
+        print(f"  {e['fund_code']} {e['fund_name']:12s} stage={e['stage']:20s} "
+              f"p60={e.get('p60')} p120={e.get('p120')} hist='{h.get('support', '—')}'")
+    return 0
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="Study 1 Price Bottom / Price Bottom Map / State Odds")
     p.add_argument("--open", action="store_true", help="完成后浏览器打开报告")
@@ -172,8 +187,11 @@ def main() -> None:
     p.add_argument("--context-match", action="store_true", help="运行 Study 2C Context Matching（当前底部 vs 历史 context）")
     p.add_argument("--context-replication", action="store_true", help="运行 Study 2D Replication（大样本复现 2C 发现）")
     p.add_argument("--repair", action="store_true", help="运行 Study 2E Repair Structure（pos120 结构验证）")
+    p.add_argument("--current-eval", action="store_true", help="评估当前关注 ETF 的 Repair-Retest V1 阶段（读 2E 冻结 cut points）")
     p.set_defaults(func=cmd_run)
     args = p.parse_args()
+    if args.current_eval:
+        sys.exit(cmd_current_eval(args))
     if args.repair:
         sys.exit(cmd_repair(args))
     if args.context_replication:

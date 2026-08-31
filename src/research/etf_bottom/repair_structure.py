@@ -44,6 +44,33 @@ def _qcut_col(df: pd.DataFrame, col: str, n: int) -> pd.Series:
     return pd.qcut(df[col], n, labels=[f"Q{i}" for i in range(1, n + 1)], duplicates="drop")
 
 
+def _qcut_cut_points(df: pd.DataFrame, col: str, n: int) -> list[float]:
+    """返回 qcut(n) 的边界点（含两端），供外部原样读取、不复算。"""
+    bins = pd.qcut(df[col], n, duplicates="drop")
+    edges = sorted({c.left for c in bins.cat.categories} | {c.right for c in bins.cat.categories})
+    return [round(float(x), 4) for x in edges]
+
+
+def discovery_domain(df: pd.DataFrame) -> dict:
+    """2E discovery universe 定义（原样记录，供后续评估复用）。
+
+    注意：universe 是「长期底部 entry」（DEEP+RECOVERING，pos120≤20 且 pos360≤20），
+    因此 pos120 的 discovery 域上限即 20（long_term_bottom 定义），并非全市场。
+    """
+    return {
+        "source": "context_replication_events.parquet",
+        "n_entries": int(len(df)),
+        "n_etfs": int(df["fund_code"].nunique()),
+        "n_dates": int(df["_date"].nunique()),
+        "state_filter": ["DEEP_BOTTOM", "RECOVERING_FROM_BOTTOM"],
+        "long_term_bottom_definition": "price_pos_120<=20 and price_pos_360<=20",
+        "cut_points": {
+            "price_pos_120": _qcut_cut_points(df, "price_pos_120", 3),
+            "price_pos_60": _qcut_cut_points(df, "price_pos_60", 3),
+        },
+    }
+
+
 def _cell_stats(g: pd.DataFrame) -> dict:
     v = pd.to_numeric(g[OUTCOME], errors="coerce").dropna()
     if v.empty:
@@ -146,6 +173,7 @@ def run_repair(study_dir: Path | None = None) -> dict:
         "n_entries": int(len(df)),
         "n_etfs": int(df["fund_code"].nunique()),
         "n_dates": int(df["_date"].nunique()),
+        "discovery_universe": discovery_domain(df),
         "q1_composition": q1,
         "q2_interaction_3x3": q2_3,
         "q2_interaction_2x2": q2_2,

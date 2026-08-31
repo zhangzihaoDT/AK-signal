@@ -13,7 +13,7 @@ SRC_MAIN = src/main.py
 	stock-metrics stock-metrics-online \
 	replay-single replay-parity replay-range event-study \
 	backtest-trades backtest-sensitivity backtest-matrix backtest-portfolio backtest-construction \
-	etf-bottom etf-bottom-price-map etf-bottom-odds etf-bottom-drilldown etf-bottom-episodes etf-bottom-context etf-bottom-context-replication etf-bottom-repair etf-mapping-feasibility \
+	etf-bottom etf-bottom-price-map etf-bottom-odds etf-bottom-drilldown etf-bottom-episodes etf-bottom-context etf-bottom-context-replication etf-bottom-repair etf-bottom-current-eval etf-mapping-feasibility \
 	test install clean
 
 help: ## 显示帮助信息
@@ -211,6 +211,9 @@ etf-bottom-context-replication: ## [Lane2] Study 2D Replication：2C 发现在�
 
 etf-bottom-repair: ## [Lane2] Study 2E Repair Structure：price_pos_120 结构验证（composition/interaction/date-weighting）
 	$(PYTHON) $(SRC_MAIN) research etf-bottom --repair
+
+etf-bottom-current-eval: ## [Lane2] 当前关注 ETF 的 Repair-Retest V1 阶段评估（读 2E 冻结 cut points）
+	$(PYTHON) $(SRC_MAIN) research etf-bottom --current-eval
 
 etf-mapping-feasibility: ## [Lane2] Stage 1a ETF 跟踪指数 mapping 可行性抽样探测
 	$(PYTHON) -m src.research.etf_mapping.cli --sample-n 10
