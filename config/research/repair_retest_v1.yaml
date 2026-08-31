@@ -1,0 +1,57 @@
+# Repair-Retest V1 — frozen research hypothesis.
+#
+# This file is the canonical runtime rule source. Study 2E may discover drift,
+# but must never rewrite this spec. A changed hypothesis requires V2.
+rule_id: REPAIR_RETEST_V1
+status: FROZEN_RESEARCH_HYPOTHESIS
+frozen_at: 2026-08-31
+
+domain:
+  states:
+    - DEEP_BOTTOM
+    - RECOVERING_FROM_BOTTOM
+  price_pos_120_max: 20.0
+  price_pos_360_max: 20.0
+
+features:
+  price_pos_60:
+    q1_upper: 14.55
+    q2_upper: 22.12
+    domain_lower: -0.001
+    domain_upper: 100.0
+  price_pos_120:
+    q1_upper: 9.88
+    q2_upper: 15.82
+    domain_lower: -0.001
+    domain_upper: 20.0
+
+target:
+  price_pos_60_bin: Q1
+  price_pos_120_bin: Q3
+
+outcome:
+  metric: excess_vs_etf_market_120d
+  horizon_trading_days: 120
+
+evidence:
+  discovery_entries: 13855
+  discovery_etfs: 636
+  discovery_dates: 850
+  target_entries: 676
+  target_dates: 166
+  target_mean_excess: 0.0436
+  target_median_excess: 0.0064
+  target_date_weighted_median: 0.0114
+
+adjudication:
+  verdict: INTERACTION_STRUCTURE
+  requirements:
+    - target_leads_mean_3x3
+    - target_leads_median_3x3
+    - target_leads_mean_2x2
+    - target_leads_median_2x2
+    - target_leads_date_weighted
+
+provenance:
+  study: Study 2E Repair Structure Validation
+  source_artifact: outputs/research/etf_bottom/repair_structure.json

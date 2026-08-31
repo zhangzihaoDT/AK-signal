@@ -25,6 +25,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from src.common.paths import config_dir
+
 from . import STUDY_DIR
 
 logger = logging.getLogger(__name__)
@@ -68,6 +70,43 @@ def discovery_domain(df: pd.DataFrame) -> dict:
             "price_pos_120": _qcut_cut_points(df, "price_pos_120", 3),
             "price_pos_60": _qcut_cut_points(df, "price_pos_60", 3),
         },
+    }
+
+
+def frozen_cutpoint_drift(df: pd.DataFrame, tolerance: float = 0.05) -> dict:
+    """比较本次重算 cut points 与 frozen V1；绝不覆盖 frozen spec。"""
+    import yaml
+
+    spec_path = config_dir() / "research" / "repair_retest_v1.yaml"
+    with spec_path.open(encoding="utf-8") as f:
+        spec = yaml.safe_load(f) or {}
+    latest = discovery_domain(df)["cut_points"]
+    frozen = {
+        "price_pos_120": [
+            spec["features"]["price_pos_120"]["domain_lower"],
+            spec["features"]["price_pos_120"]["q1_upper"],
+            spec["features"]["price_pos_120"]["q2_upper"],
+            spec["features"]["price_pos_120"]["domain_upper"],
+        ],
+        "price_pos_60": [
+            spec["features"]["price_pos_60"]["domain_lower"],
+            spec["features"]["price_pos_60"]["q1_upper"],
+            spec["features"]["price_pos_60"]["q2_upper"],
+            spec["features"]["price_pos_60"]["domain_upper"],
+        ],
+    }
+    rows = {}
+    within = True
+    for feature in frozen:
+        deltas = [round(float(a) - float(b), 4) for a, b in zip(latest[feature], frozen[feature])]
+        rows[feature] = {"frozen": frozen[feature], "latest": latest[feature], "delta": deltas}
+        if any(abs(d) > tolerance for d in deltas):
+            within = False
+    return {
+        "source": str(spec_path.relative_to(config_dir().parent)),
+        "tolerance": tolerance,
+        "status": "DRIFT_WITHIN_TOLERANCE" if within else "DRIFT_OUTSIDE_TOLERANCE",
+        "features": rows,
     }
 
 
@@ -166,6 +205,7 @@ def run_repair(study_dir: Path | None = None) -> dict:
     q2_2 = q2_interaction(df, grid=2)
     q3 = q3_date_weighted(df)
     adjudication = _adjudicate(q1, q2_3, q2_2, q3)
+    drift = frozen_cutpoint_drift(df)
 
     payload = {
         "study": "Study 2E Repair Structure Validation",
@@ -174,6 +214,7 @@ def run_repair(study_dir: Path | None = None) -> dict:
         "n_etfs": int(df["fund_code"].nunique()),
         "n_dates": int(df["_date"].nunique()),
         "discovery_universe": discovery_domain(df),
+        "frozen_cutpoint_drift": drift,
         "q1_composition": q1,
         "q2_interaction_3x3": q2_3,
         "q2_interaction_2x2": q2_2,

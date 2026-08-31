@@ -379,3 +379,9 @@ make test             # 全部测试
   - **关键 domain 守卫**：long_term_bottom = pos120≤20 且 pos360≤20。**p120>20 的标的（即使 p60 低、数值像 target）必须 OUT_OF_DOMAIN**——它们已反弹离开 2E discovery domain，不能误判 target（159819 AI 易方达 p120=37.8 即如此）
   - **13 只关注 ETF 结果：0 TARGET / 5 UNRELIABLE / 8 OUT_OF_DOMAIN**——半导体512480/芯片159995/512760/通信515880/515050 折算污染（UNRELIABLE，其中 512760/515050 折算已滑出 60D 窗口但仍在 120D 污染期）；AI/云计算/电力/电信/公用/交运 p360>20 已离开长期底部域（OUT_OF_DOMAIN）
   - **产物**：`current_watch_eval.json`
+- **Repair-Retest V1 Rule Spec（2026-08-31 冻结，A+ 版本化 Rule Spec）**：
+  - **唯一规则真源**：`config/research/repair_retest_v1.yaml`（`rule_id: REPAIR_RETEST_V1`，`status: FROZEN_RESEARCH_HYPOTHESIS`，冻结于 2026-08-31）——冻结 domain（pos120/360≤20）、cut points（pos60 Q1<14.55 / pos120 Q3>15.82）、target（Q1×Q3）、outcome（excess_vs_etf_market_120d）、adjudication 要求
+  - **职责分离**：`repair_structure.py`=发现方法论 · `repair_structure.json`=本次研究证据快照（含 discovery_universe + cut_points，保留不删）· `repair_retest_v1.yaml`=生产/观察规则 · `current_eval.py`=消费规则
+  - **current-eval 只读 frozen YAML**（不再依赖最新研究输出）——重跑研究不会改变 V1 规则；`repair_structure.py` 每次重算 latest cut points 并与 V1 比较，输出 `frozen_cutpoint_drift`（DRIFT_WITHIN_TOLERANCE / DRIFT_OUTSIDE_TOLERANCE，容忍度 0.05），绝不覆盖 YAML
+  - **V1 永不修改**：新 ETF/新历史只影响 latest drift + OOS；阈值确需改变 → 新建 `REPAIR_RETEST_V2`
+  - **测试分层**：规则锁定测试（逐值锁死 V1 cut points/domain/target/outcome）+ 研究复现测试（latest drift 报告结构 + verdict 与 V1 一致）

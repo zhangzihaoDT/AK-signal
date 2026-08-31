@@ -682,3 +682,71 @@ def test_current_eval_stage_logic():
     # tertile 切分正确：p120=37.8 在 Q3（>15.82），但 domain 守卫优先
     assert tertile(37.8, cut120) == "Q3"
     assert tertile(11.7, cut60) == "Q1"
+
+
+def test_repair_retest_v1_rule_spec_frozen():
+    """规则锁定测试：V1 冻结值逐值锁死，任何修改必须显式升级 V2。
+
+    这是 Repair-Retest V1 的 canonical 真源测试——不允许通过微调测试来
+    掩盖规则漂移。如需改规则阈值 → 新建 REPAIR_RETEST_V2，不改此测试。
+    """
+    import yaml
+    from src.common.paths import config_dir
+    spec_path = config_dir() / "research" / "repair_retest_v1.yaml"
+    with spec_path.open(encoding="utf-8") as f:
+        spec = yaml.safe_load(f)
+
+    assert spec["rule_id"] == "REPAIR_RETEST_V1"
+    assert spec["status"] == "FROZEN_RESEARCH_HYPOTHESIS"
+    assert str(spec["frozen_at"]) == "2026-08-31"  # YAML 解析为 date，比较字符串
+
+    # domain
+    assert spec["domain"]["states"] == ["DEEP_BOTTOM", "RECOVERING_FROM_BOTTOM"]
+    assert spec["domain"]["price_pos_120_max"] == 20.0
+    assert spec["domain"]["price_pos_360_max"] == 20.0
+
+    # 冻结 cut points（V1 永不漂移）
+    p120 = spec["features"]["price_pos_120"]
+    assert p120["q1_upper"] == 9.88
+    assert p120["q2_upper"] == 15.82
+    assert p120["domain_upper"] == 20.0
+    p60 = spec["features"]["price_pos_60"]
+    assert p60["q1_upper"] == 14.55
+    assert p60["q2_upper"] == 22.12
+
+    # target
+    assert spec["target"] == {"price_pos_60_bin": "Q1", "price_pos_120_bin": "Q3"}
+
+    # outcome
+    assert spec["outcome"]["metric"] == "excess_vs_etf_market_120d"
+    assert spec["outcome"]["horizon_trading_days"] == 120
+
+    # adjudication
+    assert spec["adjudication"]["verdict"] == "INTERACTION_STRUCTURE"
+    assert "target_leads_date_weighted" in spec["adjudication"]["requirements"]
+
+
+def test_repair_retest_v1_current_eval_reads_rule_spec():
+    """current-eval 消费冻结 YAML（非最新研究输出），确保重跑研究不改规则。"""
+    from src.research.etf_bottom.current_eval import load_frozen_cutpoints, load_rule_spec
+    spec = load_rule_spec()
+    assert spec["rule_id"] == "REPAIR_RETEST_V1"
+    cut120, cut60 = load_frozen_cutpoints()
+    # 与 YAML 冻结值一致（V1 不因研究重跑而变）
+    assert cut120 == pytest.approx([-0.001, 9.88, 15.82, 20.0])
+    assert cut60 == pytest.approx([-0.001, 14.55, 22.12, 100.0])
+
+
+def test_repair_cutpoint_drift_report():
+    """研究复现测试：重跑 repair 产出 drift 报告，不覆盖 V1。"""
+    import json
+    from src.research.etf_bottom import STUDY_DIR
+    rs = json.loads((STUDY_DIR / "repair_structure.json").read_text(encoding="utf-8"))
+    assert "frozen_cutpoint_drift" in rs
+    drift = rs["frozen_cutpoint_drift"]
+    assert drift["status"] in ("DRIFT_WITHIN_TOLERANCE", "DRIFT_OUTSIDE_TOLERANCE")
+    assert "price_pos_120" in drift["features"] and "price_pos_60" in drift["features"]
+    # drift 报告列出 frozen / latest / delta 三者
+    for feature, row in drift["features"].items():
+        assert "frozen" in row and "latest" in row and "delta" in row
+        assert len(row["delta"]) == 4
