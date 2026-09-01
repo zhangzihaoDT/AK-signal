@@ -7,11 +7,12 @@ evidence、stage 或 assessment（这些是 current_eval.py 的研究事实）�
 底层：current_odds_table.csv（18 列，机器可读、完整、可审计）。
 上层：只展示 8 列，回答「当前哪些 ETF 最值得研究关注」。
 
-8 列 = code / name / RR 阶段 / median_120d / win_rate / payoff / 时间证据 / 最终判断。
+8 列 = ETF(code·name) / RR 阶段 / n / median_120d / win_rate / payoff / 时间证据 / 最终判断。
+n 保留：避免 100% 胜率 + 高 median 掩盖小样本（如 n=2 的 159611）。
 
 排序（固定）：
   strong_observe → watch_structure → position_only → cautious
-  → out_of_domain_good → out_of_domain_bad → unreliable
+  → out_of_domain_good → out_of_domain_unknown → out_of_domain_bad → unreliable
   组内 median_120d DESC（缺失最后），再 fund_code ASC（deterministic）。
 
 集合定义（锁定，展示层不得改口径）：
@@ -78,17 +79,36 @@ _STAGE_LABEL = {
     "IN_DOMAIN_NON_TARGET": "域内·非target", "TARGET": "命中 target",
 }
 _EVIDENCE_LABEL = {
-    "CROSS_YEAR_SUPPORTED": "跨年正赔率", "YEAR_DEPENDENT": "依赖年份",
-    "NEGATIVE_HISTORY": "历史负赔率", "INSUFFICIENT_HISTORY": "样本不足",
+    "CROSS_YEAR_SUPPORTED": "跨年正向证据", "YEAR_DEPENDENT": "依赖年份",
+    "NEGATIVE_HISTORY": "历史负收益", "INSUFFICIENT_HISTORY": "历史不足",
 }
 _ODDS_ORDER = ["strong_observe", "watch_structure", "position_only", "cautious",
-               "out_of_domain_good", "out_of_domain_bad", "unreliable"]
-_ODDS_LABEL = {
+               "out_of_domain_good", "out_of_domain_unknown", "out_of_domain_bad", "unreliable"]
+_ODDS_BASE_LABEL = {
     "strong_observe": "★ 最强研究观察", "watch_structure": "🟢 重点等待结构",
-    "position_only": "🟡 位置有意义·赔率未知", "cautious": "🔴 谨慎",
-    "out_of_domain_good": "⚪ 历史不错·当前非机会", "out_of_domain_bad": "🔴 无吸引力",
+    "position_only": "🟡 位置有意义", "cautious": "🔴 谨慎",
+    "out_of_domain_good": "⚪ 历史不错·当前非机会",
+    "out_of_domain_unknown": "⚪ 历史不足·当前不适用",
+    "out_of_domain_bad": "🔴 历史负·无吸引力",
     "unreliable": "⚠️ 先解决数据",
 }
+_ODDS_CONDITION = {
+    "strong_observe": "TARGET × 跨年正向证据", "watch_structure": "域内 × 跨年正向证据",
+    "position_only": "域内 × 样本不足/年份依赖", "cautious": "域内 × 历史负收益",
+    "out_of_domain_good": "离开域 × 历史正收益", "out_of_domain_unknown": "离开域 × 历史不足",
+    "out_of_domain_bad": "离开域 × 历史负收益", "unreliable": "折算污染/数据不可靠",
+}
+
+
+def _odds_label(odds: str, evidence: str) -> str:
+    """最终判断展示：position_only 按 evidence_label 二级翻译（底层 enum 不变）。"""
+    base = _ODDS_BASE_LABEL.get(odds, odds)
+    if odds == "position_only":
+        if evidence == "YEAR_DEPENDENT":
+            return "🟡 位置有意义 · 跨年不稳"
+        if evidence == "INSUFFICIENT_HISTORY":
+            return "🟡 位置有意义 · 历史不足"
+    return base
 
 
 def _pct(v, nd=1, sign=True):
@@ -135,17 +155,21 @@ def _table_rows(etfs: list[dict]) -> str:
         stage = e.get("stage", "")
         odds = e.get("odds_assessment", "unreliable")
         tag = {"strong_observe": "tag-strong", "watch_structure": "tag-watch",
-               "position_only": "tag-pos", "cautious": "tag-caut", "out_of_domain_bad": "tag-caut",
-               "out_of_domain_good": "tag-pos", "unreliable": "tag-unrel"}.get(odds, "tag-unrel")
+               "position_only": "tag-pos", "cautious": "tag-caut",
+               "out_of_domain_good": "tag-pos", "out_of_domain_unknown": "tag-watch",
+               "out_of_domain_bad": "tag-caut", "unreliable": "tag-unrel"}.get(odds, "tag-unrel")
         detail = _by_year_detail(e) if e.get("evidence_label") == "YEAR_DEPENDENT" or e.get("stage") == "TARGET" else ""
+        n = h.get("n")
+        n_disp = str(n) if n is not None else "—"
         rows += (
-            f"<tr><td>{e['fund_code']}</td><td>{e.get('fund_name', '')}</td>"
+            f"<tr><td><b>{e['fund_code']}</b> · {e.get('fund_name', '')}</td>"
             f"<td>{_STAGE_LABEL.get(stage, stage)}</td>"
+            f"<td>{n_disp}</td>"
             f"<td class='{med_cls}'>{_pct(med, 1)}</td>"
             f"<td>{_pct(h.get('win_rate'), 0, False)}</td>"
             f"<td>{_num(h.get('payoff_ratio'))}</td>"
             f"<td>{_EVIDENCE_LABEL.get(e.get('evidence_label', ''), e.get('evidence_label', ''))}</td>"
-            f"<td><span class='tag {tag}'>{_ODDS_LABEL.get(odds, odds)}</span></td></tr>"
+            f"<td><span class='tag {tag}'>{_odds_label(odds, e.get('evidence_label', ''))}</span></td></tr>"
             + (f"<tr><td colspan='8'>{detail}</td></tr>" if detail else "")
         )
     return rows
@@ -163,12 +187,14 @@ def render_current_odds(payload: dict, out_path: Path | None = None) -> Path:
     watch_names = [e["fund_name"] for e in etfs if e.get("odds_assessment") in FOCUS_ODDS]
     headline = (
         f"当前 {total} 只关注 ETF 中，{in_domain} 只处于 Repair-Retest 研究域内，"
-        f"{cross} 只历史赔率跨年为正；{len(watch_names)} 只值得重点观察"
+        f"{cross} 只历史跨年正向证据；{len(watch_names)} 只值得重点观察"
         f"（{'、'.join(watch_names) if watch_names else '暂无'}）。"
         f"{unrel} 只因折算污染无法判断当前结构（数据层在 CSV 审计）。"
     )
 
-    legend = "".join(f"<tr><td>{_ODDS_LABEL.get(o, o)}</td></tr>" for o in _ODDS_ORDER)
+    legend = "".join(
+        f"<tr><td>{_ODDS_BASE_LABEL.get(o, o)}</td><td>{_ODDS_CONDITION.get(o, '')}</td></tr>"
+        for o in _ODDS_ORDER)
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
@@ -189,20 +215,31 @@ def render_current_odds(payload: dict, out_path: Path | None = None) -> Path:
 <div class="kpis">
   <div class="kpi"><span>关注 ETF</span><b>{total}</b></div>
   <div class="kpi"><span>研究域内</span><b>{in_domain}</b></div>
-  <div class="kpi"><span>跨年正赔率</span><b>{cross}</b></div>
+  <div class="kpi"><span>跨年正向证据</span><b>{cross}</b></div>
   <div class="kpi"><span>重点观察</span><b>{watch}</b></div>
+  <div class="kpi"><span>数据不可靠</span><b>{unrel}</b></div>
 </div>
 
 <h2>当前赔率表（8 列）</h2>
 <div class="card">
 <table>
-<thead><tr><th>代码</th><th>名称</th><th>RR 阶段</th><th>收益(120D中位)</th><th>胜率</th><th>Payoff</th><th>时间证据</th><th>最终判断</th></tr></thead>
+<thead><tr><th>ETF</th><th>RR 阶段</th><th>n</th><th>120D 中位</th><th>胜率</th><th>Payoff</th><th>时间证据</th><th>最终判断</th></tr></thead>
 <tbody>{_table_rows(etfs)}</tbody></table>
-<p class="meta">收益 = 该 ETF 历史长期底部 entry 后 120D 中位收益；payoff = positive_median / abs(negative_median)，无负样本显示 —。按最终判断排序。</p>
+<p class="meta">n = 该 ETF 历史长期底部 entry 数；120D 中位 = 每次 entry 后 120 日收益中位；Payoff = positive_median / abs(negative_median)，无负样本或样本不足显示 —。</p>
 </div>
 
 <h2>决策矩阵图例</h2>
-<div class="card"><table><thead><tr><th>最终判断</th></tr></thead><tbody>{legend}</tbody></table></div>
+<div class="card"><table><thead><tr><th>最终判断</th><th>触发条件</th></tr></thead><tbody>{legend}</tbody></table></div>
+
+<h2>口径与限定</h2>
+<div class="card"><ul>
+<li>规则 = <code>{payload.get('rule_id', 'REPAIR_RETEST_V1')}</code> 冻结 spec（{payload.get('cut_points_source', '')}），本研究不修改 V1</li>
+<li>修复 = target 结构：长期底部域内 pos60 Q1 × pos120 Q3（中期已抬底、短期再探底）</li>
+<li>no look-ahead：当前 stage/pos 均用 as_of={payload.get('as_of', '')} 当日可观察信息，不含未来</li>
+<li>历史赔率 = 该 ETF 自身长期底部 entry 后 120D；时间代表性用 evidence_label 审计（防单年伪影）</li>
+<li>n&lt;2 或全正样本的 payoff 显示 —，不代表下行风险为零</li>
+<li>本表是研究观察，不是买入建议</li>
+</ul></div>
 
 <footer>AKsignal · Lane 2 Research · Current ETF Odds Table · {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}</footer>
 </div></body></html>"""

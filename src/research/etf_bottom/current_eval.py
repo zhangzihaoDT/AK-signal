@@ -219,7 +219,12 @@ def odds_assessment(stage: str, evidence_label: str, history: dict) -> str:
     """按文档决策矩阵映射 (stage, evidence_label) → 稳定枚举。
 
     枚举：strong_observe / watch_structure / position_only / cautious /
-          out_of_domain_good / out_of_domain_bad / unreliable
+          out_of_domain_good / out_of_domain_bad / out_of_domain_unknown / unreliable
+
+    OUT_OF_DOMAIN 三分类：
+      good    = 历史正收益（median_120d>0）但当前不在研究域
+      bad     = 历史负收益但当前不在研究域
+      unknown = 历史不足（INSUFFICIENT_HISTORY，n<2 无可靠 median）
     """
     if stage == "UNRELIABLE":
         return "unreliable"
@@ -235,7 +240,10 @@ def odds_assessment(stage: str, evidence_label: str, history: dict) -> str:
             return "cautious"
         return "position_only"  # YEAR_DEPENDENT：位置有意义但赔率依赖年份
     if stage == "OUT_OF_DOMAIN":
-        return "out_of_domain_good" if history.get("median_120d") and history["median_120d"] > 0 else "out_of_domain_bad"
+        med = history.get("median_120d")
+        if med is None or (isinstance(med, float) and med != med):
+            return "out_of_domain_unknown"  # 历史不足，不能判好坏
+        return "out_of_domain_good" if med > 0 else "out_of_domain_bad"
     return "unreliable"
 
 

@@ -783,13 +783,24 @@ def test_odds_assessment_mapping():
     from src.research.etf_bottom.current_eval import odds_assessment
     good = {"median_120d": 0.05}
     neg = {"median_120d": -0.05}
+    empty = {"median_120d": None}
     assert odds_assessment("TARGET", "CROSS_YEAR_SUPPORTED", good) == "strong_observe"
     assert odds_assessment("IN_DOMAIN_NON_TARGET", "CROSS_YEAR_SUPPORTED", good) == "watch_structure"
     assert odds_assessment("IN_DOMAIN_NON_TARGET", "INSUFFICIENT_HISTORY", good) == "position_only"
     assert odds_assessment("IN_DOMAIN_NON_TARGET", "NEGATIVE_HISTORY", neg) == "cautious"
     assert odds_assessment("OUT_OF_DOMAIN", "CROSS_YEAR_SUPPORTED", good) == "out_of_domain_good"
     assert odds_assessment("OUT_OF_DOMAIN", "NEGATIVE_HISTORY", neg) == "out_of_domain_bad"
+    # 历史不足 → out_of_domain_unknown（不是「无吸引力」）
+    assert odds_assessment("OUT_OF_DOMAIN", "INSUFFICIENT_HISTORY", empty) == "out_of_domain_unknown"
     assert odds_assessment("UNRELIABLE", "NEGATIVE_HISTORY", neg) == "unreliable"
+
+
+def test_odds_position_only_secondary_label():
+    """position_only 二级翻译：YEAR_DEPENDENT 与 INSUFFICIENT 展示不同（底层 enum 不变）。"""
+    from src.research.etf_bottom.current_eval_report import _odds_label
+    assert "跨年不稳" in _odds_label("position_only", "YEAR_DEPENDENT")
+    assert "历史不足" in _odds_label("position_only", "INSUFFICIENT_HISTORY")
+    assert _odds_label("position_only", "YEAR_DEPENDENT") != _odds_label("position_only", "INSUFFICIENT_HISTORY")
 
 
 def test_odds_report_renderer_pure_and_sorted():
@@ -803,7 +814,7 @@ def test_odds_report_renderer_pure_and_sorted():
     etfs = payload["etfs"]
     # renderer 不重算：输出排序后集合应等于直接按 odds 枚举统计
     order = ["strong_observe", "watch_structure", "position_only", "cautious",
-             "out_of_domain_good", "out_of_domain_bad", "unreliable"]
+             "out_of_domain_good", "out_of_domain_unknown", "out_of_domain_bad", "unreliable"]
     ranks = {o: i for i, o in enumerate(order)}
     got = [e.get("odds_assessment", "unreliable") for e in _sorted_etfs(etfs)]
     assert all(ranks[got[i]] <= ranks[got[i + 1]] for i in range(len(got) - 1)), "odds 序排序失败"
@@ -816,9 +827,11 @@ def test_odds_report_renderer_pure_and_sorted():
     assert IN_DOMAIN_STAGES == ("TARGET", "IN_DOMAIN_NON_TARGET")
     assert CROSS_YEAR_LABEL == "CROSS_YEAR_SUPPORTED"
     assert FOCUS_ODDS == ("strong_observe", "watch_structure")
-    # HTML 生成成功且含 8 列表头
+    # HTML 生成成功且含 8 列表头（ETF 合并 + n 保留）
     html_path = render_current_odds(payload)
     html = html_path.read_text(encoding="utf-8")
-    for col in ("RR 阶段", "收益(120D中位)", "胜率", "Payoff", "时间证据", "最终判断"):
+    for col in ("RR 阶段", "n</th>", "120D 中位", "胜率", "Payoff", "时间证据", "最终判断"):
         assert col in html
+    # n 必须保留（防止小样本被隐藏）
+    assert "· 智能汽车ETF富国" in html
     assert html_path.exists()
