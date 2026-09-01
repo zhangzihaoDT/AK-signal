@@ -240,9 +240,12 @@ def odds_assessment(stage: str, evidence_label: str, history: dict) -> str:
             return "cautious"
         return "position_only"  # YEAR_DEPENDENT：位置有意义但赔率依赖年份
     if stage == "OUT_OF_DOMAIN":
+        # INSUFFICIENT_HISTORY 优先于 pooled median：n<2 无可靠收益分布，不能判好坏
+        if evidence_label == "INSUFFICIENT_HISTORY":
+            return "out_of_domain_unknown"
         med = history.get("median_120d")
         if med is None or (isinstance(med, float) and med != med):
-            return "out_of_domain_unknown"  # 历史不足，不能判好坏
+            return "out_of_domain_unknown"
         return "out_of_domain_good" if med > 0 else "out_of_domain_bad"
     return "unreliable"
 

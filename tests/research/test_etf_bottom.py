@@ -790,9 +790,23 @@ def test_odds_assessment_mapping():
     assert odds_assessment("IN_DOMAIN_NON_TARGET", "NEGATIVE_HISTORY", neg) == "cautious"
     assert odds_assessment("OUT_OF_DOMAIN", "CROSS_YEAR_SUPPORTED", good) == "out_of_domain_good"
     assert odds_assessment("OUT_OF_DOMAIN", "NEGATIVE_HISTORY", neg) == "out_of_domain_bad"
-    # 历史不足 → out_of_domain_unknown（不是「无吸引力」）
+    # 历史不足 → out_of_domain_unknown（不是「无吸引力」）；即使 pooled median>0 也优先 unknown
     assert odds_assessment("OUT_OF_DOMAIN", "INSUFFICIENT_HISTORY", empty) == "out_of_domain_unknown"
+    assert odds_assessment("OUT_OF_DOMAIN", "INSUFFICIENT_HISTORY", good) == "out_of_domain_unknown"
     assert odds_assessment("UNRELIABLE", "NEGATIVE_HISTORY", neg) == "unreliable"
+
+
+def test_odds_out_of_domain_insufficient_precedes_median():
+    """OUT_OF_DOMAIN × INSUFFICIENT_HISTORY 必须判 unknown，即使 median>0（159666 n=1 边界）。"""
+    import json
+    from src.research.etf_bottom import STUDY_DIR
+    from src.research.etf_bottom.current_eval import odds_assessment
+    payload = json.loads((STUDY_DIR / "current_watch_eval.json").read_text(encoding="utf-8"))
+    e159666 = next(e for e in payload["etfs"] if e["fund_code"] == "159666")
+    assert e159666["evidence_label"] == "INSUFFICIENT_HISTORY"
+    assert e159666["history"]["median_120d"] is not None and e159666["history"]["median_120d"] > 0
+    # 重新映射：即使历史 median>0，INSUFFICIENT 仍应判 unknown
+    assert odds_assessment("OUT_OF_DOMAIN", "INSUFFICIENT_HISTORY", e159666["history"]) == "out_of_domain_unknown"
 
 
 def test_odds_position_only_secondary_label():

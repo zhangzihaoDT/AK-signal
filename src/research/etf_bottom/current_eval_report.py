@@ -225,7 +225,7 @@ def render_current_odds(payload: dict, out_path: Path | None = None) -> Path:
 <table>
 <thead><tr><th>ETF</th><th>RR 阶段</th><th>n</th><th>120D 中位</th><th>胜率</th><th>Payoff</th><th>时间证据</th><th>最终判断</th></tr></thead>
 <tbody>{_table_rows(etfs)}</tbody></table>
-<p class="meta">n = 该 ETF 历史长期底部 entry 数；120D 中位 = 每次 entry 后 120 日收益中位；Payoff = positive_median / abs(negative_median)，无负样本或样本不足显示 —。</p>
+<p class="meta">n = 该 ETF 历史长期底部 entry 数；120D 中位 = 每次 entry 后 120 日收益中位；Payoff = positive_median / abs(negative_median)，缺少正收益样本或负收益样本时显示 —，不代表上行或下行风险为零。</p>
 </div>
 
 <h2>决策矩阵图例</h2>
@@ -236,7 +236,7 @@ def render_current_odds(payload: dict, out_path: Path | None = None) -> Path:
 <li>规则 = <code>{payload.get('rule_id', 'REPAIR_RETEST_V1')}</code> 冻结 spec（{payload.get('cut_points_source', '')}），本研究不修改 V1</li>
 <li>修复 = target 结构：长期底部域内 pos60 Q1 × pos120 Q3（中期已抬底、短期再探底）</li>
 <li>no look-ahead：当前 stage/pos 均用 as_of={payload.get('as_of', '')} 当日可观察信息，不含未来</li>
-<li>历史赔率 = 该 ETF 自身长期底部 entry 后 120D；时间代表性用 evidence_label 审计（防单年伪影）</li>
+<li>历史收益证据 = 该 ETF 自身长期底部 entry 后 120D 收益分布（中位为典型收益、胜率、Payoff 为盈亏赔率三者分离）；时间代表性用 evidence_label 审计（防单年伪影）</li>
 <li>n&lt;2 或全正样本的 payoff 显示 —，不代表下行风险为零</li>
 <li>本表是研究观察，不是买入建议</li>
 </ul></div>
