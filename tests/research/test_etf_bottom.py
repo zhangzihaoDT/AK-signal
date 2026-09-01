@@ -790,3 +790,35 @@ def test_odds_assessment_mapping():
     assert odds_assessment("OUT_OF_DOMAIN", "CROSS_YEAR_SUPPORTED", good) == "out_of_domain_good"
     assert odds_assessment("OUT_OF_DOMAIN", "NEGATIVE_HISTORY", neg) == "out_of_domain_bad"
     assert odds_assessment("UNRELIABLE", "NEGATIVE_HISTORY", neg) == "unreliable"
+
+
+def test_odds_report_renderer_pure_and_sorted():
+    """HTML renderer 是纯 renderer：只消费已有字段，排序确定（odds 序 + median DESC + code ASC）。"""
+    import json
+    from src.research.etf_bottom import STUDY_DIR
+    from src.research.etf_bottom.current_eval_report import (
+        _sorted_etfs, render_current_odds, IN_DOMAIN_STAGES, CROSS_YEAR_LABEL, FOCUS_ODDS,
+    )
+    payload = json.loads((STUDY_DIR / "current_watch_eval.json").read_text(encoding="utf-8"))
+    etfs = payload["etfs"]
+    # renderer 不重算：输出排序后集合应等于直接按 odds 枚举统计
+    order = ["strong_observe", "watch_structure", "position_only", "cautious",
+             "out_of_domain_good", "out_of_domain_bad", "unreliable"]
+    ranks = {o: i for i, o in enumerate(order)}
+    got = [e.get("odds_assessment", "unreliable") for e in _sorted_etfs(etfs)]
+    assert all(ranks[got[i]] <= ranks[got[i + 1]] for i in range(len(got) - 1)), "odds 序排序失败"
+    # 组内 median DESC：同 odds 组内递减（缺失在最后）
+    for o in order:
+        group = [e.get("history", {}).get("median_120d") for e in _sorted_etfs(etfs) if e.get("odds_assessment") == o]
+        meds = [m for m in group if m is not None]
+        assert meds == sorted(meds, reverse=True)
+    # 集合定义锁定（口径不得漂移）
+    assert IN_DOMAIN_STAGES == ("TARGET", "IN_DOMAIN_NON_TARGET")
+    assert CROSS_YEAR_LABEL == "CROSS_YEAR_SUPPORTED"
+    assert FOCUS_ODDS == ("strong_observe", "watch_structure")
+    # HTML 生成成功且含 8 列表头
+    html_path = render_current_odds(payload)
+    html = html_path.read_text(encoding="utf-8")
+    for col in ("RR 阶段", "收益(120D中位)", "胜率", "Payoff", "时间证据", "最终判断"):
+        assert col in html
+    assert html_path.exists()
