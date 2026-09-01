@@ -166,14 +166,29 @@ def cmd_current_eval(args: argparse.Namespace) -> int:
 
     payload = run_current_eval()
     print(f"eval json : {STUDY_DIR / 'current_watch_eval.json'}")
+    print(f"odds csv  : {STUDY_DIR / 'current_odds_table.csv'}")
     print("stage_summary:", payload["stage_summary"])
     print("cut_points source:", payload["cut_points_source"])
-    print("\n逐只：")
+    print("\n当前赔率表（emoji 仅展示层，数据层为稳定枚举）:")
+    print(f"{'code':<7}{'name':<14}{'theme':<10}{'stage':<20}{'n':<4}{'med120':>8}{'win':>6}{'payoff':>8}{'year':<10}{'odds'}")
     for e in payload["etfs"]:
         h = e.get("history", {})
-        print(f"  {e['fund_code']} {e['fund_name']:12s} stage={e['stage']:20s} "
-              f"p60={e.get('p60')} p120={e.get('p120')} hist='{h.get('support', '—')}'")
+        med = f"{h.get('median_120d', 0)*100:+.1f}%" if h.get("median_120d") is not None else "—"
+        win = f"{h.get('win_rate', 0)*100:.0f}%" if h.get("win_rate") is not None else "—"
+        pay = f"{h.get('payoff_ratio'):.2f}" if h.get("payoff_ratio") is not None else "—"
+        mark = _odds_mark(e.get("odds_assessment", "unreliable"))
+        print(f"{e['fund_code']:<7}{e['fund_name']:<14}{e['theme']:<10}{e['stage']:<20}"
+              f"{h.get('n', 0):<4}{med:>8}{win:>6}{pay:>8}{e.get('evidence_label', ''):<10}{mark}")
     return 0
+
+
+def _odds_mark(odds: str) -> str:
+    """数据层枚举 → 展示符号（仅 CLI/HTML 层，不写回数据产物）。"""
+    return {
+        "strong_observe": "★", "watch_structure": "🟢", "position_only": "🟡",
+        "cautious": "🔴", "out_of_domain_good": "⚪", "out_of_domain_bad": "🔴",
+        "unreliable": "⚠️",
+    }.get(odds, odds)
 
 
 def main() -> None:

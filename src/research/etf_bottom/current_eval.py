@@ -146,28 +146,97 @@ def eval_one(code: str, name: str, theme: str, cut120: list[float], cut60: list[
 
 
 def attach_history(code: str) -> dict[str, Any]:
-    """附 2A self-history + 跨年份稳健性（读 state_odds_events）。"""
+    """附 2A self-history + 跨年份稳健性 + payoff（读 state_odds_events）。
+
+    evidence_label（严格口径，用户锁定）：
+      1) n < 2                        → INSUFFICIENT_HISTORY
+      2) pooled median_120d <= 0      → NEGATIVE_HISTORY（整体负优先，避免多年偏负误标 YEAR_DEPENDENT）
+      3) 有数据年份数 >= 2 且所有年份 median > 0 → CROSS_YEAR_SUPPORTED
+      4) 其余（>=2 年、pooled>0、非全正）      → YEAR_DEPENDENT
+
+    payoff_ratio = positive_median / abs(negative_median)；n_negative=0 → None（不写无穷）。
+    """
     ev = pd.read_parquet(STUDY_DIR / "state_odds_events.parquet")
     sub = ev[(ev["fund_code"] == code) & ev["state"].isin(["DEEP_BOTTOM", "RECOVERING_FROM_BOTTOM"])].copy()
     sub = sub[sub["ret_120"].notna()]
     if sub.empty:
-        return {"history": {"n": 0, "support": "无历史先例（证据不足）", "by_year": {}}}
+        return {"history": {"n": 0, "median_120d": None, "mean_120d": None, "win_rate": None,
+                            "n_positive": 0, "n_negative": 0,
+                            "positive_median": None, "negative_median": None, "payoff_ratio": None,
+                            "support": "无历史先例（证据不足）", "evidence_label": "INSUFFICIENT_HISTORY",
+                            "by_year": {}}}
     r = sub["ret_120"]
-    n, med, win = len(r), float(r.median()), float((r > 0).mean())
+    n = len(r)
+    med = float(r.median())
+    mean = float(r.mean())
+    win = float((r > 0).mean())
+    pos = r[r > 0]
+    neg = r[r < 0]
+    pos_med = float(pos.median()) if len(pos) else None
+    neg_med = float(neg.median()) if len(neg) else None
+    payoff = (pos_med / abs(neg_med)) if (pos_med is not None and neg_med is not None and neg_med < 0) else None
+
     if n >= 2 and med > 0 and win >= 0.5:
         support = "历史支持"
     elif n >= 2:
         support = "历史不支持"
     else:
         support = "证据不足"
+
     sub = sub.copy()
     sub["year"] = sub["entry_date"].astype(str).str[:4]
     by_year = {}
     for y, g in sub.groupby("year"):
         by_year[str(y)] = {"n": int(len(g)), "median": round(float(g["ret_120"].median()), 4),
                            "win": round(float((g["ret_120"] > 0).mean()), 4)}
-    return {"history": {"n": n, "median_120d": round(med, 4), "win_rate": round(win, 4),
-                        "support": support, "by_year": by_year}}
+    by_year_sorted = dict(sorted(by_year.items()))
+    year_medians = [v["median"] for v in by_year_sorted.values() if v["median"] is not None]
+
+    # evidence_label（NEGATIVE_HISTORY 优先）
+    if n < 2:
+        evidence_label = "INSUFFICIENT_HISTORY"
+    elif med <= 0:
+        evidence_label = "NEGATIVE_HISTORY"
+    elif len(year_medians) >= 2 and all(v > 0 for v in year_medians):
+        evidence_label = "CROSS_YEAR_SUPPORTED"
+    else:
+        evidence_label = "YEAR_DEPENDENT"
+
+    return {"history": {
+        "n": n, "median_120d": round(med, 4), "mean_120d": round(mean, 4), "win_rate": round(win, 4),
+        "n_positive": int(len(pos)), "n_negative": int(len(neg)),
+        "positive_median": round(pos_med, 4) if pos_med is not None else None,
+        "negative_median": round(neg_med, 4) if neg_med is not None else None,
+        "payoff_ratio": round(payoff, 4) if payoff is not None else None,
+        "support": support, "evidence_label": evidence_label, "by_year": by_year,
+    }}
+
+
+# ── 综合判断评级（⑦ Odds Assessment）────────────────────────────
+# 数据层只存稳定枚举（去 emoji）；CLI/HTML 展示时再映射符号。
+
+def odds_assessment(stage: str, evidence_label: str, history: dict) -> str:
+    """按文档决策矩阵映射 (stage, evidence_label) → 稳定枚举。
+
+    枚举：strong_observe / watch_structure / position_only / cautious /
+          out_of_domain_good / out_of_domain_bad / unreliable
+    """
+    if stage == "UNRELIABLE":
+        return "unreliable"
+    if stage == "TARGET":
+        return "strong_observe" if evidence_label == "CROSS_YEAR_SUPPORTED" else (
+            "watch_structure" if evidence_label in ("YEAR_DEPENDENT", "INSUFFICIENT_HISTORY") else "cautious")
+    if stage == "IN_DOMAIN_NON_TARGET":
+        if evidence_label == "CROSS_YEAR_SUPPORTED":
+            return "watch_structure"
+        if evidence_label == "INSUFFICIENT_HISTORY":
+            return "position_only"
+        if evidence_label == "NEGATIVE_HISTORY":
+            return "cautious"
+        return "position_only"  # YEAR_DEPENDENT：位置有意义但赔率依赖年份
+    if stage == "OUT_OF_DOMAIN":
+        return "out_of_domain_good" if history.get("median_120d") and history["median_120d"] > 0 else "out_of_domain_bad"
+    return "unreliable"
 
 
 def run_current_eval(study_dir: Path | None = None) -> dict:
@@ -182,11 +251,30 @@ def run_current_eval(study_dir: Path | None = None) -> dict:
         res = eval_one(row["fund_code"], row["fund_name"], row["theme"], cut120, cut60,
                        tier=row.get("tier", ""), participation=row.get("participation", "tradeable"))
         res.update(attach_history(row["fund_code"]))
+        h = res.get("history", {})
+        res["evidence_label"] = h.get("evidence_label", "INSUFFICIENT_HISTORY")
+        res["odds_assessment"] = odds_assessment(res["stage"], res["evidence_label"], h)
         results.append(res)
 
     stages = {}
     for r in results:
         stages[r["stage"]] = stages.get(r["stage"], 0) + 1
+
+    # CSV 落盘（数据层纯枚举，无 emoji）
+    rows = []
+    for r in results:
+        h = r.get("history", {})
+        rows.append({
+            "fund_code": r["fund_code"], "fund_name": r["fund_name"], "theme": r["theme"],
+            "stage": r["stage"], "evidence_label": r["evidence_label"], "odds_assessment": r["odds_assessment"],
+            "pos60": r.get("p60"), "pos120": r.get("p120"), "pos360": r.get("p360"),
+            "n_entries": h.get("n"), "median_120d": h.get("median_120d"), "mean_120d": h.get("mean_120d"),
+            "win_rate": h.get("win_rate"), "n_positive": h.get("n_positive"), "n_negative": h.get("n_negative"),
+            "positive_median": h.get("positive_median"), "negative_median": h.get("negative_median"),
+            "payoff_ratio": h.get("payoff_ratio"),
+        })
+    csv_path = study_dir / "current_odds_table.csv"
+    pd.DataFrame(rows).to_csv(csv_path, index=False, encoding="utf-8-sig")
 
     payload = {
         "study": "Current Watch ETF Repair-Retest V1 Evaluation",
@@ -197,6 +285,7 @@ def run_current_eval(study_dir: Path | None = None) -> dict:
         "cut_points_source": "config/research/repair_retest_v1.yaml (frozen V1)",
         "cut_points": {"price_pos_120": cut120, "price_pos_60": cut60},
         "stage_summary": stages,
+        "odds_table_csv": str(csv_path),
         "etfs": results,
     }
     out = study_dir / "current_watch_eval.json"

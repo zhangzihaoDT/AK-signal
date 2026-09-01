@@ -385,3 +385,6 @@ make test             # 全部测试
   - **current-eval 只读 frozen YAML**（不再依赖最新研究输出）——重跑研究不会改变 V1 规则；`repair_structure.py` 每次重算 latest cut points 并与 V1 比较，输出 `frozen_cutpoint_drift`（DRIFT_WITHIN_TOLERANCE / DRIFT_OUTSIDE_TOLERANCE，容忍度 0.05），绝不覆盖 YAML
   - **V1 永不修改**：新 ETF/新历史只影响 latest drift + OOS；阈值确需改变 → 新建 `REPAIR_RETEST_V2`
   - **测试分层**：规则锁定测试（逐值锁死 V1 cut points/domain/target/outcome）+ 研究复现测试（latest drift 报告结构 + verdict 与 V1 一致）
+  - **当前赔率表 Pipeline（`make etf-bottom-current-eval`，CLI + CSV，无 HTML）**：按 `docs/target_etf_odds_workflow.md` 五层固化——① Domain Guard（UNRELIABLE/OUT_OF_DOMAIN/IN_DOMAIN/TARGET）→ ② 冻结 Repair-Retest → ③ 自身赔率（n/median/win/payoff_ratio）→ ④ 时间代表性（evidence_label：`INSUFFICIENT_HISTORY / NEGATIVE_HISTORY（pooled median≤0 优先） / CROSS_YEAR_SUPPORTED（≥2 年且全正） / YEAR_DEPENDENT`）→ ⑤ 综合判断（odds_assessment 稳定枚举：`strong_observe/watch_structure/position_only/cautious/out_of_domain_good/out_of_domain_bad/unreliable`）
+  - **数据层去 emoji**：JSON/CSV 只存稳定枚举；★🟢🟡🔴⚪⚠️ 仅 CLI 展示层映射，不写回产物；`payoff_ratio` 在 n_neg=0 时为 None（不写 ∞），保留 n_positive/n_negative/positive_median/negative_median 供审计
+  - **产物**：`current_watch_eval.json` + `current_odds_table.csv`

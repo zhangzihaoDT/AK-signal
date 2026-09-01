@@ -750,3 +750,43 @@ def test_repair_cutpoint_drift_report():
     for feature, row in drift["features"].items():
         assert "frozen" in row and "latest" in row and "delta" in row
         assert len(row["delta"]) == 4
+
+
+def test_odds_payoff_ratio():
+    """payoff_ratio：正负中位除法；n_neg=0 → None。"""
+    from src.research.etf_bottom.current_eval import attach_history
+    h = attach_history("515250")["history"]
+    assert h["n"] >= 2
+    if h["payoff_ratio"] is not None:
+        assert h["payoff_ratio"] > 0
+    # 159611 全正样本 → n_neg=0 → payoff None
+    h2 = attach_history("159611")["history"]
+    assert h2["n_negative"] == 0
+    assert h2["payoff_ratio"] is None
+
+
+def test_odds_evidence_label():
+    """evidence_label 四分类（NEGATIVE_HISTORY 优先，用户锁定口径）。"""
+    from src.research.etf_bottom.current_eval import attach_history
+    # 515250：2022 正 + 2024 正 → CROSS_YEAR_SUPPORTED
+    assert attach_history("515250")["history"]["evidence_label"] == "CROSS_YEAR_SUPPORTED"
+    # 515030：pooled median 负 → NEGATIVE_HISTORY（即使有正年份）
+    assert attach_history("515030")["history"]["evidence_label"] == "NEGATIVE_HISTORY"
+    # 516110：2022 负、2023/2024 正 → YEAR_DEPENDENT
+    assert attach_history("516110")["history"]["evidence_label"] == "YEAR_DEPENDENT"
+    # 159512：无 entry → INSUFFICIENT_HISTORY
+    assert attach_history("159512")["history"]["evidence_label"] == "INSUFFICIENT_HISTORY"
+
+
+def test_odds_assessment_mapping():
+    """odds_assessment：决策矩阵映射（数据层稳定枚举，无 emoji）。"""
+    from src.research.etf_bottom.current_eval import odds_assessment
+    good = {"median_120d": 0.05}
+    neg = {"median_120d": -0.05}
+    assert odds_assessment("TARGET", "CROSS_YEAR_SUPPORTED", good) == "strong_observe"
+    assert odds_assessment("IN_DOMAIN_NON_TARGET", "CROSS_YEAR_SUPPORTED", good) == "watch_structure"
+    assert odds_assessment("IN_DOMAIN_NON_TARGET", "INSUFFICIENT_HISTORY", good) == "position_only"
+    assert odds_assessment("IN_DOMAIN_NON_TARGET", "NEGATIVE_HISTORY", neg) == "cautious"
+    assert odds_assessment("OUT_OF_DOMAIN", "CROSS_YEAR_SUPPORTED", good) == "out_of_domain_good"
+    assert odds_assessment("OUT_OF_DOMAIN", "NEGATIVE_HISTORY", neg) == "out_of_domain_bad"
+    assert odds_assessment("UNRELIABLE", "NEGATIVE_HISTORY", neg) == "unreliable"
