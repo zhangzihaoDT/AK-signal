@@ -86,6 +86,32 @@ def test_calibrate_etf_type_manager_suffix_not_exposure():
     assert calibrate_etf_type("港股央企红利ETF永赢", "")["calibrated_type"] == "dividend"
 
 
+def test_calibrate_etf_type_money_keywords():
+    """场内货币基金命名多样（不都带「货币」）→ 通过关键词或 flat-price guardrail 判为 money。"""
+    from src.research.etf_bottom.universe import calibrate_etf_type, is_flat_price
+    import pandas as pd
+    # 关键词层：名字含货币类别 token（不一定有「货币」二字）
+    keyword_money = [
+        "华安日日鑫ETF", "华宝添益ETF", "银华日利ETF",
+        "快钱ETF汇添富", "招商快线ETF", "货币ETF南方", "富国货币ETF",
+    ]
+    for n in keyword_money:
+        assert calibrate_etf_type(n, "")["calibrated_type"] == "money", n
+    # 权益/行业/宽基不受影响
+    assert calibrate_etf_type("半导体ETF国联安", "")["calibrated_type"] == "industry"
+    assert calibrate_etf_type("沪深300ETF", "")["calibrated_type"] == "broad"
+    assert calibrate_etf_type("智能汽车ETF富国", "")["calibrated_type"] == "industry"
+
+    # flat-price guardrail：近零波动资产即使关键词漏判也能被识别
+    idx = pd.bdate_range("2023-01-02", periods=400)
+    flat = pd.DataFrame({"close": [100.0] * len(idx)}, index=idx)
+    assert is_flat_price(flat)
+    equity = pd.DataFrame({"close": np.linspace(1.0, 2.5, len(idx))}, index=idx)
+    assert not is_flat_price(equity)
+    noisy = pd.DataFrame({"close": 1.0 + 0.01 * np.sin(np.arange(len(idx)))}, index=idx)
+    assert not is_flat_price(noisy)
+
+
 def test_close_panel_forward_and_benchmark():
     # 构造两只 ETF 的 close 面板
     idx = pd.bdate_range("2024-01-02", periods=100)
@@ -366,13 +392,20 @@ def test_drilldown_long_term_entries_off_on():
 
 
 def test_drilldown_support_level_logic():
-    """支持级别：先例≥2 且 120D 中位>0 且胜率≥50% → 历史支持；120D 无样本 → 证据不足。"""
+    """支持级别：先例≥2 且 120D 中位>0 且胜率≥50% → 历史支持；120D 无样本 → 证据不足。
+
+    货币 ETF（华安日日鑫等）已由 taxonomy 关键词 + flat-price guardrail 排除，
+    drilldown 只含真实长期底部权益/行业标的（28 只，不硬编码具体名单）。
+    """
     from src.research.etf_bottom.drilldown import run_drilldown
     p = run_drilldown()
-    assert len(p["etfs"]) == 29
+    assert len(p["etfs"]) == 28
     levels = p["support_summary"]
-    assert sum(levels.values()) == 29
+    assert sum(levels.values()) == 28
     assert set(levels.keys()) == {"历史支持", "历史不支持", "证据不足"}
+    # 货币 ETF 不应出现在任何长期底部标的
+    for r in p["etfs"]:
+        assert r["etf_type"] != "money", r["fund_code"]
     # 证据不足组：要么先例<2，要么 120D 样本 n=0
     for r in p["etfs"]:
         if r["support_level"] == "证据不足":
@@ -382,7 +415,7 @@ def test_drilldown_support_level_logic():
         if r["support_level"] == "历史支持":
             h = r["hist"]["120"]
             assert h["median"] > 0 and h["win_rate"] >= 0.5
-    # 每只 ETF 的当前段信息存在（华安日日鑫为货币 ETF，边界天数可能为 0）
+    # 每只 ETF 的当前段信息存在
     for r in p["etfs"]:
         assert "days_in_current_bottom" in r["current"]
         assert r["current"]["days_in_current_bottom"] >= 0

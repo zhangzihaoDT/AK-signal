@@ -34,7 +34,7 @@ import pandas as pd
 
 from src.common.paths import etf_signal_master_dir, etf_signal_raw_dir
 
-from .universe import calibrate_etf_type
+from .universe import calibrate_etf_type, is_flat_price
 from . import STUDY_DIR
 
 logger = logging.getLogger(__name__)
@@ -74,8 +74,10 @@ def compute_row(code: str, name: str, etf_type: str, d: pd.DataFrame, as_of: pd.
         "history_days": int(n_hist),
         "close_as_of": float(close.iloc[-1]),
     }
-    # 货币/债券近零波动，P 分位无意义（与 Study 1 口径一致）→ 不参与底部状态
-    if etf_type in ("money", "bond"):
+    # 货币/债券近零波动，P 分位无意义（与 Study 1 口径一致）→ 不参与底部状态。
+    # 防御 guardrail：即使 taxonomy 漏判（如场内货币名不带动「货币」关键词），
+    # is_flat_price 波动率信号也将其判为近零波动，排除出底部状态（flat_price_noise）。
+    if etf_type in ("money", "bond") or is_flat_price(df):
         for w in WINDOWS:
             row[f"full_{w}_sample"] = n_hist >= w
             row[f"low_{w}"] = None

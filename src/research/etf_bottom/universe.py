@@ -55,7 +55,35 @@ _CROSS_BORDER_KEYWORDS = [
 
 _BOND_KEYWORDS = ["国债", "国开", "政金", "利率债", "信用债", "城投", "公司债", "可转债", "转债", "短融"]
 _COMMODITY_KEYWORDS = ["黄金", "白银", "豆粕", "能源化工", "商品", "原油", "有色矿产", "贵金属"]
-_MONEY_KEYWORDS = ["货币", "现金", "短融", "场内货币"]
+# 场内货币基金命名多样（日日鑫/添益/日利/快线/快钱…不都带「货币」）。
+# 本列表与生产 classifier.py 的 money 规则保持同一语义集，改动需两处同步。
+_MONEY_KEYWORDS = [
+    "货币", "现金", "短融", "场内货币", "货币增强",
+    "日日鑫", "日鑫", "添益", "日利", "快线", "快钱", "天利", "同业存单",
+]
+
+# ── 近零波动防御（flat-price guardrail）────────────────────────────
+# 场内货币/债券基金 price 几乎不动：mean|daily ret| ≤ ~0.0004，权益 ETF ≥ ~0.005，
+# 两者间约 12x 空档。此阈值作为 taxonomy 漏判的兜底：即使关键词没命中，
+# 也能识别「P 分位无意义的近零波动资产」，排除出底部状态（flat_price_noise）。
+FLAT_PRICE_MEAN_RET_THRESHOLD = 0.001  # 360 日均 |日收益| 上限
+
+
+def is_flat_price(d: pd.DataFrame, window: int = 360) -> bool:
+    """近零波动检测（防御 guardrail，不依赖关键词）。
+
+    以给定价格序列最近 window 日均 |日收益| 判定。货币/债券基金返回 True，
+    权益 ETF 返回 False。序列过短/无法计算时保守返回 False（不放行假阴性进入研究）。
+    """
+    if d is None or len(d) < 2 or "close" not in d.columns:
+        return False
+    c = d["close"].dropna()
+    if len(c) < 2:
+        return False
+    ret = c.pct_change().abs().dropna().tail(window).to_numpy(dtype=float)
+    if ret.size == 0:
+        return False
+    return float(ret.mean()) <= FLAT_PRICE_MEAN_RET_THRESHOLD
 
 
 def calibrate_etf_type(fund_name: str, orig_bucket: str) -> dict[str, Any]:
@@ -130,10 +158,14 @@ def load_full_etf_universe() -> pd.DataFrame:
             "hist_days": len(d),
             "start_date": d["date"].min().date(),
             "end_date": d["date"].max().date(),
+            "flat_price": is_flat_price(d),
         })
     df = pd.DataFrame(rows).drop_duplicates("fund_code").reset_index(drop=True)
     cal = df["fund_name"].map(lambda n: calibrate_etf_type(n, ""))
     df["etf_type"] = [c["calibrated_type"] for c in cal]
+    # 防御 guardrail：taxonomy 漏判的场内货币（近零波动）强制归为 money，
+    # 使 study/state_odds/robustness 的 isin(["money","bond"]) 剔除逻辑一致生效。
+    df.loc[df["flat_price"] & ~df["etf_type"].isin(["money", "bond"]), "etf_type"] = "money"
     logger.info("FULL ETF universe: %d (hist>=756)", len(df))
     logger.info("type distribution: %s", df["etf_type"].value_counts().to_dict())
     return df

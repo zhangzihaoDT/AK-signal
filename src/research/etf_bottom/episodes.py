@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 ETF_MERGE_DAYS = 40        # 交易日：同一 ETF 相邻 entry 间隔小于此值视为同一低位期
 EPISODE_OVERLAP_DAYS = 20  # 交易日：产业内 ETF 低位期重叠/相邻合并为同一 episode
 
-# 产业簇（研究专用硬编码，汽车链合并为一个大簇，货币 ETF 剔除）
+# 产业簇（研究专用硬编码，汽车链合并为一个大簇）
 INDUSTRY_CLUSTERS: dict[str, list[str]] = {
     "游戏传媒": ["517770", "516010", "159869", "159855", "516620", "512980", "159805"],
     "汽车产业链": ["159795", "159888", "159889", "515250", "159872", "516110", "159512", "159323",
@@ -53,8 +53,6 @@ INDUSTRY_CLUSTERS: dict[str, list[str]] = {
     "军工航空": ["512710", "159378"],
 }
 CLUSTER_CODE_SET = {c for codes in INDUSTRY_CLUSTERS.values() for c in codes}
-# 华安日日鑫（货币 ETF 误入 long_term_bottom）不参与 episode 分析
-EXCLUDED_MONEY = {"511600"}
 
 
 def _biz_days_between(a, b) -> int:

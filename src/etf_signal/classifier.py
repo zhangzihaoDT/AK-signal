@@ -50,8 +50,10 @@ BUCKET_DEFINITIONS: dict[str, dict[str, Any]] = {
 
 # 关键词 → primary_bucket + exposure_tags
 KEYWORD_RULES: list[dict[str, Any]] = [
-    # 货币
-    {"keywords": ["货币", "短融", "现金"], "bucket": "money_market", "tags": ["货币"]},
+    # 货币（场内货币基金命名多样：日日鑫/添益/日利/快线/快钱…不都带「货币」，与 research `_MONEY_KEYWORDS` 保持同一语义集）
+    {"keywords": ["货币", "短融", "现金", "场内货币", "货币增强",
+                  "日日鑫", "日鑫", "添益", "日利", "快线", "快钱", "天利", "同业存单"],
+     "bucket": "money_market", "tags": ["货币"]},
     # 债券
     {"keywords": ["国债", "国开", "利率债", "政金债"], "bucket": "bond_treasury", "tags": ["利率债"]},
     {"keywords": ["公司债", "城投债", "科创债", "信用债"], "bucket": "bond_credit", "tags": ["信用债"]},
