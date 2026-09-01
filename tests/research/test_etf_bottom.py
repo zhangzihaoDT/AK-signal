@@ -909,6 +909,8 @@ def test_odds_report_renderer_pure_and_sorted():
     html = html_path.read_text(encoding="utf-8")
     for col in ("RR 阶段", "n</th>", "120D 中位", "胜率", "Payoff", "时间证据", "最终判断"):
         assert col in html
+    # TARGET 展示层中文 = 结构触发候选（机器码保留）
+    assert "结构触发候选" in html
     # n 必须保留（防止小样本被隐藏）
     assert "· 智能汽车ETF富国" in html
     assert html_path.exists()
@@ -1038,7 +1040,8 @@ def test_scanner_prev_trade_date_uniform_and_missing():
 
 def test_scanner_report_renderer_consumes_json_only():
     """scanner HTML renderer 是纯 renderer：消费已落盘 scan JSON，不重算。
-    且 Layer C 历史赔率数值必须渲染出来（517770 游戏传媒 n=9 / +41.2%），不得全部「—」。"""
+    且 Layer C 历史赔率数值必须渲染出来（517770 游戏传媒 n=9 / +41.2%），不得全部「—」。
+    TARGET 展示层中文 =「结构触发候选」（底层机器码保留 TARGET）。"""
     import json
     from src.research.etf_bottom import STUDY_DIR
     from src.research.etf_bottom.scanner_report import render_scan
@@ -1046,9 +1049,21 @@ def test_scanner_report_renderer_consumes_json_only():
     html_path = render_scan(payload)
     html = html_path.read_text(encoding="utf-8")
     for col in ("Layer A · Market Bottom Map", "Layer B · Repair-Retest Scanner",
-                "Layer C · Historical Odds", "TARGET", "NEAR_MISS",
+                "Layer C · Historical Odds", "NEAR_MISS",
                 "REPAIR_RETEST_V1"):
         assert col in html
+    # TARGET 展示层中文（机器码 TARGET 仍在口径文本保留）
+    assert "结构触发候选" in html
+    # 结构触发候选 KPI 必须高亮（金色描边 .kpi-accent，核心指标）
+    assert "kpi-accent" in html
+    # KPI 决策导向排序：结构触发候选（accent）在前，可靠池在后（决策问题 > 数据管线）
+    assert html.find("kpi-accent") < html.find("NEAR_MISS")
+    assert html.find("NEAR_MISS") < html.find("<span>reliable</span>")
+    # 漏斗说明：观察池总数来自 payload（watch_pool_total），renderer 不硬编码不读 config
+    assert payload.get("watch_pool_total") == 18
+    assert "漏斗" in html
+    assert "观察池" in html
+    assert "18" in html
     # 517770 游戏传媒：n=9 / 120D 中位 +41.2% / 胜率 100% 必须出现在 Layer C 表格
     assert "517770" in html
     assert "+41.2%" in html

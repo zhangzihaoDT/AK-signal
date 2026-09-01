@@ -335,8 +335,10 @@ def run_scan(as_of: str | pd.Timestamp | None = None, study_dir: Path | None = N
     # stage 用 eval_one 得到真实 OUT_OF_DOMAIN / UNRELIABLE（不误判为域内）。
     from .current_eval import eval_one, load_watch_etfs
 
+    watch_pool = load_watch_etfs()
+    watch_pool_total = int(len(watch_pool))
     layer_c_by_code = {r["fund_code"]: r for r in layer_b_rows if r.get("odds")}
-    for _, w in load_watch_etfs().iterrows():
+    for _, w in watch_pool.iterrows():
         wc = w["fund_code"]
         if wc in layer_c_by_code:
             continue
@@ -398,6 +400,7 @@ def run_scan(as_of: str | pd.Timestamp | None = None, study_dir: Path | None = N
         "layer_a_market_bottom_map": layer_a,
         "layer_b_repair_retest_scanner": layer_b_rows,
         "layer_c_historical_odds": layer_c,
+        "watch_pool_total": watch_pool_total,
         "unreliable_audit": unreliable_df[["fund_code", "fund_name", "hist_days", "data_quality_flag"]].to_dict("records"),
         "flat_price_audit": flat_df[["fund_code", "fund_name", "hist_days", "data_quality_flag"]].to_dict("records"),
     }

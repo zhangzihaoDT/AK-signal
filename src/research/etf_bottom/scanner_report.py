@@ -41,6 +41,9 @@ tr:nth-child(even) td{background:#f7fbfd}
 .kpi{display:inline-block;background:var(--zh-card);border:1px solid #d5e6f2;border-radius:8px;padding:10px 16px;margin:6px 8px 6px 0;min-width:150px}
 .kpi b{display:block;font-size:1.35em;color:var(--zh-blue)}
 .kpi span{color:var(--zh-muted);font-size:.8em}
+.kpi-accent{display:inline-block;background:var(--zh-card);border:3px solid var(--zh-raccoon-gold);border-radius:8px;padding:10px 16px;margin:6px 8px 6px 0;min-width:150px}
+.kpi-accent b{display:block;font-size:1.35em;color:var(--zh-deep-blue)}
+.kpi-accent span{color:var(--zh-brown);font-size:.8em;font-weight:600}
 footer{margin-top:40px;padding-top:14px;border-top:1px solid #d5e6f2;color:var(--zh-muted);font-size:.8em}
 .summary{background:var(--zh-deep-blue);color:#fff;border-radius:10px;padding:18px 22px;margin:16px 0}
 .summary h3{color:var(--zh-cyan);margin-top:0}
@@ -55,7 +58,7 @@ details summary{cursor:pointer;color:var(--zh-blue);font-size:.82em}
 """
 
 _TARGET_LABEL = {
-    "TARGET": "★ TARGET",
+    "TARGET": "★ 结构触发候选",
     "NEAR_MISS": "▲ NEAR_MISS",
     "NON_TARGET": "域内·非target",
     "IN_DOMAIN_NON_TARGET": "域内·非target",
@@ -95,11 +98,16 @@ def _cohort_tag(cohort: str) -> str:
 
 
 def _layer_a_section(a: dict) -> str:
+    def _kpi(lab: str, val, accent: bool = False) -> str:
+        cls = "kpi-accent" if accent else "kpi"
+        return f"<div class='{cls}'><span>{lab}</span><b>{val}</b></div>"
+
     kpis = "".join(
-        f"<div class='kpi'><span>{lab}</span><b>{a[k]}</b></div>"
-        for lab, k in [("reliable", "reliable_total"), ("长期底部", "long_term_bottom_total"),
-                       ("DEEP", "deep_total"), ("RECOVERING", "recovering_total"),
-                       ("TARGET", "target_total"), ("NEAR_MISS", "near_miss_total")])
+        _kpi(lab, a[k], accent=(k == "target_total"))
+        for lab, k in [("结构触发候选", "target_total"),
+                       ("NEAR_MISS", "near_miss_total"),
+                       ("长期底部域", "long_term_bottom_total"),
+                       ("reliable", "reliable_total")])
 
     state_rows = "".join(
         f"<tr><td>{st}</td><td>{n}</td></tr>" for st, n in sorted(a["state_counts"].items()))
@@ -120,7 +128,6 @@ def _layer_a_section(a: dict) -> str:
 <div class="card">
   <div class="kpis">
     {kpis}
-    <div class="kpi"><span>域内广度</span><b>{_pct(a['domain_breadth_ratio'], 2, False)}</b></div>
   </div>
   <p class="meta">reliable 全市场 = {a['reliable_total']}（BASE {cohort.get('BASE', 0)} / EXTENSION {cohort.get('EXTENSION', 0)}）· unreliable（数据门未过，audit only）= {a['unreliable_total']}{flat_note} · 当日迁移 = 相对统一 market prev-trade-date（{a.get('prev_trade_date', '—')}）</p>
 </div>
@@ -207,12 +214,18 @@ def render_scan(payload: dict, out_path: Path | None = None) -> Path:
     out_path = out_path or (STUDY_DIR / f"scan_{str(payload['as_of']).replace('-', '')}.html")
     a = payload["layer_a_market_bottom_map"]
     dom = payload["domain"]
+    watch_total = payload.get("watch_pool_total")
     headline = (
         f"{a['reliable_total']} 只 reliable ETF（BASE {a['cohort']['BASE']} / EXTENSION {a['cohort']['EXTENSION']}）中，"
         f"{a['long_term_bottom_total']} 只处于长期底部（DEEP {a['deep_total']} / RECOVERING {a['recovering_total']}），"
-        f"命中 TARGET {a['target_total']} 只、NEAR_MISS {a['near_miss_total']} 只（差一档待观察）。"
+        f"命中结构触发候选 {a['target_total']} 只、NEAR_MISS {a['near_miss_total']} 只（差一档待观察）。"
         f"今日迁移：新进入域 {a['transition_counts'].get('ENTER_DOMAIN', 0)}、退出域 {a['transition_counts'].get('EXIT_DOMAIN', 0)}、"
         f"DEEP→RECOVERING {a['transition_counts'].get('DEEP_TO_RECOVERING', 0)}、RECOVERING→DEEP {a['transition_counts'].get('RECOVERING_TO_DEEP', 0)}。"
+    )
+    funnel_note = (
+        f"漏斗：全市场 ETF → reliable（{a['reliable_total']}）→ 长期底部域（{a['long_term_bottom_total']}）→ 结构触发候选 TARGET → Current Odds → 最终判断。"
+        f"{watch_total} 只观察池是独立的人工关注名单（我主动盯谁），不是这个漏斗的上一级。"
+        if watch_total else ""
     )
 
     html = f"""<!DOCTYPE html>
@@ -229,6 +242,7 @@ def render_scan(payload: dict, out_path: Path | None = None) -> Path:
 <div class="summary">
   <h3>一句话结论</h3>
   <p>{headline}</p>
+  <p class="meta">{funnel_note}</p>
 </div>
 
 {_layer_a_section(a)}

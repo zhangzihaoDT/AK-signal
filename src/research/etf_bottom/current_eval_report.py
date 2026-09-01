@@ -76,7 +76,7 @@ details table{font-size:.8em;margin:6px 0}
 
 _STAGE_LABEL = {
     "UNRELIABLE": "数据不可靠", "OUT_OF_DOMAIN": "已离开研究域",
-    "IN_DOMAIN_NON_TARGET": "域内·非target", "TARGET": "命中 target",
+    "IN_DOMAIN_NON_TARGET": "域内·非target", "TARGET": "结构触发候选",
 }
 _EVIDENCE_LABEL = {
     "CROSS_YEAR_SUPPORTED": "跨年正向证据", "YEAR_DEPENDENT": "依赖年份",
@@ -93,7 +93,7 @@ _ODDS_BASE_LABEL = {
     "unreliable": "⚠️ 先解决数据",
 }
 _ODDS_CONDITION = {
-    "strong_observe": "TARGET × 跨年正向证据", "watch_structure": "域内 × 跨年正向证据",
+    "strong_observe": "结构触发候选 × 跨年正向证据", "watch_structure": "域内 × 跨年正向证据",
     "position_only": "域内 × 样本不足/年份依赖", "cautious": "域内 × 历史负收益",
     "out_of_domain_good": "离开域 × 历史正收益", "out_of_domain_unknown": "离开域 × 历史不足",
     "out_of_domain_bad": "离开域 × 历史负收益", "unreliable": "折算污染/数据不可靠",
