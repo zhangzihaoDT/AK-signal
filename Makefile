@@ -13,7 +13,7 @@ SRC_MAIN = src/main.py
 	stock-metrics stock-metrics-online \
 	replay-single replay-parity replay-range event-study \
 	backtest-trades backtest-sensitivity backtest-matrix backtest-portfolio backtest-construction \
-	etf-bottom etf-bottom-price-map etf-bottom-odds etf-bottom-drilldown etf-bottom-episodes etf-bottom-context etf-bottom-context-replication etf-bottom-repair etf-bottom-current-eval etf-mapping-feasibility \
+	etf-bottom etf-bottom-price-map etf-bottom-odds etf-bottom-drilldown etf-bottom-episodes etf-bottom-context etf-bottom-context-replication etf-bottom-repair etf-bottom-current-eval etf-bottom-scan etf-mapping-feasibility \
 	test install clean
 
 help: ## 显示帮助信息
@@ -43,6 +43,7 @@ run-day: ## 每日全流程：Observation 自动联网构建（ETF/行业/个股
 	$(MAKE) sw-rps-confirm     # 落 confirmation + tier_confirmation parquet（第三问消费）
 	$(MAKE) sw-rps-report      # 再生成报告（消费 confirmation + tier + structure）
 	$(MAKE) select                 # Decision 消费：离线、确定性
+	$(MAKE) etf-bottom-scan        # [Lane2] 全市场底部扫描（Application，只读 raw 缓存，不联网）
 	$(MAKE) run-day-check
 
 run-day-offline: ## 离线重放/CI：只读已落盘 Observation，不联网抓取（严格重放请用 research replay）
@@ -214,6 +215,9 @@ etf-bottom-repair: ## [Lane2] Study 2E Repair Structure：price_pos_120 结构�
 
 etf-bottom-current-eval: ## [Lane2] 当前关注 ETF 的 Repair-Retest V1 阶段评估（读 2E 冻结 cut points）
 	$(PYTHON) $(SRC_MAIN) research etf-bottom --current-eval
+
+etf-bottom-scan: ## [Lane2] 全市场 Repair-Retest V1 每日扫描（三层：Market Map / Scanner / Odds）。SCAN_DATE=YYYY-MM-DD 可选（缺省自动取最新 raw 交易日）
+	$(PYTHON) $(SRC_MAIN) research etf-bottom --scan $(if $(SCAN_DATE),--date $(SCAN_DATE),)
 
 etf-mapping-feasibility: ## [Lane2] Stage 1a ETF 跟踪指数 mapping 可行性抽样探测
 	$(PYTHON) -m src.research.etf_mapping.cli --sample-n 10

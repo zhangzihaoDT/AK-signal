@@ -107,7 +107,12 @@ def calibrate_etf_type(fund_name: str, orig_bucket: str) -> dict[str, Any]:
         return any(k in s for k in kws)
 
     if _hit(_MONEY_KEYWORDS, seg):
-        t = "money"
+        # 防误判：现金流ETF（自由现金流/现金流指数）是权益资产，不是货币基金。
+        # _MONEY_KEYWORDS 的「现金」子串会命中「现金流」，须显式排除。
+        if "现金流" in seg:
+            t = "theme"  # 现金流指数 → 权益主题（有真实价格波动，参与底部判定）
+        else:
+            t = "money"
     elif _hit(_BOND_KEYWORDS, seg):
         t = "bond"
     elif _hit(_COMMODITY_KEYWORDS, seg):

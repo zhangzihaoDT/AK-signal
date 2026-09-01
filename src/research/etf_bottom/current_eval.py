@@ -28,7 +28,7 @@ from .price_map import compute_row
 
 logger = logging.getLogger(__name__)
 
-AS_OF = "2026-08-28"
+AS_OF = "2026-08-28"  # 默认研究快照锚点；run_current_eval/eval_one 可参数化（scanner 每日传入最新交易日）
 CORP_ACTION_RET = 0.20
 
 
@@ -99,11 +99,12 @@ def _corp_action_dates(d: pd.DataFrame) -> list:
 
 
 def eval_one(code: str, name: str, theme: str, cut120: list[float], cut60: list[float],
-             tier: str = "", participation: str = "tradeable") -> dict[str, Any]:
+             tier: str = "", participation: str = "tradeable",
+             as_of: str | pd.Timestamp | None = None) -> dict[str, Any]:
     """单只评估：reliable → domain → target 三级。"""
     d = pd.read_parquet(f"data/etf_signal/raw/{code}.parquet",
                         columns=["date", "close"]).sort_values("date").reset_index(drop=True)
-    asof = pd.Timestamp(AS_OF)
+    asof = pd.Timestamp(as_of or AS_OF)
     r = compute_row(code, "", "", d, asof)
 
     base = {"fund_code": code, "fund_name": name, "theme": theme, "tier": tier, "participation": participation}
@@ -250,17 +251,19 @@ def odds_assessment(stage: str, evidence_label: str, history: dict) -> str:
     return "unreliable"
 
 
-def run_current_eval(study_dir: Path | None = None) -> dict:
+def run_current_eval(study_dir: Path | None = None, as_of: str | pd.Timestamp | None = None) -> dict:
     study_dir = study_dir or STUDY_DIR
     study_dir.mkdir(parents=True, exist_ok=True)
     watch = load_watch_etfs()
     spec = load_rule_spec()
     cut120, cut60 = load_frozen_cutpoints()
+    as_of_str = str(pd.Timestamp(as_of or AS_OF).date())
 
     results = []
     for _, row in watch.iterrows():
         res = eval_one(row["fund_code"], row["fund_name"], row["theme"], cut120, cut60,
-                       tier=row.get("tier", ""), participation=row.get("participation", "tradeable"))
+                       tier=row.get("tier", ""), participation=row.get("participation", "tradeable"),
+                       as_of=as_of_str)
         res.update(attach_history(row["fund_code"]))
         h = res.get("history", {})
         res["evidence_label"] = h.get("evidence_label", "INSUFFICIENT_HISTORY")
@@ -290,7 +293,7 @@ def run_current_eval(study_dir: Path | None = None) -> dict:
     payload = {
         "study": "Current Watch ETF Repair-Retest V1 Evaluation",
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "as_of": AS_OF,
+        "as_of": as_of_str,
         "rule_id": spec["rule_id"],
         "rule_spec_source": "config/research/repair_retest_v1.yaml",
         "cut_points_source": "config/research/repair_retest_v1.yaml (frozen V1)",

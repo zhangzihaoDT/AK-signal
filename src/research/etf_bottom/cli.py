@@ -45,7 +45,7 @@ def cmd_price_map(args: argparse.Namespace) -> int:
     from .price_map import build_price_map, write_products
     from .price_map_report import render_price_map
 
-    as_of = args.date
+    as_of = args.date or "2026-08-28"  # 缺省 = 正式研究快照
     df = build_price_map(as_of)
     paths = write_products(df, as_of)
     html = render_price_map(df, as_of)
@@ -161,6 +161,25 @@ def cmd_repair(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_scan(args: argparse.Namespace) -> int:
+    from .scanner import run_scan
+    from .scanner_report import render_scan
+
+    payload = run_scan(args.date or None)  # date 缺省 → 自动取最新 raw 交易日
+    html = render_scan(payload)
+    a = payload["layer_a_market_bottom_map"]
+    print(f"scan json  : {STUDY_DIR / ('scan_' + str(payload['as_of']).replace('-', '') + '.json')}")
+    print(f"scan pq/csv: {STUDY_DIR / ('scan_' + str(payload['as_of']).replace('-', '') + '.parquet')}")
+    print(f"scan html  : {html}")
+    print("Layer A:", {k: a[k] for k in ("reliable_total", "cohort", "long_term_bottom_total",
+                                         "deep_total", "recovering_total", "target_total",
+                                         "near_miss_total")})
+    print("transition:", a["transition_counts"])
+    if args.open:
+        webbrowser.open(f"file://{html}")
+    return 0
+
+
 def cmd_current_eval(args: argparse.Namespace) -> int:
     from .current_eval import run_current_eval
     from .current_eval_report import render_current_odds, _sorted_etfs
@@ -201,7 +220,7 @@ def _odds_mark(odds: str) -> str:
 def main() -> None:
     p = argparse.ArgumentParser(description="Study 1 Price Bottom / Price Bottom Map / State Odds")
     p.add_argument("--open", action="store_true", help="完成后浏览器打开报告")
-    p.add_argument("--date", default="2026-08-28", help="价格地图锚点日期（默认 2026-08-28 正式快照）")
+    p.add_argument("--date", default="", help="锚点日期 YYYY-MM-DD（price-map 缺省 2026-08-28 快照；scan 缺省自动取最新 raw 交易日）")
     p.add_argument("--price-map", action="store_true", help="运行 Price Bottom Map（横截面低位地图）而非 Study 1")
     p.add_argument("--state-odds", action="store_true", help="运行 Study 2 State Odds（进入底部状态后的前向收益）")
     p.add_argument("--drilldown", action="store_true", help="运行 Study 2A Drilldown（当前底部 ETF 逐只历史赔率）")
@@ -210,8 +229,11 @@ def main() -> None:
     p.add_argument("--context-replication", action="store_true", help="运行 Study 2D Replication（大样本复现 2C 发现）")
     p.add_argument("--repair", action="store_true", help="运行 Study 2E Repair Structure（pos120 结构验证）")
     p.add_argument("--current-eval", action="store_true", help="评估当前关注 ETF 的 Repair-Retest V1 阶段（读 2E 冻结 cut points）")
+    p.add_argument("--scan", action="store_true", help="全市场 Repair-Retest V1 每日扫描（Application，三层：Map/Scanner/Odds）")
     p.set_defaults(func=cmd_run)
     args = p.parse_args()
+    if args.scan:
+        sys.exit(cmd_scan(args))
     if args.current_eval:
         sys.exit(cmd_current_eval(args))
     if args.repair:

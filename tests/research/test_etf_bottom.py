@@ -101,6 +101,10 @@ def test_calibrate_etf_type_money_keywords():
     assert calibrate_etf_type("半导体ETF国联安", "")["calibrated_type"] == "industry"
     assert calibrate_etf_type("沪深300ETF", "")["calibrated_type"] == "broad"
     assert calibrate_etf_type("智能汽车ETF富国", "")["calibrated_type"] == "industry"
+    # 现金流ETF（自由现金流/现金流指数）是权益资产，不是货币基金
+    #（_MONEY_KEYWORDS 的「现金」子串会命中「现金流」，须显式排除，否则被误排除出底部研究）
+    for n in ["自由现金流ETF华夏", "现金流ETF长城", "800现金流ETF汇添富"]:
+        assert calibrate_etf_type(n, "")["calibrated_type"] != "money", n
 
     # flat-price guardrail：近零波动资产即使关键词漏判也能被识别
     idx = pd.bdate_range("2023-01-02", periods=400)
@@ -908,3 +912,160 @@ def test_odds_report_renderer_pure_and_sorted():
     # n 必须保留（防止小样本被隐藏）
     assert "· 智能汽车ETF富国" in html
     assert html_path.exists()
+
+
+# ── Full-Market Repair-Retest V1 Scanner（Lane 2 Application）─────────────
+
+def test_scanner_cohort_data_driven():
+    """cohort 数据驱动：reliable=false → UNRELIABLE；hist≥756 → BASE；360~755 → EXTENSION。"""
+    from src.research.etf_bottom.scanner import _cohort
+    assert _cohort(900, True) == "BASE"
+    assert _cohort(756, True) == "BASE"
+    assert _cohort(755, True) == "EXTENSION"
+    assert _cohort(360, True) == "EXTENSION"
+    assert _cohort(900, False) == "UNRELIABLE"
+    assert _cohort(400, False) == "UNRELIABLE"
+
+
+def test_scanner_target_classification_frozen_cuts():
+    """TARGET 分类只读 frozen cut：(stage, near_miss_reason)。TARGET=Q1×Q3；
+    NEAR_MISS=Q1×Q2（P120_ONE_BUCKET_AWAY）或 Q2×Q3（P60_ONE_BUCKET_AWAY）。"""
+    from src.research.etf_bottom.scanner import classify_target
+    from src.research.etf_bottom.current_eval import load_frozen_cutpoints
+    cut120, cut60 = load_frozen_cutpoints()
+    # frozen：pos60 q1<14.55、pos120 q1<9.88 q2<15.82
+    assert classify_target(10.0, 18.0, cut60, cut120) == ("TARGET", None)      # Q1 × Q3
+    assert classify_target(10.0, 12.0, cut60, cut120) == ("NEAR_MISS", "P120_ONE_BUCKET_AWAY")  # Q1 × Q2
+    assert classify_target(17.0, 18.0, cut60, cut120) == ("NEAR_MISS", "P60_ONE_BUCKET_AWAY")   # Q2 × Q3
+    assert classify_target(30.0, 18.0, cut60, cut120) == ("NON_TARGET", None)
+    assert classify_target(10.0, 6.0, cut60, cut120) == ("NON_TARGET", None)  # Q1 × Q1
+    # 缺失 → NON_TARGET（不冒充）
+    assert classify_target(None, 18.0, cut60, cut120) == ("NON_TARGET", None)
+    assert classify_target(10.0, None, cut60, cut120) == ("NON_TARGET", None)
+
+
+def test_scanner_transition_kind():
+    """状态迁移语义：domain 进出 + DEEP↔RECOVERING，其余 OUTSIDE_DOMAIN。"""
+    from src.research.etf_bottom.scanner import transition_kind
+    assert transition_kind("DEEP_BOTTOM", True, "RECOVERING_FROM_BOTTOM", True) == "DEEP_TO_RECOVERING"
+    assert transition_kind("RECOVERING_FROM_BOTTOM", True, "DEEP_BOTTOM", True) == "RECOVERING_TO_DEEP"
+    assert transition_kind("DEEP_BOTTOM", True, "DEEP_BOTTOM", True) == "STAY_IN_DOMAIN"
+    assert transition_kind("NORMAL", False, "DEEP_BOTTOM", True) == "ENTER_DOMAIN"
+    assert transition_kind("DEEP_BOTTOM", True, "NORMAL", False) == "EXIT_DOMAIN"
+    assert transition_kind("NORMAL", False, "NORMAL", False) == "OUTSIDE_DOMAIN"
+
+
+def test_scanner_run_20260831_baseline():
+    """2026-08-31 全市场扫描对照已知基线（用户锁定事实）：
+    reliable=874 = 原901 − 27只真实 flat-price 货币ETF（taxonomy 修复后 flat_price 29→27，
+    其中 2 只「现金流ETF」误判已修正，本来就在 901 内，不构成额外加入 universe）。
+    BASE=664 / EXT=210 / flat_price=27 / ltb=22 / DEEP=6 / RECOVERING=16 / TARGET=0 / NEAR_MISS=0。
+    仅对与 base 事实一致且稳定的部分硬编码，不做 snapshot 数量锁死。
+    """
+    import json
+    from src.research.etf_bottom.scanner import run_scan
+    p = run_scan("2026-08-31")
+    a = p["layer_a_market_bottom_map"]
+    # 数据质量门（2026-08-31 时点，排除货币/债券近零波动；现金流ETF 是权益不误排除）
+    assert a["reliable_total"] == 874
+    assert a["cohort"] == {"BASE": 664, "EXTENSION": 210}
+    assert a["flat_price_total"] == 27
+    # Provenance 锁定：reliable = 原 901 − 27 真实 flat-price 货币ETF。
+    # 现金流ETF 修正不改 reliable 分母——它们本来就在 901 内（2 只 hist≥360 在 reliable，
+    # 其余 29 只 hist<360 本就在 unreliable），不构成额外加入 universe。
+    flat = pd.read_parquet(p["flat_parquet_path"])
+    assert a["reliable_total"] + a["flat_price_total"] == 901
+    assert a["flat_price_total"] + a["unreliable_total"] + a["reliable_total"] == 1289
+    # 现金流ETF（159201/159399 hist≥360）必须在 reliable 内（非 flat），且不新增行数
+    assert (flat["fund_code"] == "159201").any()
+    assert (flat["fund_code"] == "159399").any()
+    assert (flat.loc[flat["fund_code"] == "159201", "data_quality_flag"] != "flat_price_noise").all()
+    # 迁移语义一致性：当前 ltb 计数 = STAY + ENTER + DEEP↔RECOVERING 迁移之和
+    t = a["transition_counts"]
+    ltb_total = a["long_term_bottom_total"]
+    assert ltb_total == t.get("STAY_IN_DOMAIN", 0) + t.get("ENTER_DOMAIN", 0) \
+        + t.get("DEEP_TO_RECOVERING", 0) + t.get("RECOVERING_TO_DEEP", 0), \
+        "长期底部计数与迁移语义不一致"
+    # 统一 prev-trade-date：全部 reliable 行 prev_trade_date 相同（市场前一交易日）
+    assert (flat["prev_trade_date"] == "2026-08-28").all(), "prev_trade_date 必须统一为市场前一交易日"
+    # 语义契约：in_domain = reliable ∧ long_term_bottom（两个概念不合并）
+    # long_term_bottom = 市场状态事实（Observation）；in_domain = V1 research domain。
+    # reliable 表内两者数值一致（设计如此），但定义来源不同，不得互相替换。
+    assert (flat["in_domain"] == (flat["reliable"] & flat["long_term_bottom"])).all()
+    # 每层结构存在
+    assert "layer_b_repair_retest_scanner" in p
+    assert "layer_c_historical_odds" in p
+    assert "flat_price_audit" in p
+    assert len(p["flat_price_audit"]) == 27
+    # Layer B 只含 in-domain 标的（每只都 long_term_bottom 且 in_domain）
+    for r in p["layer_b_repair_retest_scanner"]:
+        assert r["long_term_bottom"] is True
+        assert r["in_domain"] is True
+    # Layer C 历史赔率必须来自真实数据（attach_history 解嵌套）：
+    # 517770（游戏传媒）有 9 次先例、median>0、YEAR_DEPENDENT；
+    # 159819（AI）CROSS_YEAR_SUPPORTED → out_of_domain_good（非 out_of_domain_unknown）
+    lc = {r["fund_code"]: r for r in p["layer_c_historical_odds"]}
+    h517770 = lc["517770"].get("odds", {})
+    assert h517770.get("n") == 9 and h517770.get("median_120d", 0) > 0
+    assert lc["517770"].get("evidence_label") == "YEAR_DEPENDENT"
+    assert lc["159819"].get("odds_assessment") == "out_of_domain_good"
+    assert lc["159819"].get("evidence_label") == "CROSS_YEAR_SUPPORTED"
+    # 规则来自 frozen YAML
+    assert p["rule_id"] == "REPAIR_RETEST_V1"
+    assert p["rule_status"] == "FROZEN_RESEARCH_HYPOTHESIS"
+    assert "cut_points" in p
+
+
+def test_scanner_prev_trade_date_uniform_and_missing():
+    """prev_trade_date 用统一市场前一交易日；某 ETF 当日无数据 → PREV_MISSING + prev_actual_trade_date 审计。
+    560650（核心50ETF民生加银）在 2026-08-28 无数据，其 prev_actual_trade_date 应 = 2026-08-21。"""
+    import json
+    from src.research.etf_bottom.scanner import run_scan
+    p = run_scan("2026-08-31")
+    a = p["layer_a_market_bottom_map"]
+    assert a["prev_trade_date"] == "2026-08-28"
+    flat = pd.read_parquet(p["flat_parquet_path"])
+    r = flat[flat["fund_code"] == "560650"].iloc[0]
+    assert r["prev_trade_date"] == "2026-08-28"          # 统一市场 prev 日，不静默回退
+    assert r["prev_actual_trade_date"] == "2026-08-21"   # 审计：该 ETF 自身最近可用交易日
+    assert r["prev_data_status"] == "missing"
+    assert r["transition"] == "PREV_MISSING"
+    # 其余正常行 prev_data_status=ok
+    ok_rows = flat[flat["fund_code"] != "560650"]
+    assert (ok_rows["prev_data_status"] == "ok").all()
+    assert (ok_rows["transition"] != "PREV_MISSING").all()
+
+
+def test_scanner_report_renderer_consumes_json_only():
+    """scanner HTML renderer 是纯 renderer：消费已落盘 scan JSON，不重算。
+    且 Layer C 历史赔率数值必须渲染出来（517770 游戏传媒 n=9 / +41.2%），不得全部「—」。"""
+    import json
+    from src.research.etf_bottom import STUDY_DIR
+    from src.research.etf_bottom.scanner_report import render_scan
+    payload = json.loads((STUDY_DIR / "scan_20260831.json").read_text(encoding="utf-8"))
+    html_path = render_scan(payload)
+    html = html_path.read_text(encoding="utf-8")
+    for col in ("Layer A · Market Bottom Map", "Layer B · Repair-Retest Scanner",
+                "Layer C · Historical Odds", "TARGET", "NEAR_MISS",
+                "REPAIR_RETEST_V1"):
+        assert col in html
+    # 517770 游戏传媒：n=9 / 120D 中位 +41.2% / 胜率 100% 必须出现在 Layer C 表格
+    assert "517770" in html
+    assert "+41.2%" in html
+    assert "游戏传媒" in html
+    assert html_path.exists()
+
+
+def test_scanner_frozen_cutpoint_drift_guard():
+    """scan 运行时防自适应漂移：cut points 漂移必须抛错（规则只能来自 frozen YAML）。"""
+    import numpy as np
+    from src.research.etf_bottom import scanner
+    # 正常值通过
+    scanner._verify_frozen(scanner._FROZEN_120, scanner._FROZEN_60)
+    # 模拟重算导致的漂移（Q1 被今日数据改动）→ 必须抛错
+    drifted = [-0.001, 8.0, 15.82, 20.0]
+    with pytest.raises(RuntimeError, match="cut points 漂移"):
+        scanner._verify_frozen(drifted, scanner._FROZEN_60)
+    with pytest.raises(RuntimeError, match="cut points 漂移"):
+        scanner._verify_frozen(scanner._FROZEN_120, [-0.001, 13.0, 22.12, 100.0])
+
