@@ -8,6 +8,8 @@ import sys
 import webbrowser
 from pathlib import Path
 
+import pandas as pd
+
 from . import STUDY_DIR
 from .report import render_report, render_robustness_report
 from .study import run
@@ -180,6 +182,44 @@ def cmd_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_refresh_v1(args: argparse.Namespace) -> int:
+    """轻量刷新 v1_signal_daily.parquet（每日 run-day，供 Lane 3 状态机消费）。"""
+    from .backtest_v1 import refresh_v1_signal_daily
+
+    out = refresh_v1_signal_daily(end=args.end_date or None)
+    df = pd.read_parquet(out)
+    print(f"v1_signal_daily : {out}")
+    print(f"rows            : {len(df)}")
+    print(f"date range      : {df['trade_date'].min().date()} -> {df['trade_date'].max().date()}")
+    print(f"funds           : {df['fund_code'].nunique()}")
+    return 0
+
+
+def cmd_backtest_v1(args: argparse.Namespace) -> int:
+    from .backtest_v1 import run_backtest_v1
+    from .backtest_v1_report import render_v1_backtest
+
+    end = args.end_date or "2026-08-31"
+    payload = run_backtest_v1(start=args.start_date, end=end)
+    html = render_v1_backtest(payload)
+    inc = payload["incidence"]
+    print(f"v1 json : {STUDY_DIR / 'backtest_v1' / 'v1_incidence_summary.json'}")
+    print(f"v1 html : {html}")
+    print(f"verdict : {payload['verdict']}")
+    print("incidence:", {k: inc[k] for k in ("total_trade_days", "target_days", "target_day_rate",
+                                             "total_target_signal_days", "unique_target_etfs",
+                                             "max_targets_single_day")})
+    print("longest_zero_target_streak:", payload["zero_target_streaks"]["longest_zero_target_streak"])
+    print("target_events:", payload["target_events"])
+    print("forward_comparison:")
+    for r in payload["forward_comparison"]:
+        print(f"  {r['stage']:<20} n={r['n_events']:<5} med120={r['ret120_median']} "
+              f"win120={r['win120']} exc120={r['excess120_median']}")
+    if args.open:
+        webbrowser.open(f"file://{html}")
+    return 0
+
+
 def cmd_current_eval(args: argparse.Namespace) -> int:
     from .current_eval import run_current_eval
     from .current_eval_report import render_current_odds, _sorted_etfs
@@ -230,10 +270,18 @@ def main() -> None:
     p.add_argument("--repair", action="store_true", help="运行 Study 2E Repair Structure（pos120 结构验证）")
     p.add_argument("--current-eval", action="store_true", help="评估当前关注 ETF 的 Repair-Retest V1 阶段（读 2E 冻结 cut points）")
     p.add_argument("--scan", action="store_true", help="全市场 Repair-Retest V1 每日扫描（Application，三层：Map/Scanner/Odds）")
+    p.add_argument("--refresh-v1", action="store_true", help="轻量刷新 v1_signal_daily.parquet（每日 run-day，供 Lane 3 状态机消费）")
+    p.add_argument("--backtest-v1", action="store_true", help="Repair-Retest V1 历史触发频率回测（Application Backtest / Signal Incidence）")
+    p.add_argument("--start-date", default="2022-01-01", help="回测区间起始日 YYYY-MM-DD")
+    p.add_argument("--end-date", default="", help="refresh-v1 / 回测区间结束日 YYYY-MM-DD（缺省自动取最新 raw 交易日）")
     p.set_defaults(func=cmd_run)
     args = p.parse_args()
     if args.scan:
         sys.exit(cmd_scan(args))
+    if args.refresh_v1:
+        sys.exit(cmd_refresh_v1(args))
+    if args.backtest_v1:
+        sys.exit(cmd_backtest_v1(args))
     if args.current_eval:
         sys.exit(cmd_current_eval(args))
     if args.repair:

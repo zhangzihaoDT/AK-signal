@@ -13,7 +13,7 @@ SRC_MAIN = src/main.py
 	stock-metrics stock-metrics-online \
 	replay-single replay-parity replay-range event-study \
 	backtest-trades backtest-sensitivity backtest-matrix backtest-portfolio backtest-construction \
-	etf-bottom etf-bottom-price-map etf-bottom-odds etf-bottom-drilldown etf-bottom-episodes etf-bottom-context etf-bottom-context-replication etf-bottom-repair etf-bottom-current-eval etf-bottom-scan etf-mapping-feasibility \
+	etf-bottom etf-bottom-price-map etf-bottom-odds etf-bottom-drilldown etf-bottom-episodes etf-bottom-context etf-bottom-context-replication etf-bottom-repair etf-bottom-current-eval etf-bottom-scan etf-bottom-v1-backtest etf-mapping-feasibility \
 	test install clean
 
 help: ## 显示帮助信息
@@ -218,6 +218,9 @@ etf-bottom-current-eval: ## [Lane2] 当前关注 ETF 的 Repair-Retest V1 阶段
 
 etf-bottom-scan: ## [Lane2] 全市场 Repair-Retest V1 每日扫描（三层：Market Map / Scanner / Odds）。SCAN_DATE=YYYY-MM-DD 可选（缺省自动取最新 raw 交易日）
 	$(PYTHON) $(SRC_MAIN) research etf-bottom --scan $(if $(SCAN_DATE),--date $(SCAN_DATE),)
+
+etf-bottom-v1-backtest: ## [Lane2] Repair-Retest V1 历史触发频率回测（Signal Incidence）。START=/END=YYYY-MM-DD 可选
+	$(PYTHON) $(SRC_MAIN) research etf-bottom --backtest-v1 --start-date $(if $(START),$(START),2022-01-01) --end-date $(if $(END),$(END),2026-08-31)
 
 etf-mapping-feasibility: ## [Lane2] Stage 1a ETF 跟踪指数 mapping 可行性抽样探测
 	$(PYTHON) -m src.research.etf_mapping.cli --sample-n 10
