@@ -45,7 +45,13 @@ def main() -> None:
         bottom_main()
         return
 
-    print("research subcommands: replay (single|parity|range), event-study, expression-regime, basket run, etf-bottom")
+    if sub in ("trend-transition", "trend_transition", "study3a"):
+        from src.research.trend_transition.cli import main as tt_main
+        sys.argv = [sys.argv[0], *argv[1:]]
+        tt_main()
+        return
+
+    print("research subcommands: replay (single|parity|range), event-study, expression-regime, basket run, etf-bottom, trend-transition (study3a)")
     sys.exit(2)
 
 

@@ -13,7 +13,7 @@ SRC_MAIN = src/main.py
 	stock-metrics stock-metrics-online \
 	replay-single replay-parity replay-range event-study \
 	backtest-trades backtest-sensitivity backtest-matrix backtest-portfolio backtest-construction \
-	etf-bottom etf-bottom-price-map etf-bottom-odds etf-bottom-drilldown etf-bottom-episodes etf-bottom-context etf-bottom-context-replication etf-bottom-repair etf-bottom-current-eval etf-bottom-scan etf-bottom-v1-backtest etf-mapping-feasibility \
+	etf-bottom etf-bottom-price-map etf-bottom-odds etf-bottom-drilldown etf-bottom-episodes etf-bottom-context etf-bottom-context-replication etf-bottom-repair etf-bottom-current-eval etf-bottom-scan etf-bottom-v1-backtest etf-mapping-feasibility trend-transition-3a trend-transition-3b trend-transition-3c trend-transition-state \
 	test install clean
 
 help: ## 显示帮助信息
@@ -224,6 +224,18 @@ etf-bottom-v1-backtest: ## [Lane2] Repair-Retest V1 历史触发频率回测（S
 
 etf-mapping-feasibility: ## [Lane2] Stage 1a ETF 跟踪指数 mapping 可行性抽样探测
 	$(PYTHON) -m src.research.etf_mapping.cli --sample-n 10
+
+trend-transition-3a: ## [Lane3] Study 3A Post-924 底部→趋势切换断点研究（只读缓存，不联网）
+	$(PYTHON) $(SRC_MAIN) research trend-transition study3a
+
+trend-transition-3b: ## [Lane3] Study 3B 预测 Trend Transition（walk-forward + PASS gate，只读缓存）
+	$(PYTHON) $(SRC_MAIN) research trend-transition study3b
+
+trend-transition-3c: ## [Lane3] Study 3C 状态分类研究（确定性 as-of 状态机 + C1-C5，PASS 冻结 V1）
+	$(PYTHON) $(SRC_MAIN) research trend-transition study3c
+
+trend-transition-state: ## [Lane3] Application：读冻结 YAML，输出 date-stamped 状态表（--date 缺省=最新 v1_signal_daily）
+	$(PYTHON) $(SRC_MAIN) research trend-transition state $(if $(DATE),--date $(DATE),)
 
 # ── 开发维护 ──────────────────────────────────────────────────
 

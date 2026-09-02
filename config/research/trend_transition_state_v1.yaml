@@ -1,0 +1,23 @@
+rule_id: TREND_TRANSITION_STATE_V1
+status: FROZEN_STATE_CLASSIFIER
+frozen_at: '2026-09-02'
+persistence: 3
+states:
+- UNRELIABLE
+- BOTTOM
+- FIRST_EXIT
+- TRANSITION_EARLY
+- TRANSITION_ACTIVE
+- TRANSITION_ESTABLISHED
+- RETEST
+- POST_TRANSITION
+age_windows:
+  first_exit: 0-5
+  early: 6-20
+  active: 21-60
+  established: 61-120
+  post_transition: 120+
+provenance:
+  lane: 3
+  study: 3C
+  source_artifact: outputs/research/trend_transition/study3c_summary.json
