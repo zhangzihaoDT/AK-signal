@@ -49,9 +49,12 @@ td.num,th.num{text-align:right}
 .tag-watch{background:#FFF3E0;color:#E65100}
 .tag-strong{background:#E3F2FD;color:#1565C0}
 .tag-oos{background:#F0F0F0;color:#9E9E9E}
+.tag-lag{background:#FDEBD0;color:#B9770E}
+.tag-warn{background:#FDEDEC;color:#C0392B}
 .direction-state{font-weight:600;color:var(--zh-blue)}
 .up{color:#2E7D32;font-weight:600}
 .down{color:#C62828;font-weight:600}
+.neg{color:#6B7C8F;font-weight:600}
 .brief{background:#F8FAFC;border-left:4px solid var(--zh-cyan);border-radius:6px;padding:12px 16px;margin:12px 0;font-size:13px;color:var(--zh-text)}
 .brief b{color:var(--zh-blue)}
 .footer{margin-top:24px;padding-top:12px;border-top:1px solid var(--zh-border);font-size:12px;color:var(--zh-muted);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
@@ -94,6 +97,109 @@ def _state_tag(state: str) -> str:
     return f'<span class="tag {tag}">{lbl}</span>' if tag else escape(str(state))
 
 
+# ── ④ 三 Lane 路径视图 ─────────────────────────────────────────
+# 展示层翻译（机器枚举保持原样，不重判）
+_3LANE_L3_CN = {
+    "BOTTOM": "底部",
+    "FIRST_EXIT": "刚离底部",
+    "TRANSITION_EARLY": "切换中·早期",
+    "TRANSITION_ACTIVE": "切换中",
+    "TRANSITION_ESTABLISHED": "趋势建立",
+    "RETEST": "回到底部",
+    "POST_TRANSITION": "已完成",
+    "UNRELIABLE": "数据不足",
+}
+_3LANE_L3_TAG = {
+    "BOTTOM": "tag-oos", "FIRST_EXIT": "tag-watch", "TRANSITION_EARLY": "tag-watch",
+    "TRANSITION_ACTIVE": "tag-strong", "TRANSITION_ESTABLISHED": "tag-strong",
+    "RETEST": "tag-oos", "POST_TRANSITION": "tag-strong", "UNRELIABLE": "tag-oos",
+}
+_3LANE_L2_CN = {"DEEP_BOTTOM": "深度底部", "RECOVERING_FROM_BOTTOM": "底部修复",
+                "RECENT_BOTTOM": "近期底部", "NORMAL": "正常", "UNRELIABLE": "数据不足"}
+_3LANE_L1_CN = {"BUY_CANDIDATE": "买入候选", "STRONG_WATCH": "强势关注",
+                "WATCH": "观察", "OUT_OF_SCOPE": "趋势不足"}
+
+
+def _yes_no(v) -> str:
+    if v is True:
+        return '<span class="up">是</span>'
+    if v is False:
+        return '<span class="neg">否</span>'
+    return "—"
+
+
+def _three_lane_section(three_lane: pd.DataFrame | None, date_str: str) -> str:
+    """④ 三 Lane 路径视图：底部 → 刚离底部 → 切换中 → 趋势建立 → 强势。
+
+    默认只展示「活跃路径」子集（Lane 2 底部 ∪ Lane 3 非 POST/UNRELIABLE ∪
+    Lane 1 非 OUT_OF_SCOPE）；全量折叠在 <details> 里。机器枚举原样保留，
+    展示层只做翻译，不重新判断。
+    """
+    if three_lane is None or len(three_lane) == 0:
+        return ""
+    from src.etf_signal.three_lane import is_active_path
+
+    active = three_lane[three_lane.apply(is_active_path, axis=1)]
+
+    def _row_html(r) -> str:
+        l2_ltb = r.get("lane2_long_term_bottom")
+        l3 = str(r.get("lane3_transition_state", ""))
+        l1 = str(r.get("lane1_trend_state", ""))
+        l2_state = str(r.get("lane2_bottom_state", ""))
+        age = r.get("lane3_days_since_first_exit")
+        age_txt = f"{int(age)}D" if isinstance(age, (int, float)) and age == age else "—"
+        l2_target = str(r.get("lane2_target_stage", ""))
+        l1_txt = _3LANE_L1_CN.get(l1, l1) if l1 and l1 not in ("", "nan", "None") else "—"
+        l3_cn = _3LANE_L3_CN.get(l3, l3) if l3 else "—"
+        l3_tag = _3LANE_L3_TAG.get(l3, "")
+        name = str(r.get("fund_name", ""))
+        code = str(r.get("fund_code", ""))
+        return (
+            f"<tr><td><b>{escape(code)}</b><br><span style='color:#6B7C8F;font-size:.85em'>{escape(name)}</span></td>"
+            f"<td>{_yes_no(l2_ltb)} <span style='color:#6B7C8F;font-size:.85em'>{_3LANE_L2_CN.get(l2_state, l2_state) if l2_state and l2_state not in ('nan','None') else ''}</span></td>"
+            f"<td>{l2_target}</td>"
+            f"<td><span class='tag {l3_tag}'>{escape(l3_cn)}</span></td>"
+            f"<td class='num'>{age_txt}</td>"
+            f"<td>{escape(l1_txt)}</td></tr>"
+        )
+
+    head = ("<tr><th>ETF</th><th>Lane 2 底部</th><th>Lane 2 target</th>"
+            "<th>Lane 3 迁移</th><th class='num'>离开底部天数</th><th>Lane 1 趋势</th></tr>")
+    active_rows = "".join(_row_html(r) for _, r in active.iterrows())
+    all_rows = "".join(_row_html(r) for _, r in three_lane.iterrows())
+
+    wl_date = three_lane["_watchlist_date"].dropna()
+    wl_date_txt = str(wl_date.iloc[0].date()) if len(wl_date) else "—"
+    lag_flag = ""
+    if len(wl_date) and date_str:
+        try:
+            target = datetime.strptime(str(date_str), "%Y%m%d").date()
+            eff_wl_raw = str(wl_date.iloc[0])
+            eff_wl = datetime.strptime(eff_wl_raw[:10], "%Y-%m-%d").date()
+            if eff_wl < target:
+                lag_days = (target - eff_wl).days
+                lag_flag = (f"<span class='tag tag-lag'>Lane 1 滞后 {lag_days} 交易日"
+                            f"（watchlist {eff_wl} < trade_date {target}）——交叉分析勿把时间差当状态先后</span>")
+            elif eff_wl != target:
+                lag_flag = "<span class='tag tag-warn'>Lane 1 日期异常（future/未知）</span>"
+        except (ValueError, TypeError):
+            pass
+    n_total = len(three_lane)
+    return (
+        f'<div class="section"><h2>④ 三 Lane 路径视图</h2>'
+        f"<p class='q'>趴在底部 → 刚离底部 → 切换中 → 趋势建立 → 成为强势资产。"
+        f"三条 Lane 各自保留原始语义（Lane 2 底部=raw long_term_bottom；Lane 3 迁移=状态机；"
+        f"Lane 1 趋势=watchlist trend_state），本视图只归集展示。"
+        f"仅展示活跃路径 {len(active)}/{n_total} 只（底部 ∪ 迁移中 ∪ 趋势活跃）；全量见折叠区与 "
+        f"<a href='three_lane_{date_str}.csv'>three_lane_{date_str}.csv</a>。</p>"
+        f"<table>{head}{active_rows}</table>"
+        f"<details><summary>全部 {n_total} 只 ETF（可审计）</summary>"
+        f"<table>{head}{all_rows}</table></details>"
+        f"<p class='answer-note'>Lane 1 watchlist 数据日：{wl_date_txt}{lag_flag}</p>"
+        f"</div>"
+    )
+
+
 def render_rotation_report(
     rotation: pd.DataFrame,
     output_dir: Path,
@@ -104,6 +210,7 @@ def render_rotation_report(
     theme_pool: list[dict[str, Any]] | None = None,
     coverage: dict[str, int] | None = None,
     data_status: str = "",
+    three_lane: pd.DataFrame | None = None,
 ) -> Path:
     """生成 etf_rotation_{date}.html（v0.7.1 三问三答）。
 
@@ -237,6 +344,9 @@ def render_rotation_report(
     else:
         parts.append("<p>未配置主题 ETF 池（config/selection_universe.yaml theme_etf + sub_industry_etf）。</p>")
     parts.append('</div>')
+
+    # ══════════════════ ④ 三 Lane 路径视图 ══════════════════
+    parts.append(_three_lane_section(three_lane, date_str))
 
     # ── 页脚：日期｜数据状态｜异常数量（审计信息不进正文）──
     n_flag = int((rotation["data_quality_flag"].astype(str) != "").sum()) \

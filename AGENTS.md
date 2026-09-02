@@ -63,12 +63,15 @@
 
 ## 每日运行（run-day）
 
-- **唯一入口**：`make run-day`（etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline → **stock-metrics-online** → sw-rps-confirm → sw-rps-report → **select** → **run-day-check**）——v0.9.1 起个股行情构建提前到 sw-rps-confirm 之前（Tier 确认消费个股趋势产物）
+- **唯一入口**：`make run-day`（etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline → **stock-metrics-online** → sw-rps-confirm → sw-rps-report → **select** → **etf-bottom-scan** → **etf-refresh-v1** → **trend-transition-state** → **three-lane** → **run-day-check**）——v0.9.1 起个股行情构建提前到 sw-rps-confirm 之前（Tier 确认消费个股趋势产物）；2026-09-02 起三 Lane（Lane 1 ETF 趋势 / Lane 2 底部 / Lane 3 迁移）在 run-day 末端合成进 ETF 报告（④ 三 Lane 路径视图）
+- **三 Lane 合成（run-day 末端，v0.9.2）**：顺序锁定 `etf-pipeline（Lane1 signals）→ etf-bottom-scan（Lane2 快照）→ etf-refresh-v1（轻量全历史重算 v1_signal_daily）→ trend-transition-state（Lane3 状态，读冻结 YAML）→ three-lane（join + 重渲染 ETF 报告）`。`three_lane_{date}.{parquet,csv}` 是纯归集层（`src/etf_signal/three_lane.py`），按 fund_code 左外 join 三份已落盘事实，**不制造新事实**：Lane 2 底部用 **raw long_term_bottom**（price_map 口径，不改 3C confirmed）；Lane 3 迁移=状态机原始枚举；Lane 1 趋势=watchlist trend_state。核心列 `ETF | Lane 2 底部 | Lane 2 target | Lane 3 迁移 | 离开底部天数 | Lane 1 趋势`，默认只展示活跃路径子集（底部 ∪ 迁移中 ∪ 趋势活跃），全量折叠审计。展示层翻译（底部→刚离底部→切换中→趋势建立→强势）只在 report renderer，机器枚举保留原样
 - **run-day 默认含 Layer ③**：selection 是 run-day 默认流程的固定环节；`make select` / `make select-offline` 保留为独立执行入口
 - **离线的是决策，不是每日数据生产**：run-day 的 Observation 构建（ETF/行业/**个股行情**）默认允许联网更新（`stock-metrics-online` 自动增量抓取，不依赖手工补数）；Selection（Decision）阶段禁止联网。`make run-day-offline` 用于 CI/重放（个股仅读缓存，stale 降级兜底）；严格历史重放用 `research replay`
-- **末端 Final Validation**（`make run-day-check` → `python src/main.py final-check`）：汇总 Layer①/②/③ 产物与 run 警告，输出最终结果
+- **末端 Final Validation**（`make run-day-check` → `python src/main.py final-check`）：汇总 Layer①/②/③ + **Lane 3 transition_state** 产物与 run 警告，输出最终结果
   - 成功：`Run completed successfully` + `trade_date / status / action / warnings`
   - 失败（产物缺失等）：`Run completed with errors` + errors 明细，退出码 1
+  - **Lane 3 为正式每日能力**：缺 `trend_transition_state_{trade_date}.parquet` 与缺 Lane 1/2 一样视为 run-day 不完整（mandatory）
+  - **Lane 1 数据日对齐门控**：要求 three_lane 的 `_watchlist_date == trade_date`（final-check 读 `three_lane_{trade_date}.parquet` 计算 `lane1_lag_days`）；允许上一交易日 fallback 时必须**显式标记** `Lane 1 watchlist 滞后 N 交易日`（报告 ④ 区 tag + run-day-check warnings），防止 FIRST_EXIT × Lane 1 交叉分析把「一天时间差」误读成真正的状态先后关系。对齐（_watchlist_date == trade_date）不标 warning；产物/列缺失时 lane1_lag_days=None 不误报
   - `status`：各层均 confirmed → `CONFIRMED`；任一 provisional → `PROVISIONAL`；缺失/不一致 → `UNKNOWN`
   - `action`：取 selection `layer3.action.level`（BUY / OBSERVE / WAIT）
   - `warnings`：读 `outputs/run_warnings_{trade_date}.json`（confirm 的 drilldown 个股抓取失败等）+ 层对齐异常 + 配置降级
@@ -167,7 +170,8 @@ make test             # 全部测试
 
 ## 产物
 
-- ETF：`outputs/etf_signal/etf_rotation_{date}.html`（Layer ① 标题「① A股全市场 ETF轮动」，认知路径「大类资产 → 趋势ETF → 我的主题ETF」，替换原 funnel_report）+ `candidate_cards_{date}.json`
+- ETF：`outputs/etf_signal/etf_rotation_{date}.html`（Layer ① 标题「① A股全市场 ETF轮动」，认知路径「大类资产 → 趋势ETF → 我的主题ETF」+ **④ 三 Lane 路径视图**，替换原 funnel_report）+ `candidate_cards_{date}.json`
+- ETF 三 Lane 合成：`outputs/etf_signal/three_lane_{date}.{parquet,csv}`（watchlist × v1_signal_daily × trend_transition_state 左外 join，`ETF | Lane 2 底部 | Lane 2 target | Lane 3 迁移 | 离开底部天数 | Lane 1 趋势`）
 - ETF 轮动数据：`data/etf_signal/daily/rotation_{trade_date}.parquet`（全市场横截面 RPS15/20/60 + 5日排名变动，含 trade_date/run_date/data_status/source 元数据）
 - 账户候选：`data/etf_signal/signals/account_candidates_{trade_date}.parquet`（趋势池 ∩ 账户池，含元数据列）
 - SW-RPS 主报告（Layer ② 日报精简，v0.8.4）：`outputs/sw_industry_rps/sw_industry_rps_{date}.html`（+ `_latest.html` 指向最新，标题「② A股全市场 行业轮动」，认知路径「产业方向 → 趋势行业 → 我的主题支撑」）——「一句话 + 一张表」×3：① 一句话+Top10 产业方向表 · ② 一句话+单张行业表（行业/阶段/RPS15/RPS5/驱动）· ③ 每主题独立区块（v0.9.1：全部主题 = 头部状态 + Tier 表 + 判断 + 申万交叉证据；无 Tier 主题回退 = 头部状态 + 最强行业）。完整证据（矩阵/状态变化/124全表/确认四段/结构明细）保留在 parquet+CSV，不进日报。

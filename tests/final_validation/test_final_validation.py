@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 
+import pandas as pd
 import pytest
 
 from src.common import warnings as run_warnings
-from src.final_validation.cli import evaluate
+from src.final_validation.cli import evaluate, _three_lane_lane1_lag_days
 
 
 @pytest.fixture(autouse=True)
@@ -113,12 +114,77 @@ class TestEvaluateErrors:
         assert r["ok"] is False
         assert any("SW confirmation 缺失" in e for e in r["errors"])
 
+    def test_missing_transition_state_mandatory(self):
+        """Lane 3 transition_state 是正式每日能力：缺失 = run-day 不完整。"""
+        r = evaluate(trade_date="20260803", layers=None, alignment=None,
+                     action_level=None, warnings=[], transition_state_exists=False)
+        assert r["ok"] is False
+        assert any("Lane 3 transition_state 缺失" in e for e in r["errors"])
+
+    def test_transition_state_present_no_error(self):
+        r = evaluate(trade_date="20260803", layers=None, alignment=None,
+                     action_level=None, warnings=[], transition_state_exists=True)
+        assert not any("Lane 3" in e for e in r["errors"])
+
     def test_errors_dominate_warnings(self):
         r = evaluate(trade_date="20260803", layers=None, alignment=None,
                      action_level=None, warnings=[], selection_exists=False,
                      rotation_exists=False, confirmation_exists=False)
         assert r["ok"] is False
         assert len(r["errors"]) == 3
+
+    def test_lane1_aligned_no_warning(self):
+        """_watchlist_date == trade_date：无滞后，不标 warning，不阻塞。"""
+        r = evaluate(trade_date="20260803", layers=None, alignment=None,
+                     action_level=None, warnings=[], lane1_lag_days=0)
+        assert r["ok"] is True
+        assert not any("Lane 1 watchlist 滞后" in w for w in r["warnings"])
+
+    def test_lane1_lagged_must_flag(self):
+        """允许上一交易日 fallback 时，必须显式标记 Lane 1 lagged，防止把时间差当状态先后。"""
+        r = evaluate(trade_date="20260803", layers=None, alignment=None,
+                     action_level=None, warnings=[], lane1_lag_days=1)
+        assert r["ok"] is True
+        assert any("Lane 1 watchlist 滞后 1 交易日" in w for w in r["warnings"])
+        assert any("FIRST_EXIT × Lane 1" in w for w in r["warnings"])
+
+    def test_lane1_lag_none_no_warning(self):
+        """产物/列缺失时 lane1_lag_days=None：不误报滞后。"""
+        r = evaluate(trade_date="20260803", layers=None, alignment=None,
+                     action_level=None, warnings=[], lane1_lag_days=None)
+        assert not any("Lane 1 watchlist 滞后" in w for w in r["warnings"])
+
+
+class TestThreeLaneLane1LagDays:
+    def _write_three_lane(self, tmp_path, watchlist_date):
+        out = tmp_path / "etf_signal"
+        out.mkdir(parents=True, exist_ok=True)
+        p = out / "three_lane_20260803.parquet"
+        if watchlist_date is None:
+            df = pd.DataFrame({"fund_code": ["A"]})
+        else:
+            df = pd.DataFrame({"fund_code": ["A"], "_watchlist_date": [watchlist_date]})
+        df.to_parquet(p, index=False)
+        return p
+
+    def test_aligned(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("src.final_validation.cli.outputs_dir", lambda: tmp_path)
+        self._write_three_lane(tmp_path, pd.Timestamp("2026-08-03"))
+        assert _three_lane_lane1_lag_days("20260803") == 0
+
+    def test_lagged(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("src.final_validation.cli.outputs_dir", lambda: tmp_path)
+        self._write_three_lane(tmp_path, pd.Timestamp("2026-08-02"))
+        assert _three_lane_lane1_lag_days("20260803") == 1
+
+    def test_missing_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("src.final_validation.cli.outputs_dir", lambda: tmp_path)
+        assert _three_lane_lane1_lag_days("20260803") is None
+
+    def test_missing_column(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("src.final_validation.cli.outputs_dir", lambda: tmp_path)
+        self._write_three_lane(tmp_path, None)
+        assert _three_lane_lane1_lag_days("20260803") is None
 
 
 class TestWarningsCollector:

@@ -6,6 +6,7 @@ SRC_MAIN = src/main.py
 .PHONY: help run-day run-day-offline run-day-check \
 	etf-bootstrap etf-bootstrap-core etf-update etf-calculate \
 	etf-classify etf-layer1 etf-watchlist etf-account etf-account-blacklist etf-card etf-pipeline \
+	etf-refresh-v1 three-lane \
 	etf-retry-uncovered \
 	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-confirm sw-rps-report \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown sw-rps-structure \
@@ -33,7 +34,7 @@ etf-backfill: ## [保护] 目标日缺口回填：分类 + checkpoint/resume + �
 
 # ── 每日市场扫描（唯一入口） ──────────────────────────────────────
 
-run-day: ## 每日全流程：Observation 自动联网构建（ETF/行业/个股）→ Decision 离线消费 → Final Validation
+run-day: ## 每日全流程：Observation 自动联网构建（ETF/行业/个股）→ Decision 离线消费 → 三Lane 合成 → Final Validation
 	$(MAKE) etf-update
 	$(MAKE) sw-rps-update
 	$(MAKE) etf-calculate
@@ -44,6 +45,9 @@ run-day: ## 每日全流程：Observation 自动联网构建（ETF/行业/个股
 	$(MAKE) sw-rps-report      # 再生成报告（消费 confirmation + tier + structure）
 	$(MAKE) select                 # Decision 消费：离线、确定性
 	$(MAKE) etf-bottom-scan        # [Lane2] 全市场底部扫描（Application，只读 raw 缓存，不联网）
+	$(MAKE) etf-refresh-v1         # [Lane2] 轻量刷新 v1_signal_daily（Lane 3 状态机输入，全历史重算）
+	$(MAKE) trend-transition-state # [Lane3] 状态分类 Application（读冻结 YAML，自动取最新 trade_date）
+	$(MAKE) three-lane             # 三 Lane 合成表 + 重渲染 ETF 报告（④ 三 Lane 路径视图）
 	$(MAKE) run-day-check
 
 run-day-offline: ## 离线重放/CI：只读已落盘 Observation，不联网抓取（严格重放请用 research replay）
@@ -56,6 +60,10 @@ run-day-offline: ## 离线重放/CI：只读已落盘 Observation，不联网抓
 	$(MAKE) sw-rps-confirm     # 落 confirmation + tier_confirmation parquet（第三问消费）
 	$(MAKE) sw-rps-report      # 再生成报告（消费 confirmation + tier + structure）
 	$(MAKE) select
+	$(MAKE) etf-bottom-scan
+	$(MAKE) etf-refresh-v1
+	$(MAKE) trend-transition-state
+	$(MAKE) three-lane
 	$(MAKE) run-day-check
 
 run-day-check: ## [Final Validation] 校验 run-day 各层产物并输出最终结果
@@ -95,6 +103,12 @@ etf-card: ## 生成 ETF 候选信息卡片
 
 etf-pipeline: ## 完整发现链路：watchlist → account → card → JSON+CSV+HTML
 	$(PYTHON) $(SRC_MAIN) etf pipeline
+
+etf-refresh-v1: ## [Lane2] 轻量刷新 v1_signal_daily.parquet（每日全历史重算，Lane 3 状态机输入）
+	$(PYTHON) $(SRC_MAIN) research etf-bottom --refresh-v1
+
+three-lane: ## 三 Lane 合成表（watchlist × v1_signal_daily × trend_transition_state）+ 重渲染 ETF 报告（④ 三 Lane 路径视图）
+	$(PYTHON) $(SRC_MAIN) etf three-lane $(if $(TL_DATE),--date $(TL_DATE),)
 
 # ── SW-RPS 行业信号模块（ETF 子模块） ──────────────────────────
 # 结构：confirm 是 calculate 的下游，复用 calculate 产出的 RPS/指标，

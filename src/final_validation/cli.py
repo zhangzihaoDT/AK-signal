@@ -22,6 +22,8 @@ import sys
 from datetime import datetime
 from typing import Any
 
+import pandas as pd
+
 from src.common import warnings as run_warnings
 from src.common.paths import (
     etf_signal_daily_dir, sw_industry_confirmation_dir, outputs_dir,
@@ -54,8 +56,14 @@ def evaluate(
     selection_exists: bool = True,
     rotation_exists: bool = True,
     confirmation_exists: bool = True,
+    transition_state_exists: bool = True,
+    lane1_lag_days: int | None = None,
 ) -> dict[str, Any]:
     """汇总各层证据，给出 run-day 校验结论。
+
+    lane1_lag_days：three_lane 的 Lane 1 实际 watchlist 日期相对 trade_date 的滞后天数。
+    None / 0 = 对齐（_watchlist_date == trade_date）；>0 = 用了上一交易日 fallback，
+    必须显式标记，避免 FIRST_EXIT × Lane 1 交叉分析把「一天时间差」误读成状态先后关系。
 
     Returns:
         {ok, trade_date, status, action, warnings, errors}
@@ -69,6 +77,14 @@ def evaluate(
         errors.append(f"ETF rotation 缺失（rotation_{trade_date}.parquet）")
     if not confirmation_exists:
         errors.append(f"SW confirmation 缺失（confirmation_{trade_date}.parquet）")
+    if not transition_state_exists:
+        errors.append(f"Lane 3 transition_state 缺失（trend_transition_state_{trade_date}.parquet）")
+
+    # Lane 1 数据日对齐：要求 _watchlist_date == trade_date；
+    # 允许上一交易日 fallback 时，必须显式标记滞后，避免把时间差误读为状态先后
+    if isinstance(lane1_lag_days, int) and lane1_lag_days > 0:
+        warns.append(f"Lane 1 watchlist 滞后 {lane1_lag_days} 交易日（_watchlist_date < trade_date）"
+                     f"——FIRST_EXIT × Lane 1 交叉分析需按日错位解读，勿把滞后当状态先后")
 
     # 层证据状态：etf 与 sw_industry 两者任一 provisional → PROVISIONAL；
     # 全部 confirmed → CONFIRMED；缺失/不一致 → UNKNOWN
@@ -157,6 +173,35 @@ def _fmt_date(date_str: str) -> str:
         return str(date_str)
 
 
+def _three_lane_lane1_lag_days(trade_date: str) -> int | None:
+    """three_lane_{trade_date}.parquet 的 Lane 1 实际 watchlist 日期相对 trade_date 的滞后天数。
+
+    读产物 `_watchlist_date` 列（Lane 1 watchlist 数据日）。相同时返回 0（对齐）；
+    产物缺失 / 列缺失 / 解析失败返回 None（不判滞后，避免误报）。滞后以自然日为差，
+    工程口径：只要不是同日即视为滞后，须显式标记。
+    """
+    p = outputs_dir() / "etf_signal" / f"three_lane_{trade_date}.parquet"
+    if not p.exists():
+        return None
+    try:
+        df = pd.read_parquet(p, columns=["_watchlist_date"])
+    except Exception:
+        return None
+    if "_watchlist_date" not in df.columns:
+        return None
+    dates = df["_watchlist_date"].dropna()
+    if dates.empty:
+        return None
+    eff = pd.to_datetime(dates.max()).date()
+    try:
+        target = datetime.strptime(str(trade_date), "%Y%m%d").date()
+    except ValueError:
+        return None
+    if eff > target:
+        return 0
+    return (target - eff).days
+
+
 def cmd_run_day_check(args: argparse.Namespace) -> int:
     logger = build_logger(args.log_level)
     logger.info("=" * 60)
@@ -188,8 +233,12 @@ def cmd_run_day_check(args: argparse.Namespace) -> int:
 
     rotation_exists = (etf_signal_daily_dir() / f"rotation_{trade_date}.parquet").exists()
     confirmation_exists = (sw_industry_confirmation_dir() / f"confirmation_{trade_date}.parquet").exists()
+    transition_state_exists = (
+        outputs_dir() / "research" / "trend_transition" / f"trend_transition_state_{trade_date}.parquet"
+    ).exists()
 
     warns = run_warnings.load_warnings(trade_date)
+    lane1_lag_days = _three_lane_lane1_lag_days(trade_date)
     result = evaluate(
         trade_date=trade_date,
         layers=layers,
@@ -200,6 +249,8 @@ def cmd_run_day_check(args: argparse.Namespace) -> int:
         selection_exists=selection_exists,
         rotation_exists=rotation_exists,
         confirmation_exists=confirmation_exists,
+        transition_state_exists=transition_state_exists,
+        lane1_lag_days=lane1_lag_days,
     )
 
     if result["ok"]:

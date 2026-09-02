@@ -1086,6 +1086,61 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
     logger.info("=" * 60)
 
 
+def cmd_three_lane(args: argparse.Namespace) -> None:
+    """三 Lane 合成表 + 重渲染 ETF 报告（含 ④ 三 Lane 路径视图）。
+
+    读取三份已落盘的每日事实（watchlist / v1_signal_daily / trend_transition_state），
+    join 后写 three_lane_{date}.{parquet,csv}，再重渲染 etf_rotation_{date}.html
+    带上 ④ 三 Lane 路径视图区块。
+    """
+    import pandas as pd
+
+    from src.etf_signal.three_lane import build_three_lane, is_active_path, write_products
+
+    logger = build_logger(args.log_level)
+    trade_date = pd.Timestamp(args.date) if args.date else None
+    df = build_three_lane(trade_date)
+    pq, csv = write_products(df)
+
+    # 重渲染 ETF 报告（复用 cmd_pipeline Step 4 的输入：rotation / master / watchlist）
+    date_str = str(pd.Timestamp(df["trade_date"].iloc[0]).date()).replace("-", "")
+    output_dir = etf_signal_output_dir()
+    daily_dir = etf_signal_daily_dir()
+    signals_dir = etf_signal_signals_dir()
+    master = etf_master.load_master(etf_signal_master_dir())
+    wl = pd.DataFrame()
+    wl_files = sorted(signals_dir.glob(f"watchlist_{date_str}.parquet"))
+    if not wl_files:
+        wl_files = sorted(signals_dir.glob("watchlist_*.parquet"), reverse=True)
+    if wl_files:
+        wl = pd.read_parquet(wl_files[0])
+    rotation_df = pd.DataFrame()
+    rotation_path = daily_dir / f"rotation_{date_str}.parquet"
+    if rotation_path.exists():
+        rotation_df = pd.read_parquet(rotation_path)
+    if not rotation_df.empty and not wl.empty and "trend_state" in wl.columns:
+        rotation_df = rotation_df.merge(
+            wl[["fund_code", "trend_state"]].drop_duplicates(subset=["fund_code"]),
+            on="fund_code", how="left")
+    if not rotation_df.empty:
+        from . import rotation as rot_mod
+        cov = rot_mod.coverage(rotation_df, wl, master_count=len(master))
+        rotation_report.render_rotation_report(
+            rotation_df, output_dir, date_str,
+            master=master, watchlist=wl,
+            prev_active_codes=None, theme_pool=None,
+            coverage=cov, data_status="",
+            three_lane=df,
+        )
+        logger.info("etf_rotation_%s.html re-rendered with 三 Lane 视图", date_str)
+
+    print(f"three_lane pq : {pq}")
+    print(f"three_lane csv: {csv}")
+    print(f"trade_date    : {pd.Timestamp(df['trade_date'].iloc[0]).date()}  rows={len(df)}")
+    n_active = int(df.apply(is_active_path, axis=1).sum())
+    print(f"active rows   : {n_active}")
+
+
 # ---------------------------------------------------------------------------
 # P0-C: Calculate — 指标 + 信号
 # ---------------------------------------------------------------------------
@@ -1846,6 +1901,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_pipeline = sub.add_parser("pipeline", help="完整发现链路：watchlist → account → card → JSON+CSV+HTML")
     p_pipeline.add_argument("--log-level", default="INFO")
 
+    p_three_lane = sub.add_parser("three-lane", help="三 Lane 合成表（watchlist × v1_signal_daily × trend_transition_state）并重渲染 ETF 报告")
+    p_three_lane.add_argument("--date", default="", help="目标 trade_date YYYY-MM-DD（缺省=最新 v1_signal_daily）")
+    p_three_lane.add_argument("--log-level", default="INFO")
+
     p_calc = sub.add_parser("calculate", help="计算技术指标")
     p_calc.add_argument("--date", default="", help="目标日期")
     p_calc.add_argument("--log-level", default="INFO")
@@ -1897,6 +1956,7 @@ def main() -> None:
         "account-blacklist": cmd_account_blacklist,
         "card": cmd_card,
         "pipeline": cmd_pipeline,
+        "three-lane": cmd_three_lane,
         "calculate": cmd_calculate,
         "signal": cmd_signal,
         "backtest": cmd_backtest,
