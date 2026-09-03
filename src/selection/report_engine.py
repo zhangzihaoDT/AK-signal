@@ -295,13 +295,15 @@ def _render_audit(spec: ReportSpec, vm: ReportViewModel) -> str:
     parts = [_section(sec.title, f"<div class='calibre'>{_esc(vm.audit_calibre)}</div>", sec.subtitle)]
     stock_tab = spec.audit["stock_matrix"]
     etf_tab = spec.audit["etf_matrix"]
-    parts.append(f"<h3 style='color:var(--zh-blue);margin:18px 0 6px'>{_esc(stock_tab.title)}</h3>")
-    parts.append(_render_audit_summary(vm))
-    parts.append(_render_table(stock_tab.columns, vm.audit_stock))
-    if stock_tab.detail_columns:
-        parts.append("<details><summary>技术详情（全字段 · 底层证据）</summary>"
-                     + "<div class='detail-scroll'>" + _render_table(stock_tab.detail_columns, vm.audit_stock)
-                     + "</div></details>")
+    # v0.11 Phase 1：Layer③ ETF-only 时无个股行 → 不渲染个股矩阵区块
+    if vm.audit_stock:
+        parts.append(f"<h3 style='color:var(--zh-blue);margin:18px 0 6px'>{_esc(stock_tab.title)}</h3>")
+        parts.append(_render_audit_summary(vm))
+        parts.append(_render_table(stock_tab.columns, vm.audit_stock))
+        if stock_tab.detail_columns:
+            parts.append("<details><summary>技术详情（全字段 · 底层证据）</summary>"
+                         + "<div class='detail-scroll'>" + _render_table(stock_tab.detail_columns, vm.audit_stock)
+                         + "</div></details>")
     parts.append(f"<h3 style='color:var(--zh-blue);margin:18px 0 6px'>{_esc(etf_tab.title)}</h3>")
     parts.append(_render_audit_summary(vm, etf=True))
     parts.append(_render_etf_product_availability(vm))

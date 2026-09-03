@@ -430,6 +430,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         }
 
     # ── 构建候选对象（Selection Engine） ─────────────────────────────
+    # v0.11 Phase 1：Layer③ 每日发布输出收敛 ETF-only（include_stocks=False）；
+    # engine 默认 include_stocks=True 供 research replay/parity 重放历史个股。
     candidates = selection.build_candidates(
         rotation_df=rotation_df,
         account_df=account_df,
@@ -440,6 +442,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         tier_confirmation_df=tier_confirmation_df,
         trade_date=sel_date,
         lane_df=lane_df,
+        include_stocks=False,
     )
 
     # ── 推荐结构（Recommendation Builder：纯排版，不制造新事实） ────
@@ -450,6 +453,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     meta: dict[str, Any] = {
         "alignment": alignment,
         "lane": lane_meta,
+        "scope": "etf_only",   # v0.11 Phase 1：Layer③ 每日发布输出收敛 ETF-only（个股保留在 Layer② 作确认输入）
         "layers": {
             "etf": {"trade_date": etf_td, "data_status": _layer_status(rotation_df)},
             "account_candidates": {"trade_date": ac_td, "data_status": _layer_status(account_df)},

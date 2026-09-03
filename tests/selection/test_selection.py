@@ -275,6 +275,60 @@ class TestLaneFactsPassthrough:
             assert pool["515880"]["lane2_reliable_360"] is True
 
 
+class TestEtfOnlyOutput:
+    """Phase 1：include_stocks=False（每日发布，ETF-only）→ stock 容器置空、
+    不调用个股观察池；默认 True（research replay/parity）保留个股路径。"""
+
+    def _stock_item(self):
+        from src.selection.universe import UniverseItem
+        from src.trend_engine.asset import Asset
+        return UniverseItem(
+            asset=Asset(symbol="600900", name="长江电力", market="CN", category="leader"),
+            bucket="quality", bucket_label="质量", theme="high_cashflow",
+            theme_label="高现金流资产", tier="leader", tier_label="龙头",
+        )
+
+    def _build(self, *, include_stocks: bool, monkeypatch):
+        def _noop(*a, **k):  # pragma: no cover — 不应被调用
+            raise AssertionError("include_stocks=False 时不得调用 select_stock_watchlist")
+        if not include_stocks:
+            monkeypatch.setattr(selection, "select_stock_watchlist", _noop)
+        return selection.build_candidates(
+            rotation_df=_sample_rotation(),
+            account_df=_sample_account(),
+            master_df=_sample_master(),
+            confirmation_df=_sample_confirmation(confirmed=True),
+            universe_items=[self._stock_item()],
+            trend_df=pd.DataFrame(),
+            include_stocks=include_stocks,
+        )
+
+    def test_false_etf_only_empty_containers(self, monkeypatch):
+        c = self._build(include_stocks=False, monkeypatch=monkeypatch)
+        for b in c["buckets"]:
+            for t in b["themes"]:
+                assert t["stock_candidates"] == []
+                assert t["stock_watchlist"]["leaders"] == []
+                assert t["stock_watchlist"]["high_beta"] == []
+                assert t["stock_watchlist"]["equipment"] == []
+                assert t["primary_stock"] == []
+
+    def test_true_preserves_stock_path(self, monkeypatch):
+        called = []
+        monkeypatch.setattr(selection, "select_stock_watchlist",
+                            lambda *a, **k: (called.append(1) or ([], [], [])))
+        c = selection.build_candidates(
+            rotation_df=_sample_rotation(),
+            account_df=_sample_account(),
+            master_df=_sample_master(),
+            confirmation_df=_sample_confirmation(confirmed=True),
+            universe_items=[self._stock_item()],
+            trend_df=pd.DataFrame(),
+            include_stocks=True,
+        )
+        assert called, "include_stocks=True 应调用个股观察池（research/parity 保留）"
+
+
 class TestCrossThemeAssets:
     def test_recommended_dedup_cross_theme(self):
         """同一 ETF 在多个 theme 推荐 → 聚合去重，保留首个（primary=首个 bucket）。"""

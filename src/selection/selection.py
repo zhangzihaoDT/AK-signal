@@ -1491,6 +1491,7 @@ def build_candidates(
     tier_confirmation_df: pd.DataFrame | None = None,
     trade_date: str | None = None,
     lane_df: pd.DataFrame | None = None,
+    include_stocks: bool = True,
 ) -> dict[str, Any]:
     """构建 Layer ③ 候选资产对象（结构化 dict，可直接落 JSON）。
 
@@ -1501,6 +1502,9 @@ def build_candidates(
     trade_date 用于把价格历史截断到目标交易日（防 look-ahead）。
     v0.11 Phase 0：lane_df（three_lane_{trade_date}，ETF State Fusion 单一 join）→
     ETF 候选/观察对象透传三 Lane 事实；exact 缺失（lane_df=None）→ lane-less，不改任何 BUY 门控。
+    v0.11 Phase 1：include_stocks=False → Layer③ 每日发布输出收敛 ETF-only（stock 容器置空、
+    不调用个股观察池）。默认 True 保留 engine 个股能力，供 research replay/parity 重放历史
+    （Layer② Tier 确认等个股上游机制不受影响）。
     """
     theme_metas = evaluate_themes(confirmation_df, rotation_df, tier_confirmation_df)
     direction = evaluate_direction(theme_metas)
@@ -1553,17 +1557,23 @@ def build_candidates(
                 _attach_lane(cand)
 
             # 个股固定观察池（全量）+ 动态候选（按状态门控后的子集）
-            leaders, high_beta, equipment = select_stock_watchlist(
-                universe_items, key, trend_df, theme_confirmed=meta["confirmed"], trade_date=trade_date)
-            stock_watchlist = {
-                "leaders": [c.to_dict() for c in leaders],
-                "high_beta": [c.to_dict() for c in high_beta],
-                "equipment": [c.to_dict() for c in equipment],
-            }
-            stock_candidates = [
-                c.to_dict() for c in (leaders + high_beta + equipment)
-                if c.state in (STOCK_STATE_QUALIFIED, STOCK_STATE_RECOMMENDED)
-            ]
+            # v0.11 Phase 1：include_stocks=False（每日发布，ETF-only）→ 容器置空，
+            # 不调用 select_stock_watchlist；engine 默认 True 供 research replay/parity。
+            if include_stocks:
+                leaders, high_beta, equipment = select_stock_watchlist(
+                    universe_items, key, trend_df, theme_confirmed=meta["confirmed"], trade_date=trade_date)
+                stock_watchlist = {
+                    "leaders": [c.to_dict() for c in leaders],
+                    "high_beta": [c.to_dict() for c in high_beta],
+                    "equipment": [c.to_dict() for c in equipment],
+                }
+                stock_candidates = [
+                    c.to_dict() for c in (leaders + high_beta + equipment)
+                    if c.state in (STOCK_STATE_QUALIFIED, STOCK_STATE_RECOMMENDED)
+                ]
+            else:
+                stock_watchlist = {"leaders": [], "high_beta": [], "equipment": []}
+                stock_candidates = []
 
             # 表达决策（基于原始结构中位数，不因展示舍入翻转阈值）
             expr = decide_expression(meta)
