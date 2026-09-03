@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-RULE_VERSION = "v0.9.0"
+RULE_VERSION = "v0.11.0"
 
 
 @dataclass(frozen=True)
@@ -110,6 +110,20 @@ class SignalPolicySpec:
 
 
 @dataclass(frozen=True)
+class LaneValidationSpec:
+    """Lane Validation（v0.11 Phase 2）—— Layer③ Decision 的验证 Policy。
+
+    - reliability_hard_gate_enabled：Lane2 数据可靠性 **硬 gate**。three_lane 明确
+      lane2_reliable_360=False（360D 价格不可信，如份额折算污染）→ 本可推荐的 ETF
+      强制不可推荐（recommended=False / state→WATCH / reason=lane2_unreliable）。
+      lane-less（无 lane 行 / None）不触发（只在有明确不可靠证据时拦）。
+    - Lane2 结构（repair-retest TARGET 等）= soft validation（仅标注/观察，不 gate）；
+      Lane3 阶段 = 纯 context（不 gate）。二者不设 Policy 开关，进展示层。
+    """
+    reliability_hard_gate_enabled: bool = True
+
+
+@dataclass(frozen=True)
 class EtfSelectionSpec:
     """Layer③ ETF 候选「准入—排序—输出」策略（Policy，v0.9.0 四段）。"""
     allowed_trend_states: tuple[str, ...]
@@ -119,6 +133,7 @@ class EtfSelectionSpec:
     amount_score: AmountScoreSpec
     leadership: LeadershipSpec = field(default_factory=LeadershipSpec)
     historical_position: HistoricalPositionSpec = field(default_factory=HistoricalPositionSpec)
+    lane_validation: LaneValidationSpec = field(default_factory=LaneValidationSpec)
 
 
 @dataclass(frozen=True)

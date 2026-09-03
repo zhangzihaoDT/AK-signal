@@ -527,6 +527,25 @@ def _apply_lane_facts(cand: AssetCandidate, lane_row: Any) -> None:
     cand.lane3_days_since_first_exit = _lane_float(lane_row, "lane3_days_since_first_exit")
 
 
+def _apply_lane_reliability_gate(cand: AssetCandidate) -> None:
+    """Lane2 数据可靠性硬 gate（v0.11 Phase 2，Policy 开关在 strategy_spec）。
+
+    three_lane 明确 lane2_reliable_360=False（如份额折算污染 360D 价格）→ 本可推荐的
+    ETF 强制不可推荐（recommended=False / state→WATCH / reason=lane2_unreliable）。
+    lane-less（无 lane 行 / None）不触发——只在有明确「不可靠」证据时拦。
+    """
+    if not _ETF_SPEC.lane_validation.reliability_hard_gate_enabled:
+        return
+    if cand.lane2_reliable_360 is False and cand.recommended:
+        cand.recommended = False
+        if cand.state == STOCK_STATE_RECOMMENDED:
+            cand.state = STOCK_STATE_WATCH
+        if "lane2_unreliable" not in cand.reason_codes:
+            cand.reason_codes = cand.reason_codes + ["lane2_unreliable"]
+        if cand.reason:
+            cand.reason = f"{cand.reason} · 数据不可靠（Lane2 折算污染）"
+
+
 def lane_index_from_df(lane_df: pd.DataFrame | None) -> dict[str, Any]:
     """three_lane DataFrame → {fund_code: 行}（空/缺 → {}，消费侧 lane-less）。"""
     if lane_df is None or lane_df.empty or "fund_code" not in lane_df.columns:
@@ -1515,6 +1534,7 @@ def build_candidates(
         row = lane_index.get(str(cand.code))
         if row is not None:
             _apply_lane_facts(cand, row)
+            _apply_lane_reliability_gate(cand)
 
     buckets_out: list[dict[str, Any]] = []
     for bucket_cfg in buckets_cfg:

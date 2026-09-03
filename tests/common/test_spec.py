@@ -57,6 +57,8 @@ class TestLoaders:
         assert es.amount_score.floor == 50_000_000
         assert es.amount_score.reference == 500_000_000
         assert es.amount_score.cap == 100
+        # v0.11 Phase 2 Lane Validation：可靠性硬 gate 默认开启
+        assert es.lane_validation.reliability_hard_gate_enabled is True
 
     def test_etf_selection_four_stage(self):
         from src.common.spec.loaders import load_etf_selection_spec

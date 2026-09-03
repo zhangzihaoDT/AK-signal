@@ -329,6 +329,45 @@ class TestEtfOnlyOutput:
         assert called, "include_stocks=True 应调用个股观察池（research/parity 保留）"
 
 
+class TestLaneReliabilityGate:
+    """Phase 2：Lane2 数据可靠性硬 gate（lane2_reliable_360=False → 本可推荐强制不可推荐）。"""
+
+    def _cand(self, reliable, recommended=True, reason=""):
+        return selection.AssetCandidate(
+            code="159583", name="通信ETF富国", role="CORE_ETF", asset_type="etf",
+            bucket="core", theme="ai_infrastructure",
+            lane2_reliable_360=reliable,
+            recommended=recommended,
+            state=selection.STOCK_STATE_RECOMMENDED if recommended else selection.STOCK_STATE_WATCH,
+            reason_codes=["theme_confirmed", "trend_gate_passed", "liquidity_ok"],
+            reason=reason,
+        )
+
+    def test_unreliable_blocks_recommendation(self):
+        cand = self._cand(reliable=False, reason="主题评分最高")
+        selection._apply_lane_reliability_gate(cand)
+        assert cand.recommended is False
+        assert cand.state == selection.STOCK_STATE_WATCH
+        assert "lane2_unreliable" in cand.reason_codes
+        assert "数据不可靠" in (cand.reason or "")
+
+    def test_reliable_true_keeps_recommendation(self):
+        cand = self._cand(reliable=True)
+        selection._apply_lane_reliability_gate(cand)
+        assert cand.recommended is True
+        assert "lane2_unreliable" not in cand.reason_codes
+
+    def test_lane_less_keeps_recommendation(self):
+        cand = self._cand(reliable=None)
+        selection._apply_lane_reliability_gate(cand)
+        assert cand.recommended is True  # lane-less 不触发（缺证据不放行也不拦）
+
+    def test_reject_reason_surfaces_lane_gate(self):
+        from src.selection.recommendation import _etf_reject_reason
+        a = {"reason_codes": ["theme_confirmed", "lane2_unreliable"]}
+        assert "数据不可靠" in _etf_reject_reason(a)
+
+
 class TestCrossThemeAssets:
     def test_recommended_dedup_cross_theme(self):
         """同一 ETF 在多个 theme 推荐 → 聚合去重，保留首个（primary=首个 bucket）。"""

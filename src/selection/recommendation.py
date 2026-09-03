@@ -32,7 +32,9 @@ def _etf_reject_reason(a: dict[str, Any]) -> str:
     """ETF 未推荐原因（Policy 标注，基于引擎 reason_codes + position 上下文）。"""
     codes = a.get("reason_codes") or []
     reason = ""
-    if "dedup_lost" in codes:
+    if "lane2_unreliable" in codes:
+        reason = "数据不可靠（Lane2 折算污染/360D 失真），硬 gate 拦下"
+    elif "dedup_lost" in codes:
         reason = "同类方向已有代表入选"
     elif "below_trend_gate" in codes and "low_liquidity" in codes:
         reason = "未达趋势门且流动性不足"

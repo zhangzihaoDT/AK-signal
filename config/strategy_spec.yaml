@@ -50,6 +50,16 @@ etf_selection:
     low_below_pct: -5.0      # 低于 MA60 5%~15% → LOW（深度回调，赔率区）
     high_above_pct: 10.0     # 高于 MA60 超 10% → HIGH（追高，不追）
 
+  # v0.11 Phase 2 — Lane Validation（Decision 验证 Policy，叠加于四段之上）
+  #   reliability_hard_gate_enabled：Lane2 数据可靠性 = 硬 gate。three_lane 明确
+  #   lane2_reliable_360=False（如份额折算污染 360D 价格）→ 本可推荐的 ETF 强制不可推荐
+  #   （recommended=False / state→WATCH / reason=lane2_unreliable）。lane-less（无 lane
+  #   行 / None）不触发 —— 只在有明确「不可靠」证据时拦，不缺证据即放行。
+  #   Lane2 结构（repair-retest TARGET 等）= soft validation：仅标注/观察，不 gate；
+  #   Lane3 阶段 = 纯 context（不 gate）。二者无 Policy 开关，由展示层消费。
+  lane_validation:
+    reliability_hard_gate_enabled: true
+
 # stock_selection：Layer③ 个股准入 + 主题门控 + 四段信号（Policy，非指标定义）
 #   ① trend：qualified_score + allowed_trend_states（趋势合格线）
 #     - rps15_min：策略定义的 RPS15 底线（与 strategies.<id>.entry 对齐，供展示/对齐检查）

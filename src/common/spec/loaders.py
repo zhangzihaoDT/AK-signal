@@ -16,8 +16,8 @@ from src.common.paths import config_dir
 from . import schema as sch
 from .model import (
     AllocationSpec, AmountScoreSpec, EntrySpec, EtfSelectionSpec, ExecutionSpec,
-    ExitSpec, HistoricalPositionSpec, IndicatorSpec, LeadershipSpec, PortfolioSpec,
-    SignalPolicySpec, SignalRule, StockSelectionSpec, StrategySpec,
+    ExitSpec, HistoricalPositionSpec, IndicatorSpec, LaneValidationSpec, LeadershipSpec,
+    PortfolioSpec, SignalPolicySpec, SignalRule, StockSelectionSpec, StrategySpec,
 )
 
 
@@ -43,6 +43,12 @@ def _parse_leadership(node: dict[str, Any]) -> LeadershipSpec:
         leader_rank_max=leader,
         core_rank_max=core,
         require_rps_outperform=bool(node.get("require_rps_outperform", True)),
+    )
+
+
+def _parse_lane_validation(node: dict[str, Any]) -> LaneValidationSpec:
+    return LaneValidationSpec(
+        reliability_hard_gate_enabled=bool(node.get("reliability_hard_gate_enabled", True)),
     )
 
 
@@ -118,6 +124,7 @@ def load_etf_selection_spec() -> EtfSelectionSpec:
     es = cfg["etf_selection"]
     trend = es["trend"]
     amt = es["ranking"]["amount_score"]
+    lv = es.get("lane_validation") or {}
     return EtfSelectionSpec(
         allowed_trend_states=tuple(trend["allowed_trend_states"]),
         watch_allowed_trend_states=tuple(trend["watch_allowed_trend_states"]),
@@ -129,6 +136,7 @@ def load_etf_selection_spec() -> EtfSelectionSpec:
         ),
         leadership=_parse_leadership(es.get("leadership") or {}),
         historical_position=_parse_historical_position(es.get("historical_position") or {}),
+        lane_validation=_parse_lane_validation(lv),
     )
 
 
