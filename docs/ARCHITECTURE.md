@@ -5,6 +5,9 @@
 >
 > 策略层：所有可实验参数收敛到 config/（themes/universes/strategies/indicators/execution/portfolio），
 > 由 src/common/spec 统一 Loader + Schema 校验；算法/执行语义留代码。详见 docs/STRATEGY_SPEC.md。
+>
+> **能力快照**：当前代码库「模块 → 对象 → 问题 → 产物/报告」的 canonical 状态图见
+> `docs/ARCHITECTURE_MAP.md`（本文件为历史叙事/目标态，会滞后于代码）。
 
 ## Observation / Decision 分层（最值得坚持的一点）
 
