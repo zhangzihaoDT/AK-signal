@@ -12,7 +12,7 @@
 |---|---|---|---|---|---|---|
 | ① | Layer① ETF Rotation | `src/etf_signal/rotation` | 全市场 ETF（~1554） | 什么资产/主题在形成趋势 | EM/Sina 行情 → `raw/{code}.parquet` | Observation（制造事实） |
 | ② | Layer② Industry / Tier 确认 | `src/sw_industry_rps` | 124 申万二级 → 主题 Tier | ETF 趋势有无产业支撑 / 主题是否确认 | SW 日频/realtime + `stock_metrics` | Observation（制造事实） |
-| ③ | Layer③ Selection | `src/selection` | 主题 ETF + 个股（现状） | 已确认主题选哪只 ETF / 哪类股票表达 | Layer①② + stock_metrics（离线） | Decision（消费事实） |
+| ③ | Layer③ Selection | `src/selection` | 主题 ETF（每日发布 ETF-only；engine 保留个股供 research） | 已确认主题选哪只 ETF 表达 + Lane Validation | Layer①② + three_lane + stock_metrics（离线） | Decision（消费事实） |
 | L1 | Lane 1 ETF 趋势池 | `etf_signal/signal`（watchlist） | 全市场 ETF | 谁已是趋势（状态池） | Layer① rotation | Observation（ETF 产品状态） |
 | L2 | Lane 2 底部/修复 | `src/research/etf_bottom` | 全市场 reliable ETF | 价格位置 / 赔率如何（底部域 + Repair-Retest V1） | raw 缓存（离线） | Observation（研究 → Application） |
 | L3 | Lane 3 趋势转换 | `src/research/trend_transition` | 全市场 ETF | 处于什么生命周期阶段 | `v1_signal_daily` + raw | Observation（研究 → Application） |
@@ -60,7 +60,7 @@ etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipe
 | sw-rps-* | `data/processed/sw_industry/confirmation|tier_confirmation|structure_{date}.parquet` | Layer② 事实 |
 | etf-calculate/pipeline | `data/etf_signal/daily/rotation_{date}.parquet` · `signals/account_candidates_{date}.parquet` · `outputs/etf_signal/{etf_rotation_{date}.html, watchlist_active_{date}.csv, candidate_cards_{date}.json}` | Layer①/Lane1 |
 | stock-metrics-online | `outputs/stock_metrics/stock_metrics_{date}.parquet` | 个股趋势（Layer② Tier 与 ③ 共用） |
-| select | `outputs/selection/tradable_candidates_{date}.{json,html}` | Layer③ |
+| select | `outputs/selection/tradable_candidates_{date}.{json,html}`（meta.scope=etf_only） | Layer③（ETF-only 发布；Lane Validation 硬 gate） |
 | etf-bottom-scan | `outputs/research/etf_bottom/scan_{date}.{html,json,csv,parquet}` | Lane2 每日 Application |
 | etf-refresh-v1 | `outputs/research/etf_bottom/backtest_v1/v1_signal_daily.parquet` | Lane2/3 历史态 |
 | trend-transition-state | `outputs/research/trend_transition/trend_transition_state_{date}.{parquet,json}` | Lane3 每日 Application（无 HTML） |
@@ -107,7 +107,12 @@ etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipe
 3. **`*_latest.*` 别名**：仅 CONFIRMED 落盘后更新（现仅 Layer② `sw_industry_rps_latest.html`）；PROVISIONAL 只落带日期文件。
 4. **Fact 不可变**：Observation 数字原值保留，Policy 接受/拒绝单独标注；Decision 禁止联网/重算/覆盖 Observation 字段。
 5. **config_hash / rule_version**：`market_data.yaml`（Data Acquisition）不入 strategy config_hash，抓取参数变化不触发 replay parity 失效；算法变化才 bump `rule_version`。
-6. **三 Lane 与生产链边界（现状 → 正在收敛）**：Lane2/3 原为「研究不进入 Layer①②③ 决策链」；Layer③ ETF-only + Lane Validation（L2 可靠性硬 gate / L2 结构 soft / L3 仅 context）落地后需同步更新 `AGENTS.md` 与本图。
+6. **Layer③ ETF-only + Lane Validation（v0.11，生产中）**：Layer③ 每日发布输出收敛 ETF-only
+   （`select run` 固定 `include_stocks=False`，`meta.scope=etf_only`，报告无个股区块）；个股保留在
+   Layer② Tier 作行业确认输入，engine 默认 `include_stocks=True` 供 research replay/parity。
+   ETF State Fusion（three_lane）以 exact 日期对齐消费，缺失 → lane-less 不 gate。
+   Validation：**L2 数据可靠性=硬 gate**（`lane2_reliable_360=False` → 不可推荐，
+   reason=lane2_unreliable）；L2 结构=soft；L3 阶段=纯 context（不 gate）。`RULE_VERSION`=v0.11.0。
 
 ## 6. 命令面（`make` / `python src/main.py`）
 

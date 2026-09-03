@@ -5,6 +5,9 @@
 > **决策行为真源：`src/selection/selection.py` + `recommendation.py`**
 > **HTML：Report Engine 解释 Spec + ReportViewModel 的生成结果**
 
+> v0.11：Layer③ 每日发布**收敛 ETF-only**（`meta.scope=etf_only`，无个股区块）；
+> ETF 审计详情新增「数据(L2)/阶段(L3)」列（three_lane 透传）；个股矩阵仅在存在个股行时渲染。
+
 改报告内容 = 改 `report_spec.yaml`（结构/顺序/列/标签/条件/优先级），
 改完重新冻结 golden（`tests/fixtures/report/*.golden.html`）。**不在 report.py 拼 HTML。**
 
