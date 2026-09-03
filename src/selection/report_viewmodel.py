@@ -95,6 +95,7 @@ class ReportViewModel:
     etf_product_availability: list[tuple[str, int, int]]
     audit_calibre: str
     meta: dict[str, Any]
+    notice_lines: list[str] = field(default_factory=list)
 
 
 def _meaningful_blocks(row: dict[str, Any]) -> list[str]:
@@ -376,6 +377,21 @@ def build_view_model(
         tot = int(ts.theme_obj.get("etf_pool_total", 0) or 0)
         etf_product_availability.append((ts.theme_label, e0, tot))
 
+    # R3/R4 报告语义（展示层，不改决策）：
+    #  - provisional 上游数据状态透明提示（Layer② 临时数据不透传到③）
+    #  - BUY = 配置 Universe 内最优，非全市场最强（静态说明）
+    notices: list[str] = []
+    layer_labels = {"etf": "Layer① ETF", "account_candidates": "Layer① 账户",
+                    "sw_industry": "Layer② 行业"}
+    prov = []
+    for ln, v in ((meta or {}).get("layers", {}) or {}).items():
+        if isinstance(v, dict) and str(v.get("data_status", "") or "") == "provisional":
+            prov.append(layer_labels.get(ln, ln))
+    if prov:
+        notices.append(f"上游数据为临时（provisional）：{'/'.join(prov)} —— 本建议基于临时事实，正式数据发布后重跑 run-day 更新")
+    if str((recommendation.get("action", {}) or {}).get("level", "")) == "BUY":
+        notices.append("BUY 为配置 Universe（AI / 中国汽车 / 高现金流）内最优表达，非全市场最强机会；全市场最强方向以 ① ETF 轮动报告为准")
+
     return ReportViewModel(
         selection_date=selection_date,
         action=recommendation.get("action", {}) or {},
@@ -393,4 +409,5 @@ def build_view_model(
         etf_product_availability=etf_product_availability,
         audit_calibre=CALIBRE_TEXT,
         meta=meta or {},
+        notice_lines=notices,
     )

@@ -342,6 +342,10 @@ def render_report_html(
         f"<div class='subtitle'>{_esc(spec.subtitle)} · 报告日期 {date_str[:4]}-{date_str[4:6]}-{date_str[6:8]} · 生成于 {now_str} · "
         "Decision Layer：只消费已落盘事实，禁止联网/重算；本报告由 Report Engine 按 Spec 生成，不产生新事实</div>",
     ]
+    for note in vm.notice_lines:
+        parts.append(
+            f"<div style='background:#FFF3CD;border:1px solid #FFE08A;color:#7A5B00;"
+            f"border-radius:6px;padding:8px 12px;margin:10px 0;font-size:13px'>{_esc(note)}</div>")
     for sec in spec.sections:
         renderer = RENDERERS[sec.renderer]
         body = renderer(spec, vm)
