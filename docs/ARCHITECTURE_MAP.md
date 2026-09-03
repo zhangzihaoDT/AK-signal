@@ -113,6 +113,28 @@ etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipe
    ETF State Fusion（three_lane）以 exact 日期对齐消费，缺失 → lane-less 不 gate。
    Validation：**L2 数据可靠性=硬 gate**（`lane2_reliable_360=False` → 不可推荐，
    reason=lane2_unreliable）；L2 结构=soft；L3 阶段=纯 context（不 gate）。`RULE_VERSION`=v0.11.0。
+7. **ETF 技术详情证据栈（Evidence Stack，v0.11）**：单只 ETF 的可审计「技术详情 · 底层证据」由
+   三块产物聚合而成，但**不是无冗余的最小集，也不是仅此三块才完整**：
+
+   - **聚合视图（curated，可读口径）**：Layer③ Selection candidate facts
+     （`recommendation.etf` / `etf_monitoring` / `watchlist.etf` 条目）——rotation 核心
+     （rps15/20/60/1、Δrps15、returns、liquidity）+ technical_diagnostics + blocking/
+     data_quality_flags + 四段（leadership/position/signal）+ 主题 + lane 透传子集
+     （6 字段）。**三块中的 hub**：已内嵌下两块的一部分字段（同源于 rotation 与 three_lane）。
+   - **产品/账户层（Layer① 账户候选卡）**：`candidate_cards_{date}.json` —— trend 变化
+     （trend_change/amount_change）、产品/账户门控（tradable + liquidity/size/history/premium
+     gates）、risks、validation.next_step；scope=账户候选集（非全市场）；**Selection 不消费它**
+     （属 Layer① 独立产物），其趋势字段与 Selection 重复是审计冗余而非事实双源。
+   - **生命周期校验层（three_lane 原始事实全集）**：`three_lane_{date}.parquet` ——
+     lane1 trend_state、lane2 bottom/target/reliable、lane3 transition/days +
+     `_watchlist_date` 对齐标记；Selection 只透传其子集，需要 lane 原始全量时读本文件。
+
+   **约束**：① 三块刻意有冗余（展示口径 vs 审计口径），不互为唯一真源；② scope 不同
+   （candidate_cards=1291 账户池、three_lane≈1290 reliable、Selection=主题关键词命中池），
+   逐 ETF 完整性只在三块共同覆盖时成立；③ 管道仍有未进三块的原始列（rotation
+   `rank15/return_10/15/60/liquidity百分位/data_quality_flag`、account `trend_change/
+   amount_change`、three_lane `pos120/confirmed_long_term_bottom/lane1/_watchlist_date`、
+   Lane2 in-domain scan odds），字节级完整需连同 rotation/scan parquet 一起读。
 
 ## 6. 命令面（`make` / `python src/main.py`）
 
