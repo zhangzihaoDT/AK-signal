@@ -216,6 +216,45 @@ def _ensure_stock_trend_df(
     return df.reset_index(drop=True)
 
 
+def _load_lane_input(sel_date: str) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """加载 three_lane_{sel_date}.parquet（ETF State Fusion，Layer③ Phase 0 输入）。
+
+    对齐语义（canonical，锁定）：exact `three_lane_{trade_date}` 存在且内部
+    trade_date 与文件名一致 → 对齐消费（lane_lag_days=0）；exact 缺失或内部日期
+    不一致 → lane-less（lane_trade_date=None / lane_lag_days=None），**禁止 fallback
+    到前后日期**（避免静默拼错 trade_date）。
+    """
+    meta: dict[str, Any] = {
+        "status": "lane_less",
+        "trade_date": None,
+        "lane_lag_days": None,
+        "reason": "",
+    }
+    path = outputs_dir() / "etf_signal" / f"three_lane_{sel_date}.parquet"
+    if not path.exists():
+        meta["reason"] = "exact three_lane 文件缺失"
+        return pd.DataFrame(), meta
+    try:
+        df = pd.read_parquet(path)
+    except Exception as e:  # noqa: BLE001
+        meta["reason"] = f"three_lane 读取失败: {e}"
+        return pd.DataFrame(), meta
+    if df.empty or "fund_code" not in df.columns:
+        meta["reason"] = "three_lane 为空或缺 fund_code"
+        return pd.DataFrame(), meta
+    internal = None
+    if "trade_date" in df.columns:
+        try:
+            internal = pd.Timestamp(df["trade_date"].dropna().max()).strftime("%Y%m%d")
+        except Exception:  # noqa: BLE001
+            internal = None
+    if internal is None or internal != sel_date:
+        meta["reason"] = f"内部 trade_date({internal}) 与目标({sel_date})不一致"
+        return pd.DataFrame(), meta
+    meta.update({"status": "aligned", "trade_date": sel_date, "lane_lag_days": 0})
+    return df, meta
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     logger = build_logger(args.log_level)
     logger.info("=" * 60)
@@ -295,6 +334,15 @@ def cmd_run(args: argparse.Namespace) -> None:
     sel_date = alignment["selection_date"] or requested_td or date.today().strftime("%Y%m%d")
     logger.info("alignment: %s | selection_date=%s | industry_lag_days=%s",
                 alignment.get("alignment_status"), sel_date, alignment.get("industry_lag_days"))
+
+    # ── 输入：Lane 事实（three_lane 单一 join，ETF State Fusion） ──
+    # exact three_lane_{sel_date} 对齐消费；缺失/日期不符 → lane-less（禁 fallback 前后日期）
+    lane_df, lane_meta = _load_lane_input(sel_date)
+    if lane_df.empty:
+        logger.warning("Lane input: %s（lane-less，ETF 无三 Lane 上下文）", lane_meta.get("reason"))
+    else:
+        logger.info("Lane input: %d ETFs (trade_date=%s, status=aligned)",
+                    len(lane_df), lane_meta.get("trade_date"))
 
     # ── 输入：个股趋势（调用 Trend Engine 计算，不读独立报告） ─────
     universe_items = load_universe_items(selection_universe_path())
@@ -391,6 +439,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         trend_df=trend_df,
         tier_confirmation_df=tier_confirmation_df,
         trade_date=sel_date,
+        lane_df=lane_df,
     )
 
     # ── 推荐结构（Recommendation Builder：纯排版，不制造新事实） ────
@@ -400,6 +449,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     # ── 输出：结构化推荐 JSON + HTML 可视化（按 selection_date 命名） ─
     meta: dict[str, Any] = {
         "alignment": alignment,
+        "lane": lane_meta,
         "layers": {
             "etf": {"trade_date": etf_td, "data_status": _layer_status(rotation_df)},
             "account_candidates": {"trade_date": ac_td, "data_status": _layer_status(account_df)},

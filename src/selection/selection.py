@@ -438,6 +438,15 @@ class AssetCandidate:
     position_pct: float | None = None   # price_percentile=分位(0-100)；ma60_deviation=乖离率(%,可负)
     position_lookback_days: int = 0     # 位置回看窗口（price_percentile=lookback_days；ma60_deviation=ma_window）
     signal: str = ""                    # STRONG_BUY / BUY / WATCH / HOLD / WAIT
+    # v0.11 三 Lane 事实透传（Phase 0：ETF State Fusion，只读 three_lane 单一 join，
+    # 对齐后消费；exact 缺失 → 全部 None → to_dict 不落字段。仅 Observation 事实，
+    # Phase 0 不参与任何 BUY 门控。Phase 2 起 lane2_reliable_360 作可靠性硬 gate。）
+    lane2_reliable_360: bool | None = None
+    lane2_long_term_bottom: bool | None = None
+    lane2_target_stage: str | None = None     # TARGET / NEAR_MISS / NON_TARGET
+    lane2_bottom_state: str | None = None     # DEEP_BOTTOM / RECOVERING / NORMAL / UNRELIABLE
+    lane3_transition_state: str | None = None  # FIRST_EXIT/EARLY/ACTIVE/ESTABLISHED/RETEST/POST_TRANSITION/UNRELIABLE
+    lane3_days_since_first_exit: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -455,6 +464,80 @@ def _round(v: Any) -> float | None:
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return None
     return round(float(v), 1)
+
+
+# ── 三 Lane 事实透传（Phase 0：ETF State Fusion 只读消费，不参与 BUY 门控）──
+
+def _lane_value(lane_row: Any, key: str) -> Any:
+    """安全取 three_lane 行字段（缺列 / NaN / None → None）。"""
+    if lane_row is None:
+        return None
+    try:
+        if key not in lane_row.index:
+            return None
+    except AttributeError:
+        return None
+    v = lane_row[key]
+    if v is None:
+        return None
+    try:
+        if pd.isna(v):
+            return None
+    except Exception:  # noqa: BLE001 — 非 pandas 标量
+        pass
+    return v
+
+
+def _lane_bool(lane_row: Any, key: str) -> bool | None:
+    v = _lane_value(lane_row, key)
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "1", "yes")
+    try:
+        return bool(v)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _lane_str(lane_row: Any, key: str) -> str | None:
+    v = _lane_value(lane_row, key)
+    return str(v) if v is not None else None
+
+
+def _lane_float(lane_row: Any, key: str) -> float | None:
+    v = _lane_value(lane_row, key)
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _apply_lane_facts(cand: AssetCandidate, lane_row: Any) -> None:
+    """把 three_lane 行的事实透传到 ETF AssetCandidate（缺行/缺列 → 字段留 None）。"""
+    if lane_row is None:
+        return
+    cand.lane2_reliable_360 = _lane_bool(lane_row, "lane2_reliable_360")
+    cand.lane2_long_term_bottom = _lane_bool(lane_row, "lane2_long_term_bottom")
+    cand.lane2_target_stage = _lane_str(lane_row, "lane2_target_stage")
+    cand.lane2_bottom_state = _lane_str(lane_row, "lane2_bottom_state")
+    cand.lane3_transition_state = _lane_str(lane_row, "lane3_transition_state")
+    cand.lane3_days_since_first_exit = _lane_float(lane_row, "lane3_days_since_first_exit")
+
+
+def lane_index_from_df(lane_df: pd.DataFrame | None) -> dict[str, Any]:
+    """three_lane DataFrame → {fund_code: 行}（空/缺 → {}，消费侧 lane-less）。"""
+    if lane_df is None or lane_df.empty or "fund_code" not in lane_df.columns:
+        return {}
+    out: dict[str, Any] = {}
+    for _, row in lane_df.iterrows():
+        code = row["fund_code"]
+        if code is None:
+            continue
+        out[str(code)] = row
+    return out
 
 
 # ── 1. 主题确认 ────────────────────────────────────────────────────
@@ -1407,6 +1490,7 @@ def build_candidates(
     trend_df: pd.DataFrame,
     tier_confirmation_df: pd.DataFrame | None = None,
     trade_date: str | None = None,
+    lane_df: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """构建 Layer ③ 候选资产对象（结构化 dict，可直接落 JSON）。
 
@@ -1415,10 +1499,18 @@ def build_candidates(
     （消费 tier_confirmation parquet）。
     v0.9.0：四段信号（trend→leadership→position→signal）接入 ETF 与个股候选；
     trade_date 用于把价格历史截断到目标交易日（防 look-ahead）。
+    v0.11 Phase 0：lane_df（three_lane_{trade_date}，ETF State Fusion 单一 join）→
+    ETF 候选/观察对象透传三 Lane 事实；exact 缺失（lane_df=None）→ lane-less，不改任何 BUY 门控。
     """
     theme_metas = evaluate_themes(confirmation_df, rotation_df, tier_confirmation_df)
     direction = evaluate_direction(theme_metas)
     buckets_cfg = themes_cfg.load_buckets()
+    lane_index = lane_index_from_df(lane_df)
+
+    def _attach_lane(cand: AssetCandidate) -> None:
+        row = lane_index.get(str(cand.code))
+        if row is not None:
+            _apply_lane_facts(cand, row)
 
     buckets_out: list[dict[str, Any]] = []
     for bucket_cfg in buckets_cfg:
@@ -1457,6 +1549,8 @@ def build_candidates(
                     sub_industry_etf.append(_to_etf_candidate(
                         r, "SUB_INDUSTRY_ETF", bucket_cfg.key, key, "细分方向代表",
                         rank=i + 2, trade_date=trade_date, theme_confirmed=meta["confirmed"]))
+            for cand in core_etf + sub_industry_etf:
+                _attach_lane(cand)
 
             # 个股固定观察池（全量）+ 动态候选（按状态门控后的子集）
             leaders, high_beta, equipment = select_stock_watchlist(
@@ -1486,7 +1580,9 @@ def build_candidates(
 
             # ETF 观察池（全部关键词命中 + 原因标注；core/sub 逻辑不变，仅补全事实）
             etf_pool = theme_etf_pool(rotation_df, account_df, master_df, key, trade_date=trade_date,
-                                      theme_confirmed=meta["confirmed"])
+                                       theme_confirmed=meta["confirmed"])
+            for cand in etf_pool:
+                _attach_lane(cand)
 
             # 表达可执行性（observability）：结构表达 ≠ 可执行表达（Layer③ 产品可得性）
             eligible_etf_count = sum(1 for e in etf_pool if _etf_trend_eligible(e))

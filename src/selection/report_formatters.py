@@ -455,6 +455,45 @@ def fmt_etf_position(row: dict[str, Any]) -> str:
     return f"{txt} · {pct_txt}"
 
 
+# ── 三 Lane 上下文（Phase 0 ETF State Fusion，纯透传展示，不 gate）──
+
+_LANE3_STATE_LABEL = {
+    "BOTTOM": "底部",
+    "FIRST_EXIT": "首次离开底部",
+    "TRANSITION_EARLY": "切换·早期",
+    "TRANSITION_ACTIVE": "切换中",
+    "TRANSITION_ESTABLISHED": "切换确立",
+    "RETEST": "重测底部",
+    "POST_TRANSITION": "已过转换期",
+    "UNRELIABLE": "不可靠·360D",
+}
+
+
+def fmt_lane3_state(row: dict[str, Any]) -> str:
+    """Lane3 生命周期阶段（context，不做 BUY gate）。缺 → —。"""
+    st = str(row.get("lane3_transition_state") or "")
+    if not st or st in ("None", "nan"):
+        return "—"
+    txt = _LANE3_STATE_LABEL.get(st, st)
+    days = row.get("lane3_days_since_first_exit")
+    if days is not None:
+        try:
+            return f"{txt} · {float(days):.0f}d"
+        except (TypeError, ValueError):
+            return txt
+    return txt
+
+
+def fmt_lane2_reliable(row: dict[str, Any]) -> str:
+    """Lane2 数据可靠性（Phase 2 起作硬 gate；此处仅展示）。缺 → —。"""
+    v = row.get("lane2_reliable_360")
+    if v is None:
+        return "—"
+    if bool(v):
+        return "<span style='color:#2E7D32'>可靠</span>"
+    return "<span style='color:#C62828;font-weight:600'>不可靠</span>"
+
+
 # ── 注册表 ───────────────────────────────────────────────────────────
 
 RISK_FLAG_SHORT = {
@@ -488,6 +527,8 @@ FORMATTERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "etf_audit_reason": fmt_etf_audit_reason,
     "etf_strength": fmt_etf_strength,
     "etf_position": fmt_etf_position,
+    "lane3_state": fmt_lane3_state,
+    "lane2_reliable": fmt_lane2_reliable,
     "leadership": fmt_leadership,
 }
 

@@ -55,6 +55,7 @@ KNOWN_FORMATTERS = {
     "display_state_tag", "theme_role", "participation", "audit_reason",
     "etf_theme_role", "etf_audit_reason", "etf_strength", "etf_position",
     "audit_category", "leadership",
+    "lane3_state", "lane2_reliable",
 }
 
 

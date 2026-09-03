@@ -213,6 +213,68 @@ class TestBuildCandidates:
         assert a["summary"].startswith("今日方向")
 
 
+class TestLaneFactsPassthrough:
+    """Phase 0：three_lane 事实透传到 ETF 候选/观察（纯 passthrough，不改 BUY 门控）。"""
+
+    def _lane_df(self):
+        return pd.DataFrame([
+            {"fund_code": "512480", "lane2_reliable_360": False,
+             "lane2_long_term_bottom": False, "lane2_target_stage": "NON_TARGET",
+             "lane2_bottom_state": "UNRELIABLE", "lane3_transition_state": "UNRELIABLE",
+             "lane3_days_since_first_exit": None},
+            {"fund_code": "515880", "lane2_reliable_360": True,
+             "lane2_long_term_bottom": False, "lane2_target_stage": "NON_TARGET",
+             "lane2_bottom_state": "NORMAL", "lane3_transition_state": "POST_TRANSITION",
+             "lane3_days_since_first_exit": 466.0},
+        ])
+
+    def _ai_theme(self, lane_df):
+        c = selection.build_candidates(
+            rotation_df=_sample_rotation(),
+            account_df=_sample_account(),
+            master_df=_sample_master(),
+            confirmation_df=_sample_confirmation(confirmed=True),
+            universe_items=[], trend_df=pd.DataFrame(), lane_df=lane_df,
+        )
+        for b in c["buckets"]:
+            for t in b["themes"]:
+                if t["theme"] == "ai_infrastructure":
+                    return t
+        raise AssertionError("ai_infrastructure theme missing")
+
+    def test_without_lane_no_lane_fields(self):
+        th = self._ai_theme(None)
+        for cand in th["core_etf"]:
+            assert "lane3_transition_state" not in cand
+            assert "lane2_reliable_360" not in cand
+        for cand in th["etf_pool"]:
+            assert "lane2_reliable_360" not in cand
+
+    def test_with_lane_passthrough_to_pool(self):
+        th = self._ai_theme(self._lane_df())
+        by = {c["code"]: c for c in th["etf_pool"]}
+        assert "512480" in by
+        row = by["512480"]
+        assert row["lane2_reliable_360"] is False
+        assert row["lane3_transition_state"] == "UNRELIABLE"
+        assert row["lane2_bottom_state"] == "UNRELIABLE"
+        assert row["lane2_target_stage"] == "NON_TARGET"
+        assert "lane3_days_since_first_exit" not in row  # None 不落 JSON
+
+    def test_with_lane_passthrough_to_core(self):
+        th = self._ai_theme(self._lane_df())
+        core = {c["code"]: c for c in th["core_etf"]}
+        if "512480" in core:
+            cand = core["512480"]
+            assert cand["lane2_reliable_360"] is False
+        # 全池至少一只透传 POST_TRANSITION + days（515880 若在池内）
+        pool = {c["code"]: c for c in th["etf_pool"]}
+        if "515880" in pool:
+            assert pool["515880"]["lane3_transition_state"] == "POST_TRANSITION"
+            assert pool["515880"]["lane3_days_since_first_exit"] == 466.0
+            assert pool["515880"]["lane2_reliable_360"] is True
+
+
 class TestCrossThemeAssets:
     def test_recommended_dedup_cross_theme(self):
         """同一 ETF 在多个 theme 推荐 → 聚合去重，保留首个（primary=首个 bucket）。"""

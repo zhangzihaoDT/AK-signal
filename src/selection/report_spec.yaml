@@ -171,5 +171,7 @@ report:
         - {key: position_pct,       header: 位置值,    fmt: position_pct, header_fmt: position_header}
         - {key: blocking_flags,     header: 阻塞,      fmt: blocking}
         - {key: data_quality_flags, header: 数据,      fmt: data_quality}
+        - {key: lane2_reliable_360, header: 数据(L2),  fmt: lane2_reliable}
+        - {key: lane3_transition_state, header: 阶段(L3), fmt: lane3_state}
         - {key: signal,             header: 信号}
         - {key: reject_reason,      header: 原因}
