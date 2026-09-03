@@ -81,6 +81,7 @@ BLOCKING_CN = {
     "POSITION_HIGH": "高位不追",
     "SIGNAL_WATCH": "暂不买入",
     "MONITOR_ONLY": "仅监控",
+    "LANE2_UNRELIABLE": "Lane2 数据不可靠",
 }
 
 # 参与四段信号的阻塞语义（信号 → 阻塞码），展示层用
@@ -208,6 +209,8 @@ def compose_blocking_flags(
         out.append("DEDUP_LOST")
     if "risk_warning" in codes or risk_gate_passed is False:
         out.append("RISK_WARNING")
+    if "lane2_unreliable" in codes:
+        out.append("LANE2_UNRELIABLE")
     if position_level == "BREAKDOWN":
         out.append("BREAKDOWN")
     if signal:

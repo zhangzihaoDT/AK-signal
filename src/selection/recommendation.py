@@ -16,7 +16,35 @@ from typing import Any
 
 RECOMMENDATION_VERSION = "0.5.0"
 
-ACTION_LABELS = {"BUY": "买入", "OBSERVE": "观察", "WAIT": "等待"}
+ACTION_LABELS = {"BUY": "买入", "OBSERVE": "观察", "WAIT": "等待", "WAIT_FOR_ETF": "等待合格 ETF"}
+ACTION_SUMMARY = {
+    "BUY": "今日可执行买入",
+    "OBSERVE": "达产品门但无 BUY 信号，观察",
+    "WAIT_FOR_ETF": "已确认但无 ETF 达交易门（产品端不可执行）",
+    "WAIT": "主题未确认，今日不建仓，仅观察",
+}
+
+
+def _execution_action(theme_obj: dict[str, Any]) -> tuple[str, str]:
+    """execution_action（真正可执行判定）——与 theme_state（确认面）分离。
+
+    - 有 recommended ETF → BUY（今日可执行）
+    - eligible（趋势门+流动性=产品门）>0 但无 BUY 信号 → OBSERVE（达产品门未达信号）
+    - eligible=0 → WAIT_FOR_ETF（已确认但产品端不可执行）
+    - 主题未确认 → WAIT
+    """
+    confirmed = theme_obj.get("confirmed", False)
+    if not confirmed:
+        return "WAIT", ACTION_LABELS["WAIT"]
+    core = theme_obj.get("core_etf", [])
+    sub = theme_obj.get("sub_industry_etf", [])
+    has_rec = any(a.get("recommended") for a in core + sub)
+    if has_rec:
+        return "BUY", ACTION_LABELS["BUY"]
+    eligible = int(theme_obj.get("eligible_etf_count") or 0)
+    if eligible > 0:
+        return "OBSERVE", ACTION_LABELS["OBSERVE"]
+    return "WAIT_FOR_ETF", ACTION_LABELS["WAIT_FOR_ETF"]
 
 
 def _num(v: Any) -> float | None:
@@ -165,20 +193,38 @@ def _rationale_stock(a: dict[str, Any]) -> dict[str, Any]:
 
 
 def _today_block(theme_obj: dict[str, Any], top_action: dict[str, Any]) -> dict[str, Any]:
-    """① 今天怎么做：action（BUY/OBSERVE/WAIT）+ 表达方式 + 确认状态。"""
+    """① 今天怎么做：theme_state（确认面）与 execution_action（可执行面）分离。
+
+    R1（2026-09 复核）：theme_state ≠ execution_action。action 恒为 execution-driven——
+    已确认主题若无 recommended ETF：eligible>0 → OBSERVE；eligible=0 → WAIT_FOR_ETF；
+    绝不显示「买入」而实际无标的。
+    """
     confirmed = theme_obj.get("confirmed", False)
     expr = theme_obj.get("expression", "")
-    if not confirmed:
-        action = "WAIT"
-        action_label = ACTION_LABELS.get(action, action)
-        summary = "主题未确认，今日不建仓，仅观察"
+    action, action_label = _execution_action(theme_obj)
+    theme_state_code = "CONFIRMED" if confirmed else "UNCONFIRMED"
+    theme_state_label = "已确认" if confirmed else "未确认"
+    n_eligible = int(theme_obj.get("eligible_etf_count") or 0)
+    n_rec = sum(
+        1 for a in (theme_obj.get("core_etf", []) + theme_obj.get("sub_industry_etf", []))
+        if a.get("recommended"))
+    if action == "OBSERVE":
+        summary = f"{theme_state_label}，{n_eligible} 只 ETF 达产品门但未达 BUY 信号（{n_rec} 推荐），观察"
+    elif action == "WAIT_FOR_ETF":
+        summary = f"{theme_state_label}，无 ETF 达交易门（{theme_obj.get('etf_pool_total', 0)} 池内 0 合格），等待合格 ETF"
+    elif not confirmed:
+        summary = ACTION_SUMMARY["WAIT"]
     else:
-        action = "BUY" if expr not in ("WATCHLIST_ONLY",) else "OBSERVE"
-        action_label = ACTION_LABELS.get(action, action)
-        summary = f"{theme_obj.get('confirmation_breadth', '')}，{theme_obj.get('expression_label', '')}"
+        summary = f"{theme_state_label} · {ACTION_SUMMARY[action]}（{n_rec} 只 ETF）"
     return {
+        # 主题确认面 vs 可执行面分离（P0 修复）
+        "theme_state": theme_state_code,
+        "theme_state_label": theme_state_label,
         "action": action,
         "action_label": action_label,
+        "execution_action": action,
+        "execution_action_label": action_label,
+        "n_recommended_etf": n_rec,
         "expression": expr,
         "expression_label": theme_obj.get("expression_label", ""),
         # 表达可执行性（observability）：结构表达 ≠ 可执行表达

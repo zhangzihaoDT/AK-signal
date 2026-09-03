@@ -14,7 +14,7 @@ from typing import Any
 
 from .report_changes import ChangeEntry, build_changes
 
-ACTION_LABELS = {"BUY": "买入", "OBSERVE": "观察", "WAIT": "等待"}
+ACTION_LABELS = {"BUY": "买入", "OBSERVE": "观察", "WAIT": "等待", "WAIT_FOR_ETF": "等待合格 ETF"}
 
 # 口径说明（恒定展示文案，非决策）
 CALIBRE_TEXT = (
@@ -108,20 +108,21 @@ def _meaningful_blocks(row: dict[str, Any]) -> list[str]:
 
 
 # ETF 特有：物料阻塞集合（排除纯 BELOW_TREND_GATE 常态门控、DEDUP_LOST 去重、SIGNAL_WATCH 观察态）
-_ETF_MATERIAL_BLOCKS = {"LOW_LIQUIDITY", "POSITION_HIGH", "RISK_WARNING"}
+_ETF_MATERIAL_BLOCKS = {"LOW_LIQUIDITY", "POSITION_HIGH", "RISK_WARNING", "LANE2_UNRELIABLE"}
 _ETF_TREND_GATES = {"BUY_CANDIDATE", "STRONG_WATCH", "WATCH"}
 
 
 def _etf_audit_category(row: dict[str, Any]) -> str:
     """ETF 审计分类（单标签互斥，ETF 特有，不复用个股分类器）。
 
-    BREAKDOWN → BLOCKED（物料阻塞）→ QUALIFIED_UNSELECTED（趋势达标未入选）→
-    RECOMMENDED → NORMAL（核心/卫星产品在决策池）→ DYNAMIC_WATCH（动态关键词匹配观察）。
+    BREAKDOWN → BLOCKED（物料阻塞，含 Lane2 可靠性硬 gate 否决）→
+    QUALIFIED_UNSELECTED（趋势达标未入选）→ RECOMMENDED → NORMAL → DYNAMIC_WATCH。
     """
     if row.get("position_level") == "BREAKDOWN":
         return "breakdown"
     flags = [str(f) for f in (row.get("blocking_flags") or [])]
-    if any(f in _ETF_MATERIAL_BLOCKS for f in flags):
+    codes = [str(c) for c in (row.get("reason_codes") or [])]
+    if any(f in _ETF_MATERIAL_BLOCKS for f in flags) or "lane2_unreliable" in codes:
         return "blocked"
     if str(row.get("trend_status", "") or "") in _ETF_TREND_GATES and not row.get("recommended"):
         return "qualified_unselected"
@@ -217,13 +218,21 @@ def _theme_change_brief(theme: dict[str, Any], classification: ReportClassificat
 def _one_liner(themes: list[ThemeState], action: dict[str, Any]) -> str:
     parts: list[str] = []
     for t in themes:
+        today = (t.theme_obj.get("today") or {})
+        exec_action = str(today.get("action") or "")
         if t.classification.degraded:
             parts.append(f"{t.theme_label} 出现表达降级（结构 {t.theme_obj.get('structural_expression','')} → 实际 {t.theme_obj.get('execution_expression','')}）")
         elif t.classification.watch:
             d = t.theme_obj.get("distance_to_industry_confirm")
             parts.append(f"{t.theme_label} 暂不加仓（观察）" if d is None else f"{t.theme_label} 暂不加仓（观察，差 {d}）")
-        elif t.confirmed:
+        elif t.confirmed and exec_action == "BUY":
             parts.append(f"{t.theme_label} 继续可交易")
+        elif t.confirmed and exec_action == "WAIT_FOR_ETF":
+            parts.append(f"{t.theme_label} 已确认但无合格 ETF（等待）")
+        elif t.confirmed and exec_action == "OBSERVE":
+            parts.append(f"{t.theme_label} 达产品门但未达 BUY 信号（观察）")
+        elif t.confirmed:
+            parts.append(f"{t.theme_label} 观察")
     judgment = f"今日判断：{ACTION_LABELS.get(str(action.get('level', 'WAIT')), str(action.get('level', '')))}"
     if parts:
         return f"{judgment} · " + "；".join(parts)

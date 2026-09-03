@@ -173,5 +173,6 @@ report:
         - {key: data_quality_flags, header: 数据,      fmt: data_quality}
         - {key: lane2_reliable_360, header: 数据(L2),  fmt: lane2_reliable}
         - {key: lane3_transition_state, header: 阶段(L3), fmt: lane3_state}
-        - {key: signal,             header: 信号}
+        - {key: signal,             header: 基础信号}
+        - {key: decision_chain,     header: 决策链,    fmt: signal_chain}
         - {key: reject_reason,      header: 原因}

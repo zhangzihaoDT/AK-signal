@@ -163,6 +163,56 @@ class TestBuildRecommendation:
         assert t["recommendation"]["etf"][0]["liquidity"] == pytest.approx(129760365.0)
 
 
+def _theme_with_exec(confirmed=True, rec=True, eligible=4, pool_total=32):
+    """theme/execution 拆分的构造器：控制 recommended ETF 与 eligible 数。"""
+    rec_etf = [{"code": "561560", "name": "电力ETF华泰柏瑞", "asset_type": "etf", "recommended": True}]
+    return {
+        "theme": "high_cashflow", "theme_label": "高现金流资产",
+        "bucket": "quality", "bucket_label": "质量", "objective": "高现金流防守",
+        "confirmed": confirmed,
+        "confirmation_breadth": "广泛确认", "confirmation_state": "BROAD_CONFIRMED",
+        "expression": "ETF_PRIORITY", "expression_label": "优先 ETF（广泛上涨）",
+        "expression_reason": "参与率≥60% 且结构分散，ETF 完整承接行业 Beta",
+        "core_etf": rec_etf if rec else [],
+        "sub_industry_etf": [],
+        "etf_pool": [], "etf_pool_total": pool_total,
+        "eligible_etf_count": eligible,
+        "metrics": {}, "stage": "已确认",
+    }
+
+
+class TestExecutionActionSplit:
+    """R1：theme_state（确认面）≠ execution_action（可执行面）。"""
+
+    def _today(self, **kw):
+        theme = _theme_with_exec(**kw)
+        return rec.build_recommendation(_engine([theme]))["buckets"][0]["themes"][0]["today"]
+
+    def test_confirmed_with_rec_is_buy(self):
+        td = self._today(confirmed=True, rec=True, eligible=4)
+        assert td["theme_state"] == "CONFIRMED"
+        assert td["action"] == "BUY"
+        assert td["execution_action"] == "BUY"
+
+    def test_confirmed_eligible_no_rec_is_observe(self):
+        # 高现金流：eligible=4（达产品门）但无 BUY 信号 → 观察，绝不显示买入
+        td = self._today(confirmed=True, rec=False, eligible=4)
+        assert td["theme_state"] == "CONFIRMED"
+        assert td["action"] == "OBSERVE"
+        assert "未达 BUY" in td["summary"]
+
+    def test_confirmed_no_eligible_is_wait_for_etf(self):
+        # 中国汽车：0 合格 ETF → WAIT_FOR_ETF，不显示买入
+        td = self._today(confirmed=True, rec=False, eligible=0, pool_total=55)
+        assert td["action"] == "WAIT_FOR_ETF"
+        assert "等待合格 ETF" in td["summary"]
+
+    def test_unconfirmed_is_wait(self):
+        td = self._today(confirmed=False)
+        assert td["action"] == "WAIT"
+        assert td["theme_state"] == "UNCONFIRMED"
+
+
 class TestRejectReasons:
     def test_etf_liquidity(self):
         assert "流动性不足" in rec._etf_reject_reason({"reason_codes": ["low_liquidity"]})

@@ -181,6 +181,9 @@ def _etf_conclusion_text(row: dict[str, Any]) -> str:
         return "破位"
     if row.get("recommended"):
         return "推荐"
+    codes = [str(c) for c in (row.get("reason_codes") or [])]
+    if "lane2_unreliable" in codes:
+        return "L2否决"
     signal = str(row.get("signal", "") or "")
     if signal == "HOLD":
         return "持有"
@@ -401,6 +404,11 @@ def fmt_etf_audit_reason(row: dict[str, Any]) -> str:
         return "数据缺失"
     if row.get("recommended"):
         return "—"
+    codes = [str(c) for c in (row.get("reason_codes") or [])]
+    if "lane2_unreliable" in codes:
+        base = str(row.get("signal", "") or "")
+        prefix = f"基础 {base} 被否决" if base in ("STRONG_BUY", "BUY") else "被否决"
+        return f"{prefix} · L2 数据可靠性硬 gate（原基础信号 → 观察）"
     if row.get("position_level") == "BREAKDOWN":
         pct = row.get("position_pct")
         pct_txt = "—" if pct is None else f"{float(pct):g}%"
@@ -494,6 +502,25 @@ def fmt_lane2_reliable(row: dict[str, Any]) -> str:
     return "<span style='color:#C62828;font-weight:600'>不可靠</span>"
 
 
+def fmt_signal_chain(row: dict[str, Any]) -> str:
+    """决策链（R2，B1 修复）：基础信号(base) → Validation → 最终状态。
+
+    signal 恒为四段 base；只有发生 Policy veto（当前仅 lane2 可靠性硬 gate）时
+    显式展示「base → veto → final」，否则只显示 base（base==final 语义）。
+    """
+    sig = str(row.get("signal", "") or "")
+    if not sig:
+        return "—"
+    codes = [str(c) for c in (row.get("reason_codes") or [])]
+    if row.get("recommended"):
+        return f"{sig} · 推荐"
+    if "lane2_unreliable" in codes:
+        st = str(row.get("state", "") or "")
+        final_cn = {"WATCH": "观察", "QUALIFIED": "合格", "RECOMMENDED": "推荐"}.get(st, st or "等待")
+        return f"<span style='color:#C62828'>{sig} → L2否决 → {final_cn}</span>"
+    return sig
+
+
 # ── 注册表 ───────────────────────────────────────────────────────────
 
 RISK_FLAG_SHORT = {
@@ -529,6 +556,7 @@ FORMATTERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "etf_position": fmt_etf_position,
     "lane3_state": fmt_lane3_state,
     "lane2_reliable": fmt_lane2_reliable,
+    "signal_chain": fmt_signal_chain,
     "leadership": fmt_leadership,
 }
 

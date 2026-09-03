@@ -367,6 +367,56 @@ class TestLaneReliabilityGate:
         a = {"reason_codes": ["theme_confirmed", "lane2_unreliable"]}
         assert "数据不可靠" in _etf_reject_reason(a)
 
+    def test_audit_category_lane_veto_is_blocked(self):
+        from src.selection.report_viewmodel import _etf_audit_category
+        row = {"position_level": "LOW", "blocking_flags": ["LANE2_UNRELIABLE"],
+               "trend_status": "STRONG_WATCH", "recommended": False,
+               "reason_codes": ["theme_confirmed", "trend_gate_passed", "lane2_unreliable"],
+               "monitoring_source": "recommendation", "state": "WATCH", "signal": "BUY"}
+        assert _etf_audit_category(row) == "blocked"
+
+    def test_audit_text_lane_veto_chain(self):
+        from src.selection.report_formatters import (
+            _etf_conclusion_text, fmt_etf_audit_reason, fmt_signal_chain)
+        row = {"recommended": False, "signal": "BUY", "state": "WATCH",
+               "reason_codes": ["trend_gate_passed", "lane2_unreliable"]}
+        assert _etf_conclusion_text(row) == "L2否决"
+        assert "L2 数据可靠性硬 gate" in fmt_etf_audit_reason(row)
+        assert "BUY → L2否决" in fmt_signal_chain(row)
+
+
+def _top_theme(theme, confirmed=True, rec_codes=(), eligible=4, expr="ETF_PRIORITY"):
+    return {
+        "theme": theme, "theme_label": theme, "bucket": "core", "bucket_label": "核心",
+        "confirmed": confirmed, "expression": expr, "expression_label": expr,
+        "eligible_etf_count": eligible,
+        "core_etf": [{"code": c, "recommended": True} for c in rec_codes],
+        "sub_industry_etf": [],
+    }
+
+
+class TestTopActionExecution:
+    """R1：顶层 action 只在有 recommended ETF 时才 BUY（杜绝 top=BUY 但无执行标的）。"""
+
+    def test_prefers_theme_with_recommended(self):
+        themes = [
+            _top_theme("ai_infrastructure", rec_codes=("159196",), eligible=9),
+            _top_theme("high_cashflow", rec_codes=(), eligible=4),
+            _top_theme("china_auto_global", rec_codes=(), eligible=0),
+        ]
+        a = selection.build_top_action(themes)
+        assert a["level"] == "BUY"
+        assert a["theme"] == "ai_infrastructure"
+
+    def test_observe_when_confirmed_but_no_recommended(self):
+        themes = [
+            _top_theme("high_cashflow", rec_codes=(), eligible=4),
+            _top_theme("china_auto_global", rec_codes=(), eligible=0),
+        ]
+        a = selection.build_top_action(themes)
+        assert a["level"] == "OBSERVE"
+        assert "无 ETF 达 BUY" in a["summary"]
+
 
 class TestCrossThemeAssets:
     def test_recommended_dedup_cross_theme(self):

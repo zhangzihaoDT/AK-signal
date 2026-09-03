@@ -542,6 +542,8 @@ def _apply_lane_reliability_gate(cand: AssetCandidate) -> None:
             cand.state = STOCK_STATE_WATCH
         if "lane2_unreliable" not in cand.reason_codes:
             cand.reason_codes = cand.reason_codes + ["lane2_unreliable"]
+        if "LANE2_UNRELIABLE" not in cand.blocking_flags:
+            cand.blocking_flags = cand.blocking_flags + ["LANE2_UNRELIABLE"]
         if cand.reason:
             cand.reason = f"{cand.reason} · 数据不可靠（Lane2 折算污染）"
 
@@ -1467,8 +1469,9 @@ def resolve_execution_expression(
 def build_top_action(theme_objs: list[dict[str, Any]]) -> dict[str, Any]:
     """顶层行动建议：只回答「今天投哪一个方向」，不枚举具体标的。
 
-    输出 BUY / OBSERVE / WAIT + 方向（bucket）与主题；ETF / 股票 / 观察池
-    全部落在下层 buckets[].themes[]，不进入顶层 Action。
+    R1（2026-09 复核）：仅「有 recommended ETF 的已确认主题」才给 BUY；
+    已确认但无推荐标的的主题只给 OBSERVE（避免 top=BUY 却无任何可执行标的的矛盾，
+    如高现金流「继续可交易」但 0 推荐）。
     """
     confirmed = [s for s in theme_objs if s.get("confirmed")]
     if not confirmed:
@@ -1476,7 +1479,17 @@ def build_top_action(theme_objs: list[dict[str, Any]]) -> dict[str, Any]:
                 "theme": "", "theme_label": "", "expression": "", "expression_label": "",
                 "summary": "今日方向：等待 —— 无主题进入确认状态，不建仓"}
     rank = {"ETF_PRIORITY": 3, "LEADER_PRIORITY": 3, "ETF_CORE_PLUS_LEADER": 2, "WATCHLIST_ONLY": 1}
-    best = max(confirmed, key=lambda s: rank.get(s.get("expression", ""), 1))
+
+    def _recs(s: dict[str, Any]) -> list[dict[str, Any]]:
+        # 兼容 research replay（include_stocks=True）：主题可能只有个股推荐；
+        # 每日 ETF-only 发布（include_stocks=False）stock_candidates 为空 → 等价只看 ETF。
+        return [a for a in (s.get("core_etf", []) + s.get("sub_industry_etf", [])
+                            + s.get("stock_candidates", [])) if a.get("recommended")]
+
+    actionable = [s for s in confirmed if _recs(s)]
+    eligible_any = [s for s in confirmed if (s.get("eligible_etf_count") or 0) > 0]
+    pool = actionable or eligible_any or confirmed
+    best = max(pool, key=lambda s: rank.get(s.get("expression", ""), 1))
     expr = best.get("expression", "")
     expr_label = best.get("expression_label", expr)
     theme_label = best.get("theme_label", best.get("theme", ""))
@@ -1489,10 +1502,13 @@ def build_top_action(theme_objs: list[dict[str, Any]]) -> dict[str, Any]:
         "expression": expr,
         "expression_label": expr_label,
     }
-    if expr != "WATCHLIST_ONLY":
-        # 有可行动表达（即使暂无推荐标的，标的详情在下层）
+    if actionable and expr != "WATCHLIST_ONLY":
         return {"level": "BUY", **base,
                 "summary": f"今日方向：买入 {direction_label} · {theme_label}"}
+    if not actionable:
+        # 已确认但无推荐标的：只能观察（eligible>0 未达 BUY / 或 eligible=0 无执行标的）
+        return {"level": "OBSERVE", **base,
+                "summary": f"今日方向：观察 {direction_label} · {theme_label}（已确认，无 ETF 达 BUY 信号/无执行标的）"}
     return {"level": "OBSERVE", **base,
             "summary": f"今日方向：观察 {direction_label} · {theme_label}（已确认但表达为仅观察）"}
 
