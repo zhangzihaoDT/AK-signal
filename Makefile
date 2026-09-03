@@ -248,8 +248,8 @@ trend-transition-3b: ## [Lane3] Study 3B 预测 Trend Transition（walk-forward 
 trend-transition-3c: ## [Lane3] Study 3C 状态分类研究（确定性 as-of 状态机 + C1-C5，PASS 冻结 V1）
 	$(PYTHON) $(SRC_MAIN) research trend-transition study3c
 
-trend-transition-state: ## [Lane3] Application：读冻结 YAML，输出 date-stamped 状态表（--date 缺省=最新 v1_signal_daily）
-	$(PYTHON) $(SRC_MAIN) research trend-transition state $(if $(DATE),--date $(DATE),)
+trend-transition-state: ## [Lane3] Application：读冻结 YAML，输出 date-stamped 状态表（--date 缺省=最新 v1_signal_daily；L3_DATE=YYYYMMDD 可显式钉定）
+	$(PYTHON) $(SRC_MAIN) research trend-transition state $(if $(L3_DATE),--date $(L3_DATE),)
 
 # ── 开发维护 ──────────────────────────────────────────────────
 
