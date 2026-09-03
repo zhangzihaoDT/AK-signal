@@ -54,6 +54,33 @@ class TestMatchTheme:
         assert themes_cfg.match_theme("煤炭ETF国泰") is None
         assert themes_cfg.match_theme("证券ETF国泰") is None
 
+    def test_ai_infrastructure_excludes_hk_overseas(self):
+        """v0.11.1 Theme Mapping：港股/海外权益 ETF 被 etf_exclude_keywords 拦截。
+
+        「港股通信息技术ETF」名称含子串「通信」/「信息技术」，若不排除会被 AI 基建
+        关键词吸收（159196 9-02 误推根因）；exclude 优先于 include。
+        """
+        assert themes_cfg.match_theme("港股通信息技术ETF易方达") is None
+        assert themes_cfg.match_theme("港股通信息技术ETF华夏") is None
+        assert themes_cfg.match_theme("港股通信息ETF华富") is None
+        assert themes_cfg.match_theme("恒生科技ETF") is None
+        assert themes_cfg.match_theme("中概互联网ETF") is None
+        # 真 A股 基建 ETF 不受 exclude 影响
+        assert themes_cfg.match_theme("通信ETF国泰") == "ai_infrastructure"
+        assert themes_cfg.match_theme("通信ETF易方达") == "ai_infrastructure"
+        assert themes_cfg.match_theme("半导体ETF国联安") == "ai_infrastructure"
+        assert themes_cfg.match_theme("人工智能ETF易方达") == "ai_infrastructure"
+        assert themes_cfg.match_theme("云计算ETF易方达") == "ai_infrastructure"
+
+    def test_ai_infrastructure_broad_keywords_removed(self):
+        """v0.11.1：泛关键词（电子/信息技术/计算机/大数据）不再把泛 IT/消费电子拉入 AI 基建。"""
+        for n in ("信息技术ETF广发", "信息技术ETF华夏", "消费电子ETF华夏",
+                  "电子ETF天弘", "计算机ETF天弘", "大数据ETF富国"):
+            assert themes_cfg.match_theme(n) is None, n
+        # 人工智能/算力/芯片/通信/云计算 等真实基建关键词保留
+        for n in ("人工智能ETF易方达", "芯片ETF华夏", "云计算ETF易方达"):
+            assert themes_cfg.match_theme(n) == "ai_infrastructure", n
+
     def test_empty_name(self):
         assert themes_cfg.match_theme("") is None
         assert themes_cfg.match_theme(None) is None

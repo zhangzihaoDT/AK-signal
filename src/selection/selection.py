@@ -774,7 +774,7 @@ def evaluate_direction(theme_metas: dict[str, dict[str, Any]]) -> dict[str, Any]
 
 # ── 2. ETF 候选（动态从 Layer① rotation 选） ───────────────────────
 
-def match_theme(fund_name: str) -> str | None:
+def match_theme(fund_name: str | None) -> str | None:
     """按 config/theme_registry.yaml 的 etf_keywords 匹配首个 theme（bucket 顺序优先）。"""
     return themes_cfg.match_theme(fund_name)
 

@@ -48,6 +48,7 @@ class Theme:
     objective: str
     industries: tuple[ThemeIndustry, ...]
     etf_keywords: tuple[str, ...]
+    etf_exclude_keywords: tuple[str, ...] = ()
     tiers: tuple[ThemeTier, ...] = ()
 
     def industry_codes(self) -> list[str]:
@@ -124,6 +125,7 @@ def load_buckets(path: Path | None = None) -> list[Bucket]:
                 objective=str(tcfg.get("objective", "")),
                 industries=industries,
                 etf_keywords=tuple(str(k).lower() for k in (tcfg.get("etf_keywords") or [])),
+                etf_exclude_keywords=tuple(str(k).lower() for k in (tcfg.get("etf_exclude_keywords") or [])),
                 tiers=tuple(
                     ThemeTier(
                         key=str(tk),
@@ -168,13 +170,21 @@ def industry_to_bucket(path: Path | None = None) -> dict[str, str]:
     return out
 
 
-def match_theme(fund_name: str, buckets: list[Bucket] | None = None) -> str | None:
-    """按 ETF 名称关键词匹配首个 theme（bucket order → theme 顺序优先）。"""
+def match_theme(fund_name: str | None, buckets: list[Bucket] | None = None) -> str | None:
+    """按 ETF 名称关键词匹配首个 theme（bucket order → theme 顺序优先）。
+
+    v0.11.1：theme 级 etf_exclude_keywords 优先于 etf_keywords——
+    名称命中任一 exclude 子串则跳过该 theme（即使正向关键字命中）。
+    用于拦截「泛词子串误命中」，如「港股通信息技术ETF」（含子串「通信」）
+    被 AI 基建关键词吸收但实为港股海外权益。先 exclude 后 include，两者语义独立。
+    """
     if not fund_name:
         return None
     n = str(fund_name).lower()
     for b in buckets if buckets is not None else load_buckets():
         for th in b.themes:
+            if any(e and e in n for e in th.etf_exclude_keywords):
+                continue
             for kw in th.etf_keywords:
                 if kw and kw in n:
                     return th.key

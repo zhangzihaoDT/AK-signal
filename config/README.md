@@ -7,7 +7,7 @@
 
 | 文件 | 职责 | 消费方 |
 |---|---|---|
-| `theme_registry.yaml` | 主题注册表：bucket / theme / 行业焦点组 / ETF 关键词 / Tier 映射 | Layer①②③ |
+| `theme_registry.yaml` | 主题注册表：bucket / theme / 行业焦点组 / ETF 关键词（含 v0.11.1 `etf_exclude_keywords` 反向排除）/ Tier 映射 | Layer①②③ |
 | `selection_universe.yaml` | Selection 固定资产池（theme → tier → assets，含 ETF 与个股） | Selection / Tier 确认 / 回测 universe / 核心资产监控 |
 | `research_observations.yaml` | 研究观察组（evidence_stage 等三正交字段；不参与 Layer③ 确认与候选） | Research Basket / 观察组行情抓取 |
 | `strategy_spec.yaml` | Layer③ 选筹 Policy（etf_selection / stock_selection）+ 主题级回测策略（entry/exit + `strategy_id` + 权重） | Selection / 回测 / Portfolio |

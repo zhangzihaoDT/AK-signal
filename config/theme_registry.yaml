@@ -10,6 +10,11 @@
 #   industries   该主题关联的申万二级行业（Layer ② 行业确认的焦点组）
 #     relevance   core = 核心 / related = 相关
 #   etf_keywords  Layer ③ 从 Layer① 全市场 rotation 按名称关键词挑选 ETF 候选
+#   etf_exclude_keywords（可选，v0.11.1）
+#     该 theme 的 ETF 名称反向排除子串：名称命中任一 exclude 子串 → 跳过该 theme
+#     （即使正向关键字命中）。用于拦截「泛词子串误命中」——如「港股通信息技术ETF」
+#     名称含子串「通信」被 AI 基建关键词吸收，但实为港股海外权益，须显式排除。
+#     判定优先级：先 exclude（跳过 theme）再 include，两者不共用子串语义。
 #
 # 消费方：
 #   Layer ①  etf_signal.rotation    每主题 ETF 焦点组（rotation 报告）
@@ -79,15 +84,20 @@ buckets:
           - "半导体"
           - "集成电路"
           - "科创芯片"
-          - "电子"
           - "算力"
           - "通信"
-          - "计算机"
           - "云计算"
-          - "大数据"
-          - "信息技术"
           - "存储"
           - "光模块"
+        # v0.11.1 Theme Mapping：港股/海外权益 ETF 明确排除在 AI 基建主题之外
+        # （「港股通信息技术」名称含子串「通信」/「信息技术」，实为港股互联网，非 A股 AI 基建；
+        #   先 exclude 后 include，见文件头注释）。
+        etf_exclude_keywords:
+          - "港股通"
+          - "恒生"
+          - "中概"
+          - "纳斯达克"
+          - "标普"
 
       china_auto_global:
         label: "中国汽车全球化"

@@ -134,6 +134,37 @@ class TestEtfSelection:
         assert selection.match_theme("军工ETF国泰") is None
         assert selection.match_theme("证券ETF国泰") is None
 
+    def test_hk_tech_etf_excluded_from_ai_pool(self):
+        """v0.11.1：港股通信息技术ETF（名称含「通信」子串）必须被排除出 AI 基建池。
+
+        159196 在 20260902 误入 ai_infrastructure pool 的根因：
+        名称「港股通信息技术ETF」含子串「通信」，被 etf_keywords 吸收；
+        exclude（港股通）优先级高于 include，挡在 theme 外。
+        """
+        rot = pd.concat([_sample_rotation(), pd.DataFrame({
+            "fund_code": ["159196"], "fund_name": ["港股通信息技术ETF易方达"],
+            "rps15": [90.1], "rps20": [85.8], "rps60": [29.0],
+            "return_5d": [-0.2], "return_20d": [5.3], "rank_change_5d": [-99.0],
+        })], ignore_index=True)
+        acct = pd.concat([_sample_account(), pd.DataFrame({
+            "fund_code": ["159196"], "trend_state": ["STRONG_WATCH"], "account_tradable": [True],
+        })], ignore_index=True)
+        master = pd.concat([_sample_master(), pd.DataFrame({
+            "fund_code": ["159196"], "amount": [5e8],
+        })], ignore_index=True)
+        etf = selection.select_etf_candidates(rot, acct, master, "ai_infrastructure")
+        assert "159196" not in etf["fund_code"].tolist()
+        # 真 A股 基建 ETF（半导体/人工智能）仍正常入选
+        assert {"512480", "159819"} <= set(etf["fund_code"])
+
+    def test_broad_it_etf_not_matched_to_ai(self):
+        """v0.11.1：泛关键词删除后，信息技术/电子/计算机/大数据 ETF 不归属 AI 基建。"""
+        for n in ("信息技术ETF广发", "消费电子ETF华夏", "电子ETF天弘",
+                  "计算机ETF天弘", "大数据ETF富国"):
+            assert selection.match_theme(n) is None, n
+        # 云计算保留（真基建表达仍可用）
+        assert selection.match_theme("云计算ETF易方达") == "ai_infrastructure"
+
     def test_dedup_keeps_representative(self):
         rot = pd.concat([_sample_rotation(), pd.DataFrame({
             "fund_code": ["159995"], "fund_name": ["半导体ETF鹏华"],

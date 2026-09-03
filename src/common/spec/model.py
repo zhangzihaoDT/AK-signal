@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-RULE_VERSION = "v0.11.0"
+RULE_VERSION = "v0.11.1"
 
 
 @dataclass(frozen=True)
