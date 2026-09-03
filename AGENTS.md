@@ -82,6 +82,16 @@
 - **结论**：上午 10:00 后运行最理想；若申万发布延迟（如周一），run-day 会输出 provisional 报告而非停在 T-1
 - 若已跑过 `run-day`，申万确认数据发布后重跑一次 `make run-day` 即可补齐并转 confirmed，系统支持免重复发布
 
+## ETF 行情获取 Performance V1（2026-09，Data Acquisition）
+
+- **边界锁定**：只改 fetch range / source routing / concurrency / cache-update / observability。**不改任何 Layer①②③ 计算与决策**——相同最终行情 → Layer①②③ 逐字段一致。参数在 `config/market_data.yaml`（本地 frozen loader `src/etf_signal/fetch_policy.load_market_data_spec`），**不进入 strategy config_hash / rule_version**（抓取参数变化不应触发 replay parity 失效）。
+- **增量窗口（fetch_policy 纯逻辑）**：`decide_update` 按「target 完整 bar 精确存在」判（不能只看 max(date)≥target，盘中 spot 会提前合并当日 >target 的未收盘 bar）→ SKIP（0 请求=CACHE HIT）/ INCREMENTAL（`[last_bar+1, target]`，FAST PATH）/ FULL_REFRESH（空文件/slow path，起点 `full_refresh_start`）。guardrail：①append 后 date 唯一 ②close/volume 对新行完整 ③增量失败或 gap → 单只 full-refresh slow path。增量起点按 last_prior+1 日历日（源端钳制交易日，安全不欠拉）。
+- **Source Circuit Breaker（run-level latch）**：`data_source.CircuitBreaker` 替换旧布尔——CLOSED→OPEN，**OPEN→CLOSED 仅 reset() 或新 run 新实例，无 HALF_OPEN/自动恢复**。OPEN = 最近 `window`(20) 次内失败率≥`failure_rate_threshold`(0.5) 且 requests≥`min_requests`(10)。`cmd_update` 开头 reset（新 run 语义）；`backfill` 只会话开头 reset，**循环内不得 reset**（旧 bug：每只代码把刚开的熔断关回去）。
+- **Sina 有限并发**：EM 串行单飞（限流敏感源）；EM breaker OPEN → 剩余缺口整体切 `fetch_etf_hist_sina_batch`（workers=8，retry=1，`ThreadPoolExecutor` + jitter），失败进 data-quality/repair 不无限重试。raw 落盘改 temp + `os.replace` 原子写。
+- **会话内失败记忆（V1 范围收紧）**：只保证**同一次 update run 内每个 code 至多一次网络尝试**（EM 阶段失败的不再进 Sina 批）；TERMINATED/TRUE_MISSING 等**跨日重复请求需要 persistent negative cache，留 V2**（实测 560650 结构性停滞，每天 update 仍会重试一次，属预期）。
+- **可观测**：`etf update` 每次落 `data/etf_signal/diagnostics/source_audit_{target}.json`（per-source requests/success/failed + circuit_opened/circuit_opened_after + cache_hits + full_refresh_codes + elapsed_s），回答「今天为什么大量切 Sina」。`UpdateResult` 增补 `cache_hits/requested/fetched_ok/failed/circuit` 字段。
+- **实测（2026-09-03 08:46，盘前）**：spot date=target → 1553 cache_hits / 1 pending（560650 结构性停滞失败）→ elapsed ~24s（含两次全量 raw 扫描）。第二遍同 target 幂等（仍只重试 560650）。健康日增量开销 = spot 1 次 + 残余代码少量 EM；EM 故障日靠 breaker 提前 OPEN 把剩余全量切 Sina 8 worker，避免 1554 只串行 fallback。
+
 ## 数据源新鲜度门控（SW-RPS）
 
 - L1 `index_analysis_daily_sw`：单次批量接口，优先使用；目标日期无数据时返回空（KeyError '发布日期'）

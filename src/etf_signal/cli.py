@@ -43,7 +43,9 @@ P0 数据对象：
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import os
 import random
 import sys
 import time
@@ -66,6 +68,14 @@ from src.common.manifest import write_run_manifest, read_latest_run
 from . import data_source, master as etf_master, classifier, universe, account
 from . import heat, indicators, rotation, rotation_report, signal as sig_mod
 from . import card as card_mod
+from .fetch_policy import (
+    UpdateDecision,
+    build_fetch_window,
+    decide_update,
+    has_target_bar,
+    load_market_data_spec,
+    validate_append,
+)
 
 
 def build_logger(level: str = "INFO") -> logging.Logger:
@@ -363,14 +373,20 @@ def _load_all_raw(master: pd.DataFrame) -> pd.DataFrame:
 
 
 def _save_etf_raw(df: pd.DataFrame, raw_dir: Path, code: str) -> Path:
+    """原子落盘 raw parquet（Performance V1）：先写同目录 tmp，再 os.replace。
+
+    Sina 并发池 worker 各自写不同文件，互不冲突；原子替换避免崩溃时写穿半文件。
+    """
     raw_dir.mkdir(parents=True, exist_ok=True)
     path = raw_dir / f"{code}.parquet"
-    df.to_parquet(path, index=False)
+    tmp = raw_dir / f".{code}.tmp"
+    df.to_parquet(tmp, index=False)
+    os.replace(tmp, path)
     return path
 
 
 # ---------------------------------------------------------------------------
-# P0-A: Update — 增量更新 ETF 日行情
+# P0-A: Update — 增量更新 ETF 日行情（Performance V1：增量 + 源熔断 + Sina 并发）
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -381,6 +397,173 @@ class UpdateResult:
     target_ready: bool
     raw_covered: int
     active_count: int
+    cache_hits: int = 0
+    requested: int = 0
+    fetched_ok: int = 0
+    failed: int = 0
+    circuit: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CodeFetchOutcome:
+    """单只代码在本轮 update 内的处理结果（会话内每个 code 至多一次网络尝试）。"""
+
+    code: str
+    ok: bool = False
+    had_bar: bool = False        # cache hit（本地已含 target，0 请求）
+    mode: str = ""               # skip | incremental | full_refresh
+    source: str = ""             # em | sina | none（最终统计口径）
+    rows_added: int = 0
+    elapsed_ms: int = 0
+    reason: str = ""
+
+
+def _try_window(
+    existing: pd.DataFrame,
+    raw_dir: Path,
+    code: str,
+    start: str,
+    end: str,
+    target: date_type,
+    sources: tuple[str, ...],
+) -> tuple[bool, str]:
+    """单窗口 fetch + merge + validate + 原子保存。
+
+    Returns:
+        (ok, reason) — ok=True 表示已含 target bar 并落盘；reason 为失败原因。
+    """
+    df_new = data_source.fetch_etf_hist(code, start_date=start, end_date=end, sources=sources)
+    if df_new.empty:
+        return False, "empty_response"
+    combined = _merge_incremental(existing, df_new)
+    okv, issues = validate_append(existing, combined)
+    if not okv:
+        return False, "validation:" + ";".join(issues)
+    if not has_target_bar(combined, target):
+        return False, "missing_target"
+    _save_etf_raw(combined, raw_dir, code)
+    return True, ""
+
+
+# 增量失败/出现 gap → 单只 full-refresh slow path 的本地滞后门槛（日历日）
+_FULL_REFRESH_LAG_CAL_DAYS = 30
+
+
+def _fetch_one_code(
+    raw_dir: Path,
+    code: str,
+    target: date_type,
+    spec: Any,
+    sources: tuple[str, ...] = ("em", "sina"),
+) -> CodeFetchOutcome:
+    """单只代码拉取：FAST PATH=incremental，缺口/失败降级 SLOW PATH=full refresh。
+
+    三种 guardrail 由 fetch_policy 保证（① append 后 date 唯一 ② close/volume 完整
+    ③ 增量失败或出现 gap → 单只 full-refresh slow path）。同一 run 内每个 code 只处理
+    一次（会话内失败记忆：TERMINATED / TRUE_MISSING 等不再重复请求；跨日负缓存留 V2）。
+    """
+    t0 = time.perf_counter()
+    existing = _load_etf_raw(raw_dir, code)
+    outcome = CodeFetchOutcome(code=code)
+
+    decision = decide_update(existing, target)
+    if decision == UpdateDecision.SKIP_UP_TO_DATE:
+        outcome.ok = True
+        outcome.had_bar = True
+        outcome.mode = "skip"
+        outcome.elapsed_ms = 0
+        return outcome
+
+    window = build_fetch_window(existing, target, spec.full_refresh_start)
+    if window is None:
+        outcome.had_bar = True
+        outcome.ok = True
+        outcome.mode = "skip"
+        return outcome
+
+    start, end = window
+    outcome.mode = "full_refresh" if decision == UpdateDecision.FULL_REFRESH else "incremental"
+
+    ok, reason = _try_window(existing, raw_dir, code, start, end, target, sources)
+    if not ok:
+        outcome.reason = reason
+        latest = _load_etf_raw(raw_dir, code)  # existing 可能在别处被更新，重读一次无妨
+        lag = (target - pd.to_datetime(latest["date"]).max().date()).days \
+            if not latest.empty and "date" in latest.columns else _FULL_REFRESH_LAG_CAL_DAYS + 1
+        # guardrail ③：增量窗口有数据但 target 缺失（gap），或本地明显滞后且响应为空 → slow path
+        escalate = (
+            reason == "missing_target"
+            or (reason == "empty_response" and decision == UpdateDecision.INCREMENTAL and lag >= _FULL_REFRESH_LAG_CAL_DAYS)
+        )
+        if escalate and outcome.mode != "full_refresh":
+            ok2, reason2 = _try_window(
+                existing, raw_dir, code, spec.full_refresh_start, end, target, sources)
+            if ok2:
+                ok, reason, outcome.mode = True, "", "full_refresh"
+            else:
+                outcome.reason = f"{reason} → full_refresh:{reason2}"
+
+    outcome.elapsed_ms = round((time.perf_counter() - t0) * 1000)
+    if ok:
+        outcome.ok = True
+        outcome.rows_added = max(0, len(_load_etf_raw(raw_dir, code)) - len(existing))
+    outcome.source = data_source.get_fetch_stats().get(code, {}).get("source", "none")
+    return outcome
+
+
+def _write_source_audit(
+    target_str: str,
+    *,
+    status: str,
+    cache_hits: int,
+    requested: int,
+    fetched_ok: int,
+    failed_codes: list[str],
+    full_refresh_codes: list[str],
+    spec: Any,
+    elapsed_s: float,
+) -> Path:
+    """落盘 source_audit_{target}.json —— 回答「今天为什么大量切 Sina」而不是从日志猜。"""
+    logger = logging.getLogger("etf_signal")
+    attempts = data_source.get_attempt_stats()
+    em_snap = data_source.em_breaker_snapshot()
+
+    eastmoney: dict[str, Any] = dict(attempts.get("eastmoney", {}))
+    eastmoney["circuit_opened"] = bool(em_snap.get("circuit_opened"))
+    eastmoney["circuit_opened_after"] = em_snap.get("circuit_opened_after")
+    eastmoney["state"] = em_snap.get("state")
+    sina: dict[str, Any] = dict(attempts.get("sina", {}))
+
+    diag = etf_signal_signals_dir().parent / "diagnostics"
+    diag.mkdir(parents=True, exist_ok=True)
+    path = diag / f"source_audit_{target_str}.json"
+    payload = {
+        "target_date": target_str,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "data_status": status,
+        "sources": {"eastmoney": eastmoney, "sina": sina},
+        "cache_hits": cache_hits,
+        "requested": requested,
+        "fetched_ok": fetched_ok,
+        "failed": len(failed_codes),
+        "failed_codes": sorted(failed_codes),
+        "full_refresh_codes": sorted(full_refresh_codes),
+        "elapsed_s": round(elapsed_s, 1),
+        "config": {
+            "full_refresh_start": spec.full_refresh_start,
+            "em_backfill_limit": spec.em_backfill_limit,
+            "em_request_interval_s": spec.em_request_interval_s,
+            "circuit_breaker": {
+                "window": spec.eastmoney.circuit_breaker.window,
+                "min_requests": spec.eastmoney.circuit_breaker.min_requests,
+                "failure_rate_threshold": spec.eastmoney.circuit_breaker.failure_rate_threshold,
+            },
+            "sina": {"workers": spec.sina.workers, "retry": spec.sina.retry},
+        },
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    logger.info("source audit: %s", path)
+    return path
 
 
 def cmd_update(args: argparse.Namespace) -> UpdateResult:
@@ -399,6 +582,11 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
     codes = master["fund_code"].tolist()
     request_date = pd.Timestamp(explicit_target).date()
 
+    t_start = time.perf_counter()
+    spec = load_market_data_spec().etf_fetch
+
+    # run-level 语义：新 run → EM breaker 回 CLOSED + 统计清零
+    data_source.reset_em_circuit_breakers()
     data_source.clear_fetch_stats()
 
     # ── Phase 1: EM spot 全市场快照（1 次请求） ──────────────
@@ -429,69 +617,130 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
     else:
         logger.warning("Phase 1 spot empty — falling back to history-only")
 
-    # ── Phase 2: History 残余补缺 ────────────────────────────
-    logger.info("Phase 2 — history residual: %d total, %d from spot, %d remaining",
-                len(codes), spot_covered, max(0, len(codes) - spot_covered))
-
-    data_source.reset_em_circuit_breakers()
-    success = 0
-    history_covered = 0
-    backfill_count = 0
-    skipped_backfill = 0
-
+    # ── Phase 2: History 残余补缺（增量/跳过决策） ───────────
+    pending: list[tuple[str, bool]] = []   # (code, is_empty_backfill)
+    cache_hits = 0
+    backfill_skipped = 0
     for code in codes:
         cs = str(code)
-
-        # reload to get latest (spot may have added data)
         df = _load_etf_raw(raw_dir, code)
-        if _has_request_bar(df, request_date):
-            success += 1
+        decision = decide_update(df, request_date)
+        if decision == UpdateDecision.SKIP_UP_TO_DATE:
+            cache_hits += 1
             continue
-
-        is_backfill = df.empty
-        if is_backfill and backfill_count >= data_source.EM_BACKFILL_LIMIT:
-            skipped_backfill += 1
+        is_new = df.empty
+        if is_new and backfill_skipped + len([p for p in pending if p[1]]) >= spec.em_backfill_limit:
+            # 新上市代码每 run 全量请求上限（legacy EM_BACKFILL_LIMIT 语义），超限进 skipped
+            backfill_skipped += 1
             continue
+        pending.append((cs, is_new))
 
-        # 增量窗口：以 request_date 为终点，从 request_date 前最近已有 bar 的次日起补齐。
-        # 盘中运行时 spot 可能已合并当日（> target）bar，因此不能以 max(date)+1 作起点，
-        # 否则 target 当日 bar 缺口（如昨日完整交易日）会被跳过。
-        if not df.empty and "date" in df.columns:
-            prior = [d for d in pd.to_datetime(df["date"]).dt.date.values if d <= request_date]
-            last_prior = max(prior) if prior else None
-            inc_start = (last_prior + timedelta(days=1)).strftime("%Y%m%d") if last_prior else "20200101"
-        else:
-            inc_start = "20200101"
-        try:
-            df_new = data_source.fetch_etf_hist(cs, start_date=inc_start, end_date=explicit_target)
-            if not df_new.empty:
-                combined = _merge_incremental(df, df_new)
-                _save_etf_raw(combined, raw_dir, code)
-                success += 1
-                history_covered += 1
-        except Exception as e:
-            logger.warning("update failed for %s: %s", cs, e)
+    logger.info("Phase 2 — history residual: %d covered(cache), %d pending fetch, %d new-listing skipped",
+                cache_hits, len(pending), backfill_skipped)
 
-        if is_backfill:
-            backfill_count += 1
-            delay = data_source.EM_REQUEST_INTERVAL + random.uniform(-1, 1)
-        else:
-            delay = random.uniform(0.3, 0.8)
-        time.sleep(max(delay, 0.3))
+    outcomes: list[CodeFetchOutcome] = []
+    attempted: set[str] = set()
+    full_refresh_codes: list[str] = []
 
-    target_ready = success == len(codes)
-    logger.info("update: %d/%d covered, ready=%s  (spot=%d, history=%d, backfill_skipped=%d)",
-                success, len(codes), target_ready, spot_covered, history_covered, skipped_backfill)
-    if backfill_count:
-        logger.info("backfill: %d attempted, %d skipped (limit=%d)", backfill_count, skipped_backfill, data_source.EM_BACKFILL_LIMIT)
+    # ── Phase 2a: EM 串行单飞（限流敏感源）─────────────────
+    # 每次处理前检查 run-level 熔断；OPEN → 剩余缺口整体切 Sina 并发池（Phase 2b）。
+    switched_to_sina = False
+    i = 0
+    while i < len(pending) and not data_source.em_breaker().is_open:
+        code, is_new = pending[i]
+        i += 1
+        outcome = _fetch_one_code(raw_dir, code, request_date, spec, sources=("em", "sina"))
+        outcomes.append(outcome)
+        attempted.add(code)
+        if outcome.ok:
+            if outcome.mode == "full_refresh":
+                full_refresh_codes.append(code)
+        if data_source.em_breaker().is_open:
+            switched_to_sina = True
+            logger.warning("EM breaker OPEN — switching remaining %d codes to Sina batch",
+                           len(pending) - i)
+            break
+        if i < len(pending):
+            time.sleep(max(spec.em_request_interval_s + random.uniform(-1, 1), 0.3) if is_new
+                       else random.uniform(0.3, 0.8))
+
+    # ── Phase 2b: Sina 有限并发池（熔断后剩余）─────────────
+    if i < len(pending):
+        remaining = [c for c, _ in pending[i:]]
+        logger.info("Phase 2b — Sina concurrent batch: %d codes, workers=%d",
+                    len(remaining), spec.sina.workers)
+        codes_windows: list[tuple[str, str, str]] = []
+        for code in remaining:
+            df = _load_etf_raw(raw_dir, code)
+            window = build_fetch_window(df, request_date, spec.full_refresh_start)
+            start, end = window if window else (spec.full_refresh_start, explicit_target)
+            codes_windows.append((code, start, end))
+        results = data_source.fetch_etf_hist_sina_batch(
+            codes_windows, workers=spec.sina.workers, retry=spec.sina.retry)
+        for code, start, end in codes_windows:
+            # 逐只判定：直接走 Sina 并发拉回的结果（batch 已 fetch + 未合并保存）
+            existing = _load_etf_raw(raw_dir, code)
+            df_new = results.get(code)
+            outcome = CodeFetchOutcome(code=code, source="sina", mode="sina_batch")
+            if df_new is not None:
+                combined = _merge_incremental(existing, df_new)
+                okv, issues = validate_append(existing, combined)
+                if okv and has_target_bar(combined, request_date):
+                    _save_etf_raw(combined, raw_dir, code)
+                    outcome.ok = True
+                    outcome.rows_added = max(0, len(combined) - len(existing))
+                else:
+                    outcome.reason = "validation:" + ";".join(issues) if issues else "missing_target"
+            else:
+                outcome.reason = "empty_response"
+            outcome.elapsed_ms = 0
+            outcomes.append(outcome)
+
+    # ── 汇总 ─────────────────────────────────────────────
+    fetched_ok = sum(1 for o in outcomes if o.ok and not o.had_bar)
+    failed_codes = [o.code for o in outcomes if not o.ok]
+    history_covered = fetched_ok
+
+    # target 就绪判定：以落盘文件为准（鲁棒，不依赖内存计数）
+    covered = 0
+    for code in codes:
+        df = _load_etf_raw(raw_dir, code)
+        if has_target_bar(df, request_date):
+            covered += 1
+    target_ready = covered == len(codes)
+    elapsed_s = time.perf_counter() - t_start
+
+    logger.info("update: %d/%d covered, ready=%s  (spot=%d, cache_hits=%d, fetched=%d, failed=%d, new_skipped=%d%s)",
+                covered, len(codes), target_ready, spot_covered, cache_hits, fetched_ok,
+                len(failed_codes), backfill_skipped,
+                ", sina_switch=True" if switched_to_sina else "")
     data_source.log_fetch_summary()
+
+    audit_path = _write_source_audit(
+        explicit_target,
+        status="completed" if target_ready else "partial",
+        cache_hits=cache_hits,
+        requested=len(pending),
+        fetched_ok=fetched_ok,
+        failed_codes=failed_codes,
+        full_refresh_codes=full_refresh_codes,
+        spec=spec,
+        elapsed_s=elapsed_s,
+    )
 
     return UpdateResult(
         status="completed" if target_ready else "partial",
         requested_target_date=explicit_target,
         source_latest_common_date=explicit_target if target_ready else None,
         target_ready=target_ready,
-        raw_covered=success, active_count=len(codes),
+        raw_covered=covered, active_count=len(codes),
+        cache_hits=cache_hits,
+        requested=len(pending),
+        fetched_ok=fetched_ok,
+        failed=len(failed_codes),
+        circuit={"breaker": data_source.em_breaker_snapshot(),
+                 "audit": str(audit_path),
+                 "switched_to_sina": switched_to_sina},
     )
 
 

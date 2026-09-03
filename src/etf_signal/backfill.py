@@ -281,8 +281,11 @@ def run_backfill(
     report = BackfillReport(requested=len(gaps), skipped=skipped)
     t0 = time.perf_counter()
 
+    # run-level EM 熔断（新 run 语义）：只在会话开头 reset，循环内绝不重置，
+    # 否则每只代码都把刚打开的熔断器关回去，等于没有熔断。
+    data_source.reset_em_circuit_breakers()
+
     for i, code in enumerate(remaining, 1):
-        data_source.reset_em_circuit_breakers()
         df = _load_etf_raw(raw_dir, code)
         prior = [d for d in pd.to_datetime(df["date"]).dt.date.values if d <= target_date] if not df.empty and "date" in df.columns else []
         last_prior = max(prior) if prior else None

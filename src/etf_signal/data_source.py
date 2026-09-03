@@ -30,8 +30,11 @@ P0-A 交付物
 from __future__ import annotations
 
 import logging
+import random
 import time
+from collections import deque
 from datetime import date, datetime
+from threading import Lock
 from typing import Any
 
 import pandas as pd
@@ -67,24 +70,140 @@ class TransientNetworkError(Exception):
     """网络临时故障（超时 / ConnectionReset / 5xx），可重试。"""
 
 
-_em_circuit_open = False          # SchemaChangedError 熔断
-_em_consecutive_schema_errors = 0
-_EM_SCHEMA_CIRCUIT_LIMIT = 3
+# 熔断器（Performance V1，2026-09）——run-level latch，替换旧的「两个布尔 + 连续计数」。
+#
+# 状态机（用户锁定）：CLOSED → OPEN；OPEN → CLOSED 只能通过显式 reset() 或新 run
+# 创建新实例。不实现 HALF_OPEN / 自动恢复。
+#
+# OPEN 判定：最近 window 次请求内 failure_rate ≥ threshold 且 requests ≥ min_requests。
+# 进程内有效，不落盘；下一次 run（cmd_update 开头 reset / 新进程）自动回到 CLOSED。
 
-_em_rate_limit_hit = False         # rate-limit / connection-refused 熔断
+class CircuitBreaker:
+    """窗口化失败率熔断器（线程安全）。snapshot() 供 source_audit 观测。"""
+
+    def __init__(
+        self,
+        name: str,
+        window: int = 20,
+        min_requests: int = 10,
+        failure_rate_threshold: float = 0.50,
+    ):
+        self.name = name
+        self.window = max(1, int(window))
+        self.min_requests = max(1, int(min_requests))
+        self.threshold = float(failure_rate_threshold)
+        self._lock = Lock()
+        self.reset()
+
+    def reset(self) -> None:
+        with self._lock:
+            self._open = False
+            self._requests = 0
+            self._success = 0
+            self._failed = 0
+            self._recent: deque[bool] = deque(maxlen=self.window)
+            self._opened_at = None  # 熔断触发时的累计请求数
+
+    def record(self, success: bool) -> bool:
+        """记录一次请求结果，返回本次调用后是否（新）触发 OPEN。"""
+        with self._lock:
+            if self._open:
+                return False
+            self._requests += 1
+            if success:
+                self._success += 1
+            else:
+                self._failed += 1
+            self._recent.append(success)
+            recent = list(self._recent)
+            if self._requests >= self.min_requests and len(recent) >= self.min_requests:
+                fr = sum(1 for s in recent if not s) / len(recent)
+                if fr >= self.threshold:
+                    self._open = True
+                    self._opened_at = self._requests
+                    return True
+            return False
+
+    def record_success(self) -> bool:
+        return self.record(True)
+
+    def record_failure(self) -> bool:
+        return self.record(False)
+
+    @property
+    def is_open(self) -> bool:
+        with self._lock:
+            return bool(self._open)
+
+    @property
+    def state(self) -> str:
+        with self._lock:
+            return "OPEN" if self._open else "CLOSED"
+
+    def snapshot(self) -> dict[str, Any]:
+        """结构化观测：requests / success / failed / circuit_opened / circuit_opened_after。"""
+        with self._lock:
+            recent = list(self._recent)
+            rate = round((sum(1 for s in recent if not s) / len(recent)), 4) if recent else 0.0
+            return {
+                "state": "OPEN" if self._open else "CLOSED",
+                "requests": self._requests,
+                "success": self._success,
+                "failed": self._failed,
+                "failure_rate": rate,
+                "circuit_opened": bool(self._open),
+                "circuit_opened_after": self._opened_at,
+            }
+
 
 _fetch_stats: dict[str, dict] = {}
+_fetch_stats_lock = Lock()
 
-EM_REQUEST_INTERVAL = 6            # 历史补缺请求间隔（秒）
-EM_BACKFILL_LIMIT = 30             # 每轮最多补缺 ETF 数量
+# 请求级计数（per source，attempt-level）：em 每次实际调用、sina 每次实际调用各记一笔，
+# 供 source_audit 观测（与 _fetch_stats 的「每 code 最后一次」口径区分）。
+_ATTEMPT_SOURCES = ("eastmoney", "sina")
+_attempt_stats: dict[str, dict[str, int]] = {
+    s: {"requests": 0, "success": 0, "failed": 0} for s in _ATTEMPT_SOURCES
+}
+_attempt_stats_lock = Lock()
+
+_em_breaker: CircuitBreaker | None = None
+_em_breaker_lock = Lock()
 
 
-def reset_em_circuit_breakers():
-    global _em_circuit_open, _em_consecutive_schema_errors, _em_rate_limit_hit
-    _em_circuit_open = False
-    _em_consecutive_schema_errors = 0
-    _em_rate_limit_hit = False
-    logger.debug("EM circuit breakers reset")
+def em_breaker() -> CircuitBreaker:
+    """进程级 Eastmoney 熔断器（懒加载，参数来自 config/market_data.yaml）。"""
+    global _em_breaker
+    with _em_breaker_lock:
+        if _em_breaker is None:
+            try:
+                from .fetch_policy import load_market_data_spec
+                cb = load_market_data_spec().etf_fetch.eastmoney.circuit_breaker
+                _em_breaker = CircuitBreaker(
+                    "eastmoney",
+                    window=cb.window,
+                    min_requests=cb.min_requests,
+                    failure_rate_threshold=cb.failure_rate_threshold,
+                )
+            except Exception as e:  # config 缺失等：保守默认，不阻塞抓数
+                logger.warning("em_breaker init fallback to defaults: %s", e)
+                _em_breaker = CircuitBreaker("eastmoney")
+        return _em_breaker
+
+
+def reset_em_circuit_breakers() -> None:
+    """新 run 语义：清空本进程 EM 熔断器回到 CLOSED（下一次 run 自动重置）。"""
+    em_breaker().reset()
+    logger.debug("EM circuit breaker reset -> CLOSED")
+
+
+def _stats_record(code: str, info: dict[str, Any]) -> None:
+    with _fetch_stats_lock:
+        _fetch_stats[code] = info
+
+
+def em_breaker_snapshot() -> dict[str, Any]:
+    return em_breaker().snapshot()
 
 
 def is_rate_limit_error(e: Exception) -> bool:
@@ -165,15 +284,40 @@ def is_sina_viable(code: str) -> bool:
 
 def clear_fetch_stats():
     global _fetch_stats
-    _fetch_stats = {}
+    with _fetch_stats_lock:
+        _fetch_stats = {}
+    with _attempt_stats_lock:
+        for s in _ATTEMPT_SOURCES:
+            _attempt_stats[s] = {"requests": 0, "success": 0, "failed": 0}
+
+
+def _record_attempt(source: str, ok: bool) -> None:
+    key = "eastmoney" if source == "em" else ("sina" if source == "sina" else None)
+    if key is None:
+        return
+    with _attempt_stats_lock:
+        bucket = _attempt_stats[key]
+        bucket["requests"] += 1
+        if ok:
+            bucket["success"] += 1
+        else:
+            bucket["failed"] += 1
+
+
+def get_attempt_stats() -> dict[str, dict[str, int]]:
+    with _attempt_stats_lock:
+        return {s: dict(_attempt_stats[s]) for s in _ATTEMPT_SOURCES}
 
 
 def get_fetch_stats() -> dict[str, dict]:
-    return dict(_fetch_stats)
+    with _fetch_stats_lock:
+        return dict(_fetch_stats)
 
 
 def log_fetch_summary():
-    if not _fetch_stats:
+    with _fetch_stats_lock:
+        stats = dict(_fetch_stats)
+    if not stats:
         logger.info("fetch stats: no records")
         return
     by_source: dict[str, int] = {}
@@ -181,7 +325,7 @@ def log_fetch_summary():
     no_source: list[str] = []
     total_ms = 0
     n_timed = 0
-    for code, info in _fetch_stats.items():
+    for code, info in stats.items():
         src = info.get("source", "unknown")
         by_source[src] = by_source.get(src, 0) + 1
         if err := info.get("primary_error_type"):
@@ -497,24 +641,25 @@ def fetch_etf_hist(
     fund_code: str,
     start_date: str = "20200101",
     end_date: str | None = None,
+    sources: tuple[str, ...] = ("em", "sina"),
+    circuit: CircuitBreaker | None = None,
 ) -> pd.DataFrame:
-    """获取单只 ETF 的历史日行情。
+    """获取单只 ETF 的历史日行情（Performance V1 source routing）。
 
-    主源：fund_etf_hist_em（东方财富）
-    备用：fund_etf_hist_sina（新浪），主源异常时自动回退
+    主源：fund_etf_hist_em（东方财富）；备用：fund_etf_hist_sina（新浪）。
 
-    熔断策略：
-      - SchemaChangedError → 不可重试，立即回退或标记
-      - TransientNetworkError → 最多重试 1 次后回退
-      - 连续 3 次 SchemaChangedError → 本轮跳过 EM
+    - `sources`：本调用允许尝试的源（顺序即优先级）。默认 ("em","sina")。
+      熔断后调用方传 ("sina",) 直接走新浪并发池，不再浪费一次 EM 超时。
+    - `circuit`：EM 熔断器。缺省用进程级 em_breaker()（run-level latch，CLOSED→OPEN，
+      仅 reset() 或新 run 回 CLOSED，无 HALF_OPEN / 自动恢复）。sources 不含 "em"
+      时不触碰熔断器（Sina 失败不计入 EM 熔断）。
+    - SchemaChangedError → 不可重试，立即回退；TransientNetworkError → 最多重试 1 次后回退。
 
-    科创板（588xxx）：新浪不覆盖，EM 失败后直接标记待补。
+    科创板（588xxx）：新浪通常可覆盖（is_sina_viable 恒真）；EM 失败后仍尝试新浪。
 
     Returns:
         DataFrame: date, open, high, low, close, volume, amount
     """
-    global _em_circuit_open, _em_consecutive_schema_errors, _em_rate_limit_hit
-
     if not _ensure_akshare():
         return pd.DataFrame()
     if end_date is None:
@@ -531,75 +676,77 @@ def fetch_etf_hist(
         info["primary_error_type"] = "no_source_for_kcb"
 
     # ── 主源：EM ──────────────────────────────────────────────
+    breaker = circuit if circuit is not None else em_breaker()
     df_em = pd.DataFrame()
     em_attempted = False
     em_skipped_reason = None
 
-    if _em_rate_limit_hit:
-        em_skipped_reason = "em_rate_limit_circuit"
-    elif _em_circuit_open:
-        em_skipped_reason = "em_schema_circuit"
+    if "em" not in sources:
+        em_skipped_reason = "em_excluded"
+    elif breaker.is_open:
+        em_skipped_reason = "em_circuit_open"
 
     if em_skipped_reason:
         info["primary_error_type"] = em_skipped_reason
         info["fallback_reason"] = f"EM skipped: {em_skipped_reason}"
     else:
         em_attempted = True
+        em_fail_reason: str | None = None
         try:
             df_em = _fetch_hist_em(fund_code, start_date, end_date)
         except SchemaChangedError as e:
-            _em_consecutive_schema_errors += 1
-            logger.info("em schema changed for %s (consecutive=%d): %s", fund_code, _em_consecutive_schema_errors, e)
-            if _em_consecutive_schema_errors >= _EM_SCHEMA_CIRCUIT_LIMIT:
-                _em_circuit_open = True
-                logger.warning("EM schema circuit breaker OPEN")
+            em_fail_reason = "SchemaChangedError"
             info["primary_error_type"] = "SchemaChangedError"
             info["fallback_reason"] = str(e)
+            logger.info("em schema changed for %s: %s", fund_code, e)
         except TransientNetworkError as e:
+            em_fail_reason = "TransientNetworkError"
             info["primary_error_type"] = "TransientNetworkError"
             info["fallback_reason"] = str(e)
-            if is_rate_limit_error(e):
-                _em_rate_limit_hit = True
-                logger.warning("EM rate-limit circuit breaker OPEN — skipping EM for remaining ETFs this session")
+            logger.warning("em transient for %s: %s", fund_code, e)
         except Exception as e:
-            _em_consecutive_schema_errors += 1
-            if _em_consecutive_schema_errors >= _EM_SCHEMA_CIRCUIT_LIMIT:
-                _em_circuit_open = True
-                logger.warning("EM schema circuit breaker OPEN")
+            em_fail_reason = type(e).__name__
             info["primary_error_type"] = type(e).__name__
             info["fallback_reason"] = str(e)
+            logger.warning("em failed for %s: %s", fund_code, e)
+
+        opened = breaker.record_failure() if em_fail_reason else breaker.record_success()
+        if opened:
+            logger.warning("EM circuit breaker OPEN (after %d requests, failure_rate>=%.0f%%)",
+                           breaker.snapshot()["requests"], breaker.threshold * 100)
+        _record_attempt("em", em_fail_reason is None)
 
     if not df_em.empty:
         info["source"] = "em"
         _stamp_elapsed(info)
-        _fetch_stats[fund_code] = info
+        _stats_record(fund_code, info)
         logger.debug("hist_em ok: %s (%d rows)", fund_code, len(df_em))
         return df_em
 
-    if em_attempted:
-        _em_consecutive_schema_errors = 0  # 有数据或非 schema 错误时重置
-
     # ── 备用：新浪 ─────────────────────────────────────────────
-    if is_sina_viable(fund_code):
+    if "sina" in sources and is_sina_viable(fund_code):
         df = _fetch_hist_sina(fund_code, start_date, end_date)
+        _record_attempt("sina", not df.empty)
         if not df.empty:
             info["source"] = "sina"
             info["fallback_reason"] = info.get("fallback_reason", "em_failed")
             _stamp_elapsed(info)
-            _fetch_stats[fund_code] = info
+            _stats_record(fund_code, info)
             logger.info("hist_sina fallback ok: %s (%d rows)", fund_code, len(df))
             return df
         if "primary_error_type" not in info:
             info["primary_error_type"] = "sina_failed"
         info["fallback_reason"] = "sina_failed"
     else:
-        if "primary_error_type" not in info:
+        if "sina" not in sources:
+            pass  # 调用方明确只要 EM
+        elif "primary_error_type" not in info:
             info["primary_error_type"] = "no_source_for_kcb"
-        info["fallback_reason"] = "科创板无可用源"
+        info["fallback_reason"] = info.get("fallback_reason", "科创板无可用源") if "sina" in sources else "no_sina_selected"
 
     info["source"] = "none"
     _stamp_elapsed(info)
-    _fetch_stats[fund_code] = info
+    _stats_record(fund_code, info)
     logger.warning("all hist sources exhausted: %s", fund_code)
     return pd.DataFrame()
 
@@ -664,6 +811,54 @@ def _fetch_hist_sina(fund_code: str, start_date: str, end_date: str) -> pd.DataF
     except Exception as e:
         logger.debug("fund_etf_hist_sina failed for %s (%s): %s", symbol, fund_code, e)
         return pd.DataFrame()
+
+
+def fetch_etf_hist_sina_batch(
+    codes_windows: list[tuple[str, str, str]],
+    workers: int = 8,
+    retry: int = 1,
+) -> dict[str, pd.DataFrame]:
+    """新浪有限并发拉取（Performance V1：EM 串行单飞，Sina fallback 池并发）。
+
+    熔断 OPEN 后，剩余缺口代码在此以 bounded worker 并发补拉；EM 熔断器不受影响
+    （sources=("sina",) 不触碰 EM breaker）。单代码失败进 data-quality / repair，
+    不无限重试 —— `retry` 只做 1 次（默认），外加随机 jitter，避免并发下打满源。
+
+    Args:
+        codes_windows: [(fund_code, start_date, end_date), ...]
+        workers: 并发上限（config market_data.yaml sina.workers，默认 8）
+        retry: 单代码失败后的重试次数（config sina.retry，默认 1）
+
+    Returns:
+        {fund_code: DataFrame}（失败的代码不在结果中；fetch stats 里可查原因）
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    if not codes_windows:
+        return {}
+
+    def _work(item: tuple[str, str, str]) -> tuple[str, pd.DataFrame]:
+        code, start, end = item
+        df = fetch_etf_hist(code, start_date=start, end_date=end, sources=("sina",))
+        for _ in range(max(retry, 0)):
+            if not df.empty:
+                break
+            time.sleep(random.uniform(0.3, 1.0))
+            df = fetch_etf_hist(code, start_date=start, end_date=end, sources=("sina",))
+        return code, df
+
+    results: dict[str, pd.DataFrame] = {}
+    with ThreadPoolExecutor(max_workers=max(1, int(workers))) as ex:
+        futures = [ex.submit(_work, item) for item in codes_windows]
+        for fut in as_completed(futures):
+            try:
+                code, df = fut.result()
+            except Exception as e:  # noqa: BLE001 — worker 内异常不应拖垮整批
+                logger.warning("sina batch worker error: %s", e)
+                continue
+            if not df.empty:
+                results[code] = df
+    return results
 
 
 _F10_NAV_URL = "https://api.fund.eastmoney.com/f10/lsjz"

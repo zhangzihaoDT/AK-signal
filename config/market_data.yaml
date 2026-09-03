@@ -1,0 +1,31 @@
+# 行情获取 Performance V1（2026-09）— Data Acquisition 参数
+#
+# 职责边界：只控制「怎么抓行情」（fetch range / source routing / concurrency / 熔断）。
+# 不影响任何 Layer①②③ 计算或决策结果 —— 相同最终行情 → Layer①②③ 逐字段一致。
+# 因此本文件不进入 src/common/spec 的 strategy config_hash，也不改变 rule_version。
+#
+# 语义（run-level）：
+#   - full_refresh_start        全量拉取起点（slow path / 新上市兜底），正常情况走增量
+#   - em_backfill_limit         单次 update run 内「空文件（新上市）」代码最大 EM 全量请求数
+#   - em_request_interval_s     新上市代码请求间隔（秒），主源限流保护
+#   - eastmoney.circuit_breaker 主源熔断（run 级 latch，CLOSED→OPEN，仅 reset() 或新 run 回 CLOSED；
+#                               不实现 HALF_OPEN / 自动恢复）——最近 window 次请求内失败率达标且
+#                               requests>=min_requests → OPEN → 本轮剩余请求切 Sina 并发池
+#   - sina.workers              Sina fallback 有限并发 worker 数（EM 串行单飞，Sina 池并发）
+#   - sina.retry                Sina 单请求重试次数（失败进 data-quality/repair，不无限重试）
+
+etf_fetch:
+  full_refresh_start: "20200101"
+  em_backfill_limit: 30
+  em_request_interval_s: 6.0
+
+  eastmoney:
+    circuit_breaker:
+      enabled: true
+      window: 20
+      min_requests: 10
+      failure_rate_threshold: 0.50
+
+  sina:
+    workers: 8
+    retry: 1

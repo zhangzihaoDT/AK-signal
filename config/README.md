@@ -15,6 +15,7 @@
 | `execution.yaml` | 执行模型 / fee / slippage / leverage / pyramiding | Portfolio / Trade |
 | `portfolio.yaml` | 组合构建（资金 / 持仓 / 单资产上限 / deploy / 权重） | Portfolio |
 | `industry_data.yaml` | 申万行业数据模块自身配置（数据源 / provisional / storage / bootstrap） | SW 模块 |
+| `market_data.yaml` | ETF 行情获取 Data Acquisition 参数（增量窗口起点 / EM 熔断 window-min_requests-failure_rate / Sina 并发 workers-retry） | etf update（fetch_policy） |
 | `etf_classification.yaml` | ETF 资产桶分类（展示标签） | classifier / rotation 报告 |
 | `research_baskets.yaml` | Research Basket 定义（来源 / 权重 / 基准） | Research Basket |
 | `research_stage_log.yaml` | 观察组商业化阶段变更审计日志（genesis + entries 链） | stage_log 校验 / 未来 stage event study |
@@ -52,6 +53,8 @@
 - `config_hash` = `theme_registry` + `selection_universe` + `research_observations` + `strategy_spec` + `indicator_spec` + `execution` + `portfolio` + `industry_data` + 黑名单，order-independent。
 - `universe_hash` = 实际参与运行的资产集合（排序后哈希）。
 - `rule_version` = v0.7.0（算法变化才改；配置数值变化只改 config_hash）。
+- **`market_data.yaml` 不进入以上 hash**：它只控制「怎么抓行情」，相同最终行情下 Layer①②③
+  结果不变，不应因抓取参数变化触发 replay parity / config_hash 失效。
 
 ## _legacy/（归档，不参与运行）
 
