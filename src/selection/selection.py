@@ -527,27 +527,6 @@ def _apply_lane_facts(cand: AssetCandidate, lane_row: Any) -> None:
     cand.lane3_days_since_first_exit = _lane_float(lane_row, "lane3_days_since_first_exit")
 
 
-def _apply_lane_reliability_gate(cand: AssetCandidate) -> None:
-    """Lane2 数据可靠性硬 gate（v0.11 Phase 2，Policy 开关在 strategy_spec）。
-
-    three_lane 明确 lane2_reliable_360=False（如份额折算污染 360D 价格）→ 本可推荐的
-    ETF 强制不可推荐（recommended=False / state→WATCH / reason=lane2_unreliable）。
-    lane-less（无 lane 行 / None）不触发——只在有明确「不可靠」证据时拦。
-    """
-    if not _ETF_SPEC.lane_validation.reliability_hard_gate_enabled:
-        return
-    if cand.lane2_reliable_360 is False and cand.recommended:
-        cand.recommended = False
-        if cand.state == STOCK_STATE_RECOMMENDED:
-            cand.state = STOCK_STATE_WATCH
-        if "lane2_unreliable" not in cand.reason_codes:
-            cand.reason_codes = cand.reason_codes + ["lane2_unreliable"]
-        if "LANE2_UNRELIABLE" not in cand.blocking_flags:
-            cand.blocking_flags = cand.blocking_flags + ["LANE2_UNRELIABLE"]
-        if cand.reason:
-            cand.reason = f"{cand.reason} · 数据不可靠（Lane2 折算污染）"
-
-
 def lane_index_from_df(lane_df: pd.DataFrame | None) -> dict[str, Any]:
     """three_lane DataFrame → {fund_code: 行}（空/缺 → {}，消费侧 lane-less）。"""
     if lane_df is None or lane_df.empty or "fund_code" not in lane_df.columns:
@@ -779,20 +758,32 @@ def match_theme(fund_name: str | None) -> str | None:
     return themes_cfg.match_theme(fund_name)
 
 
-def select_etf_candidates(
+def _etf_eligible_pool(
     rotation_df: pd.DataFrame,
     account_df: pd.DataFrame,
     master_df: pd.DataFrame,
+    lane_index: dict[str, Any] | None,
     theme: str,
-    trend_gates: set[str] = ETF_TREND_GATES,
-    min_amount: float = ETF_MIN_AMOUNT,
+    min_amount: float | None = None,
 ) -> pd.DataFrame:
-    """从全市场 rotation 中筛选某主题的 ETF，附加趋势门控与流动性。
+    """③A Eligibility —— 哪些 ETF 可靠可用（进入车辆宇宙）。
 
-    ETF 归属按主题关键词匹配（不再依赖 Layer① 单一 is_tech 焦点组）。
+    从全市场 rotation 中筛选某主题的 ETF，资格条件（全部 Observation 事实）：
+      - theme 归属（keyword + exclude，v0.11.1）
+      - 账户内可交易（account_df 中 account_tradable=True；缺 account → 不设账户门）
+      - 流动性 ≥ min_amount
+      - 数据可靠：lane2_reliable_360 is not False（lane-less / None 放行）
+      - rps15 有效（历史/价格数据完整）
+
+    **趋势态不是资格条件**（vehicle 身份不随当天涨跌而变）；trend_state 保留，
+    供 ③C Timing 判定。趋势门控（ETF_TREND_GATES）不再在此过滤。
+
+    v0.12.0 Selection V2：此函数替换旧 select_etf_candidates（旧版用趋势门过滤，
+    且不含 lane2 可靠性 → 导致 unreliable 高分 ETF 抢走方向 dedup 席位后再被后置 veto）。
 
     Returns:
-        DataFrame（含 selection_score，未排序前）
+        DataFrame（含 trend_state / account_tradable / amount / rps* 原始列，
+        selection_score = ③B 车辆适配度，未去重）
     """
     if rotation_df.empty or "fund_name" not in rotation_df.columns:
         return pd.DataFrame()
@@ -800,14 +791,22 @@ def select_etf_candidates(
     etf = rotation_df.copy()
     etf["_theme"] = etf["fund_name"].apply(match_theme)
     etf = etf[etf["_theme"] == theme]
+    if etf.empty:
+        return etf
 
-    # 合并 trend_state（来自 account_candidates / watchlist）
+    # 合并 trend_state（来自 account_candidates / watchlist）+ 账户可交易门
+    # 账户宇宙是车辆宇宙的必要条件：不在账户内（非国金可交易/从未入趋势池）的
+    # ETF 不具表达资格（旧版经趋势门隐式排除，V2 改为显式账户门）。
     if not account_df.empty and "trend_state" in account_df.columns:
-        etf = etf.merge(account_df[["fund_code", "trend_state", "account_tradable"]].drop_duplicates(subset=["fund_code"]),
-                        on="fund_code", how="left")
+        acc = account_df[["fund_code", "trend_state", "account_tradable"]].drop_duplicates(subset=["fund_code"])
+        etf = etf.merge(acc, on="fund_code", how="inner")
     else:
         etf["trend_state"] = ""
         etf["account_tradable"] = True
+    # 账户可交易：明确 False 的剔出资格（保留在观察池展示）
+    if "account_tradable" in etf.columns:
+        etf["account_tradable"] = etf["account_tradable"].fillna(True)
+        etf = etf[etf["account_tradable"].astype(bool)].copy()
 
     # 合并流动性（来自 master）
     if not master_df.empty and "amount" in master_df.columns:
@@ -817,31 +816,49 @@ def select_etf_candidates(
     else:
         etf["amount"] = pd.NA
 
-    # 趋势门控（None = 不过滤，仅用于观察兜底展示主题代表）
-    if trend_gates is not None:
-        etf = etf[etf["trend_state"].isin(trend_gates)].copy()
-    # 数据完整性：横截面日期无有效 RPS15 的 ETF 不作为候选（剔除数据缺口/历史不足标的）
+    # ③A 数据可靠性：lane2_reliable_360=False（份额折算污染 360D 价格）→ 不可靠，剔出资格
+    if lane_index:
+        etf["_lane2_rel"] = etf["fund_code"].map(
+            lambda c: _lane_bool(lane_index.get(str(c)), "lane2_reliable_360"))
+        etf = etf[etf["_lane2_rel"].fillna(True) != False].copy()  # noqa: E712
+        etf = etf.drop(columns=["_lane2_rel"])
+
+    # 数据完整性：横截面日期无有效 RPS15 的 ETF 不作为车辆（剔除数据缺口/历史不足标的）
     if "rps15" in etf.columns:
         etf = etf[etf["rps15"].notna()].copy()
-    # 流动性门槛
-    etf = etf[etf["amount"].fillna(0) >= min_amount].copy()
+    # 流动性门槛（③A product gate）
+    thr = float(min_amount) if min_amount is not None else ETF_MIN_AMOUNT
+    etf = etf[etf["amount"].fillna(0) >= thr].copy()
 
-    # 选择评分（Policy）：RPS15/20 + 流动性，权重与 amount_score 口径来自
-    # config/strategy_spec.yaml etf_selection（固定区间 log 评分，跨期/跨候选池可比）
+    # ③B 车辆适配度（去 timing）：selection_score = Σ weight × component
+    #   当前权重 = {amount: 1.0}（config etf_selection.vehicle）；rps15/rps20 不进选车
     from src.common.spec.loaders import load_etf_selection_spec
     es = load_etf_selection_spec()
-    w = es.ranking_weights
-    amt = es.amount_score
-    rps15 = pd.to_numeric(etf.get("rps15"), errors="coerce").fillna(0)
-    rps20 = pd.to_numeric(etf.get("rps20"), errors="coerce").fillna(0)
+    vw = es.vehicle.weights
+    amt = es.vehicle.amount_score
     amount = pd.to_numeric(etf.get("amount"), errors="coerce").fillna(0)
     amount_score = amount.apply(lambda a: _amount_score(a, amt))
-    etf["selection_score"] = (
-        w.get("rps15", 0.55) * rps15
-        + w.get("rps20", 0.25) * rps20
-        + w.get("amount_score", 0.20) * amount_score
-    ).round(1)
+    etf["selection_score"] = (vw.get("amount", 1.0) * amount_score).round(1)
     return etf
+
+
+def select_etf_candidates(
+    rotation_df: pd.DataFrame,
+    account_df: pd.DataFrame,
+    master_df: pd.DataFrame,
+    theme: str,
+    lane_index: dict[str, Any] | None = None,
+    trend_gates: set[str] | None = None,
+    min_amount: float | None = None,
+) -> pd.DataFrame:
+    """[v0.12.0 兼容包装] ③A eligible pool（vehicle 适配度打分）。
+
+    保留旧名供 research replay / expression_regime 等外部调用；语义收敛为
+    `_etf_eligible_pool`（趋势不再作资格门，lane2 可靠性前置 ③A）。
+    `trend_gates` 参数保留但不再过滤（旧版用于把趋势当资格门，已废止）。
+    """
+    return _etf_eligible_pool(rotation_df, account_df, master_df, lane_index, theme,
+                              min_amount=min_amount)
 
 
 def _amount_score(amount: float, amt: Any) -> float:
@@ -896,6 +913,14 @@ def _dedup_etf(etf_df: pd.DataFrame) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
+def _etf_lane2_reliable(row: pd.Series, lane_index: dict[str, Any] | None) -> bool:
+    """lane2_reliable_360 判定：lane-less（无 lane 行 / None）放行；明确 False 不可靠。"""
+    if not lane_index:
+        return True
+    v = _lane_bool(lane_index.get(str(row.get("fund_code", ""))), "lane2_reliable_360")
+    return v is not False  # noqa: E712
+
+
 def theme_etf_pool(
     rotation_df: pd.DataFrame,
     account_df: pd.DataFrame,
@@ -903,12 +928,17 @@ def theme_etf_pool(
     theme: str,
     trade_date: str | None = None,
     theme_confirmed: bool | None = None,
+    lane_index: dict[str, Any] | None = None,
 ) -> list[AssetCandidate]:
-    """该主题全部关键词命中的 ETF 池（趋势门控与流动性只标注不硬过滤），供观察池展示。
+    """该主题全部关键词命中的 ETF 观察池（③A 标注不硬过滤），供 watchlist/monitoring 展示。
 
-    与 select_etf_candidates 的区别：不做 trend gate / liquidity 过滤，
-    逐只打 reason_codes（trend_gate_passed/below_trend_gate/liquidity_ok/low_liquidity），
-    去重保留同方向代表后按 selection_score 降序。recommended = 过趋势门 且 流动性达标。
+    v0.12.0 Selection V2：
+      - 资格（③A）只标注不硬过滤：每条打 reason_codes
+        （lane2_unreliable / low_liquidity / below_trend_gate(③C timing 口径) /
+        dedup_lost(非同方向车辆代表)）。
+      - selection_score = ③B 车辆适配度（amount，去 timing），排序用。
+      - recommended 只给「③A 通过 ∧ ③C timing=BUY ∧ theme_confirmed」的车辆代表；
+        其余均 False（观察池只展示原因，不重复推荐）。
     """
     if rotation_df.empty or "fund_name" not in rotation_df.columns:
         return []
@@ -916,12 +946,17 @@ def theme_etf_pool(
     etf["_theme"] = etf["fund_name"].apply(match_theme)
     etf = etf[etf["_theme"] == theme]
 
-    if not account_df.empty and "trend_state" in account_df.columns:
-        etf = etf.merge(account_df[["fund_code", "trend_state", "account_tradable"]].drop_duplicates(subset=["fund_code"]),
-                        on="fund_code", how="left")
+    in_account_df = not account_df.empty and "trend_state" in account_df.columns
+    if in_account_df:
+        acc = account_df[["fund_code", "trend_state", "account_tradable"]].drop_duplicates(subset=["fund_code"])
+        etf = etf.merge(acc, on="fund_code", how="left", indicator=True)
+        etf["in_account"] = etf["_merge"] == "both"
+        etf = etf.drop(columns=["_merge"])
     else:
         etf["trend_state"] = ""
         etf["account_tradable"] = True
+        etf["in_account"] = True
+    etf["account_tradable"] = etf.get("account_tradable", True).fillna(True)
     if not master_df.empty and "amount" in master_df.columns:
         etf = etf.merge(master_df[["fund_code", "amount"]].drop_duplicates(subset=["fund_code"]),
                         on="fund_code", how="left")
@@ -931,36 +966,55 @@ def theme_etf_pool(
     if "rps15" in etf.columns:
         etf = etf[etf["rps15"].notna()].copy()
 
-    # 与 select_etf_candidates 相同的选择评分（Policy）
+    # ③B 车辆适配度（去 timing，与 eligible pool 同口径）
     from src.common.spec.loaders import load_etf_selection_spec
     es = load_etf_selection_spec()
-    w = es.ranking_weights
-    amt = es.amount_score
-    rps15 = pd.to_numeric(etf.get("rps15"), errors="coerce").fillna(0)
-    rps20 = pd.to_numeric(etf.get("rps20"), errors="coerce").fillna(0)
+    vw = es.vehicle.weights
+    amt = es.vehicle.amount_score
     amount = pd.to_numeric(etf.get("amount"), errors="coerce").fillna(0)
-    amount_score = amount.apply(lambda a: _amount_score(a, amt))
-    etf["selection_score"] = (
-        w.get("rps15", 0.55) * rps15
-        + w.get("rps20", 0.25) * rps20
-        + w.get("amount_score", 0.20) * amount_score
-    ).round(1)
+    etf["selection_score"] = (vw.get("amount", 1.0) * amount.apply(lambda a: _amount_score(a, amt))).round(1)
 
-    # 全部关键词命中保留，标注 reasons；同方向代表之外的标 dedup_lost（观察池取 top N，不丢事实）
-    best_per_dir: dict[str, str] = {}
-    for _, r in etf.sort_values("selection_score", ascending=False).iterrows():
-        d = _direction_word(str(r.get("fund_name", "")))
-        best_per_dir.setdefault(d, str(r["fund_code"]))
+    # 方向代表（③B）：只在 eligible（可靠/可交易/流动性）车辆内选代表——unreliable 不能占据方向位
+    best_per_dir: dict[str, tuple[float, str]] = {}
+    for _, r in etf.iterrows():
+        amt_v = pd.to_numeric(r.get("amount"), errors="coerce")
+        liq_ok = amt_v is not None and not pd.isna(amt_v) and float(amt_v) >= ETF_MIN_AMOUNT
+        rel_ok = _etf_lane2_reliable(r, lane_index)
+        acct_ok = bool(r.get("in_account", False)) and bool(r.get("account_tradable", True))
+        if acct_ok and rel_ok and liq_ok:
+            d = _direction_word(str(r.get("fund_name", "")))
+            score = float(r.get("selection_score", 0))
+            if d not in best_per_dir or score > best_per_dir[d][0]:
+                best_per_dir[d] = (score, str(r["fund_code"]))
+
     out: list[AssetCandidate] = []
     for i, (_, row) in enumerate(etf.sort_values("selection_score", ascending=False).iterrows()):
         code = str(row["fund_code"])
-        in_gate = str(row.get("trend_state", "")) in ETF_TREND_GATES
+        in_gate = str(row.get("trend_state", "")) in ETF_TREND_GATES   # ③C timing 口径
         amt_v = pd.to_numeric(row.get("amount"), errors="coerce")
         liq_ok = amt_v is not None and not pd.isna(amt_v) and float(amt_v) >= ETF_MIN_AMOUNT
-        codes = (["trend_gate_passed"] if in_gate else ["below_trend_gate"]) + \
-                (["liquidity_ok"] if liq_ok else ["low_liquidity"])
-        if code != best_per_dir.get(_direction_word(str(row.get("fund_name", "")))):
+        rel_ok = _etf_lane2_reliable(row, lane_index)
+        acct_ok = bool(row.get("in_account", False)) and bool(row.get("account_tradable", True))
+        codes: list[str] = []
+        if not acct_ok:
+            codes.append("below_account")
+        if not rel_ok:
+            codes.append("lane2_unreliable")
+        if not liq_ok:
+            codes.append("low_liquidity")
+        if not in_gate:
+            codes.append("below_trend_gate")
+        # ③A 资格（车辆宇宙门槛）：账户可交易 ∧ 可靠 ∧ 流动性达标（不含趋势）
+        eligible = acct_ok and rel_ok and liq_ok
+        if eligible and code != best_per_dir.get(_direction_word(str(row.get("fund_name", ""))), ("-1", ""))[1]:
             codes.append("dedup_lost")
+        # ③C timing 达标：③A ∧ 趋势门 ∧ 信号 BUY
+        timing_ok = eligible and in_gate
+        if eligible:
+            codes.append("vehicle_eligible")
+        if not codes:
+            codes.append("unknown")
+
         cand = AssetCandidate(
             code=code,
             name=str(row.get("fund_name", "")),
@@ -968,34 +1022,37 @@ def theme_etf_pool(
             asset_type="etf",
             bucket="",
             theme=theme,
-        rps15=_round(row.get("rps15")),
-        rps20=_round(row.get("rps20")),
-        rps60=_round(row.get("rps60")),
-        rps1=_round(row.get("rps1")),
-        delta_rps15=_round(row.get("delta_rps15")),
-        return_5d=_round(row.get("return_5d")),
-        return_20d=_round(row.get("return_20d")),
-        trend_status=_clean_trend_status(row.get("trend_state", "")),
-        trend_metric_name="rps15",
-        trend_metric_value=_round(row.get("rps15")),
-        metric_scope="etf_cross_section",
-        strategy_score=_round(row.get("selection_score")),
-        reason_codes=codes,
+            rps15=_round(row.get("rps15")),
+            rps20=_round(row.get("rps20")),
+            rps60=_round(row.get("rps60")),
+            rps1=_round(row.get("rps1")),
+            delta_rps15=_round(row.get("delta_rps15")),
+            return_5d=_round(row.get("return_5d")),
+            return_20d=_round(row.get("return_20d")),
+            trend_status=_clean_trend_status(row.get("trend_state", "")),
+            trend_metric_name="rps15",
+            trend_metric_value=_round(row.get("rps15")),
+            metric_scope="etf_cross_section",
+            strategy_score=_round(row.get("selection_score")),
+            reason_codes=codes,
             rank_change_5d=_round(row.get("rank_change_5d")),
             liquidity=_round(row.get("amount")),
-            tradable=bool(row.get("account_tradable", False)),
-            recommended=bool(in_gate and liq_ok),
-            state=STOCK_STATE_RECOMMENDED if (in_gate and liq_ok) else STOCK_STATE_WATCH,
+            tradable=acct_ok,
+            recommended=False,
+            state=STOCK_STATE_WATCH,
             selection_score=_round(row.get("selection_score")),
-            reason="观察池 ETF（趋势/流动性未全达标）",
+            reason="观察池 ETF（资格/时机原因见 reason_codes）",
         )
-        # 四段信号（观察池同样补 leadership/position/signal；recommended 改由信号门控）
+        # ③C timing：对 eligible 车辆判 position/signal
         signal = _apply_etf_four_stage(
-            cand, rank=i + 1, trend_qualified=in_gate,
+            cand, rank=i + 1, trend_qualified=timing_ok,
             closes=four_stage.load_etf_close_history(
                 code, trade_date,
                 _position_window(_ETF_SPEC.historical_position)))
-        cand.recommended = bool(in_gate and liq_ok) and signal in BUY_SIGNALS
+        cand.signal = signal
+        if eligible and timing_ok and signal in BUY_SIGNALS and (theme_confirmed is True):
+            cand.recommended = True
+            cand.state = STOCK_STATE_RECOMMENDED
         if signal in ("HOLD", "WATCH"):
             sig_code = f"signal_{signal.lower()}"
             if sig_code not in cand.reason_codes:
@@ -1418,8 +1475,13 @@ def decide_expression(theme_meta: dict[str, Any]) -> dict[str, Any]:
 
 
 def _etf_trend_eligible(c: AssetCandidate) -> bool:
-    """ETF 是否通过趋势门（可执行性统计；仅 observability，不改变决策）。"""
-    return "below_trend_gate" not in (c.reason_codes or [])
+    """ETF 是否达「产品门」= ③A 车辆资格（可靠/可交易/流动性，v0.12.0）。
+
+    ③A 通过（reason_codes 含 vehicle_eligible）即算产品可得（可作表达车辆）；
+    ③C timing（趋势/信号）不参与 eligible 计数——trend 决定 recommended/BUY，
+    eligible 决定「有没有可用车辆可表达」（OBSERVE vs WAIT_FOR_ETF 的分界）。
+    """
+    return "vehicle_eligible" in (c.reason_codes or [])
 
 
 def resolve_execution_expression(
@@ -1546,12 +1608,6 @@ def build_candidates(
     buckets_cfg = themes_cfg.load_buckets()
     lane_index = lane_index_from_df(lane_df)
 
-    def _attach_lane(cand: AssetCandidate) -> None:
-        row = lane_index.get(str(cand.code))
-        if row is not None:
-            _apply_lane_facts(cand, row)
-            _apply_lane_reliability_gate(cand)
-
     buckets_out: list[dict[str, Any]] = []
     for bucket_cfg in buckets_cfg:
         theme_objs: list[dict[str, Any]] = []
@@ -1561,36 +1617,34 @@ def build_candidates(
                                          "industries": th.industry_codes(),
                                          "reason": "无确认数据"})
 
-            # ETF 候选（动态从 Layer① 选）：严格池 → WATCH 观察池 → 主题代表兜底
-            etf_pool = select_etf_candidates(rotation_df, account_df, master_df, key,
-                                             trend_gates=ETF_TREND_GATES)
-            dedup = _dedup_etf(etf_pool)
-            if dedup.empty:
-                etf_pool = select_etf_candidates(rotation_df, account_df, master_df, key,
-                                                 trend_gates=ETF_WATCH_GATES)
-                dedup = _dedup_etf(etf_pool)
-            if dedup.empty:
-                etf_pool = select_etf_candidates(rotation_df, account_df, master_df, key,
-                                                 trend_gates=None)
-                dedup = _dedup_etf(etf_pool)
+            # ── Layer③ Selection V2：③A → ③B → ③C（v0.12.0）─────────────
+            # ③A Eligibility：可靠/可交易/流动性的车辆宇宙（趋势不作资格）
+            eligible_pool = _etf_eligible_pool(
+                rotation_df, account_df, master_df, lane_index, key)
+            # ③B Vehicle Selection：同方向选代表（按车辆适配度），可靠者已前置，不可靠者无法抢位
+            dedup = _dedup_etf(eligible_pool)
             core_etf: list[AssetCandidate] = []
             sub_industry_etf: list[AssetCandidate] = []
             if not dedup.empty:
                 top = dedup.sort_values("selection_score", ascending=False)
-                # 核心 ETF：主题内评分最高 1 只（rank=1 → LEADER）
+                # 核心车辆：主题内适配度最高 1 只（rank=1 → LEADER）
                 c = top.iloc[0]
                 core_etf.append(_to_etf_candidate(
-                    c, "CORE_ETF", bucket_cfg.key, key, "主题评分最高", rank=1, trade_date=trade_date,
-                    theme_confirmed=meta["confirmed"]))
-                # 细分 ETF：其余不同方向各取 1 只（最多 2，rank 2..3 → CORE）
+                    c, "CORE_ETF", bucket_cfg.key, key, "主题首选车辆（车辆适配度最高）",
+                    rank=1, trade_date=trade_date, theme_confirmed=meta["confirmed"]))
+                # 细分车辆：其余不同方向各取 1 只（最多 2，rank 2..3 → CORE）
                 for i, (_, r) in enumerate(top.iloc[1:].iterrows()):
                     if len(sub_industry_etf) >= 2:
                         break
                     sub_industry_etf.append(_to_etf_candidate(
                         r, "SUB_INDUSTRY_ETF", bucket_cfg.key, key, "细分方向代表",
                         rank=i + 2, trade_date=trade_date, theme_confirmed=meta["confirmed"]))
+            # ③C Timing 已在 _to_etf_candidate 内完成（position/signal）；
+            # lane 只透传 soft context（可靠性 gate 前置 ③A，车辆均已可靠，不再后置否决）
             for cand in core_etf + sub_industry_etf:
-                _attach_lane(cand)
+                lrow = lane_index.get(str(cand.code))
+                if lrow is not None:
+                    _apply_lane_facts(cand, lrow)
 
             # 个股固定观察池（全量）+ 动态候选（按状态门控后的子集）
             # v0.11 Phase 1：include_stocks=False（每日发布，ETF-only）→ 容器置空，
@@ -1624,11 +1678,13 @@ def build_candidates(
                     return _round(v)
                 return v
 
-            # ETF 观察池（全部关键词命中 + 原因标注；core/sub 逻辑不变，仅补全事实）
+            # ETF 观察池（全部关键词命中 + 资格/时机原因标注；供 watchlist/monitoring）
             etf_pool = theme_etf_pool(rotation_df, account_df, master_df, key, trade_date=trade_date,
-                                       theme_confirmed=meta["confirmed"])
+                                       theme_confirmed=meta["confirmed"], lane_index=lane_index)
             for cand in etf_pool:
-                _attach_lane(cand)
+                lrow = lane_index.get(str(cand.code))
+                if lrow is not None:
+                    _apply_lane_facts(cand, lrow)
 
             # 表达可执行性（observability）：结构表达 ≠ 可执行表达（Layer③ 产品可得性）
             eligible_etf_count = sum(1 for e in etf_pool if _etf_trend_eligible(e))
@@ -1829,11 +1885,20 @@ def _to_etf_candidate(
     trade_date: str | None = None,
     theme_confirmed: bool | None = None,
 ) -> AssetCandidate:
-    """ETF 候选（core/sub）：rank 为主题内排名（按 selection_score），据此补四段信号。
+    """ETF 车辆候选（core/sub，v0.12.0 Selection V2）。
 
-    recommended 由信号门控：趋势门达标 ∧ BUY 类信号。
+    build_candidates 已先经 ③A `_etf_eligible_pool`（可靠/可交易/流动性）+ ③B
+    `_dedup_etf`（方向代表）选出车辆；此处只做 ③C Timing：
+      - leadership：rank（主题内车辆适配度排名）→ LEADER/CORE
+      - position + signal：④ 信号规则
+    recommended = theme_confirmed ∧ 趋势门达标（③C trend）∧ signal∈BUY。
+    ② 车辆（vehicle_eligible）在 build 侧已打标，此处不重算资格。
     """
     in_gate = str(row.get("trend_state", "")) in ETF_TREND_GATES
+    confirmed_flag = bool(theme_confirmed)
+    base_codes = (["theme_confirmed"] if confirmed_flag else ["theme_not_confirmed"]) + ["vehicle_eligible"]
+    gate_codes = (["trend_gate_passed", "liquidity_ok"] if in_gate
+                  else ["below_trend_gate", "liquidity_ok"])
     cand = AssetCandidate(
         code=str(row["fund_code"]),
         name=str(row.get("fund_name", "")),
@@ -1853,13 +1918,12 @@ def _to_etf_candidate(
         trend_metric_value=_round(row.get("rps15")),
         metric_scope="etf_cross_section",
         strategy_score=_round(row.get("selection_score")),
-        reason_codes=["theme_confirmed", "trend_gate_passed", "liquidity_ok"] if in_gate
-        else ["below_trend_gate", "low_liquidity"],
+        reason_codes=base_codes + gate_codes,
         rank_change_5d=_round(row.get("rank_change_5d")),
         liquidity=_round(row.get("amount")),
-        tradable=bool(row.get("account_tradable", False)),
-        recommended=in_gate,
-        state=STOCK_STATE_RECOMMENDED if in_gate else STOCK_STATE_WATCH,
+        tradable=bool(row.get("account_tradable", True)),
+        recommended=bool(confirmed_flag and in_gate),
+        state=STOCK_STATE_RECOMMENDED if (confirmed_flag and in_gate) else STOCK_STATE_WATCH,
         selection_score=_round(row.get("selection_score")),
         reason=reason,
     )
@@ -1868,7 +1932,8 @@ def _to_etf_candidate(
         closes=four_stage.load_etf_close_history(
             cand.code, trade_date,
             _position_window(_ETF_SPEC.historical_position)))
-    cand.recommended = in_gate and signal in BUY_SIGNALS
+    # ③C Timing：recommended = theme_confirmed ∧ 趋势门达标 ∧ BUY 类信号
+    cand.recommended = bool(theme_confirmed) and in_gate and signal in BUY_SIGNALS
     if signal in ("HOLD", "WATCH"):
         sig_code = f"signal_{signal.lower()}"
         if sig_code not in cand.reason_codes:

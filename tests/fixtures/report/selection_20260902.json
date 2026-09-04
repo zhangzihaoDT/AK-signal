@@ -1,0 +1,4136 @@
+{
+  "date": "20260902",
+  "layer3": {
+    "version": "0.5.0",
+    "role": "recommendation",
+    "engine": {
+      "version": "0.4.3",
+      "module": "selection.build_candidates"
+    },
+    "direction": {
+      "gate": "PROCEED",
+      "n_confirmed_themes": 3,
+      "confirmed_themes": [
+        "ai_infrastructure",
+        "china_auto_global",
+        "high_cashflow"
+      ],
+      "reason": "3 个主题行业进入确认状态（强势, 观察）"
+    },
+    "action": {
+      "level": "OBSERVE",
+      "direction": "quality",
+      "direction_label": "质量",
+      "theme": "high_cashflow",
+      "theme_label": "高现金流资产",
+      "expression": "ETF_PRIORITY",
+      "expression_label": "优先 ETF（广泛上涨）",
+      "summary": "今日方向：观察 质量 · 高现金流资产（已确认，无 ETF 达 BUY 信号/无执行标的）"
+    },
+    "summary": {
+      "recommended_actions": 0,
+      "qualified_candidates": 0,
+      "confirmed_themes": "3/3",
+      "strongest_etf_theme": "高现金流资产"
+    },
+    "closest_theme": null,
+    "recommended_actions": [],
+    "buckets": [
+      {
+        "bucket": "core",
+        "bucket_label": "核心",
+        "objective": "获取长期收益",
+        "n_themes": 2,
+        "n_confirmed": 2,
+        "themes": [
+          {
+            "theme": "ai_infrastructure",
+            "theme_label": "AI 基础设施",
+            "bucket": "core",
+            "bucket_label": "核心",
+            "objective": "AI 算力/芯片/通信基础设施（不含 AI 应用）",
+            "confirmed": true,
+            "today": {
+              "theme_state": "CONFIRMED",
+              "theme_state_label": "已确认",
+              "action": "OBSERVE",
+              "action_label": "观察",
+              "execution_action": "OBSERVE",
+              "execution_action_label": "观察",
+              "n_recommended_etf": 0,
+              "expression": "ETF_CORE_PLUS_LEADER",
+              "expression_label": "ETF 核心 + 龙头卫星（扩散形成）",
+              "structural_expression": "ETF_CORE_PLUS_LEADER",
+              "execution_expression": "ETF_CORE_PLUS_LEADER",
+              "expression_status": "NORMAL",
+              "fallback_reason": "",
+              "eligible_etf_count": 20,
+              "eligible_stock_count": 0,
+              "etf_pool_total": 102,
+              "confirmation_state": "NARROW_CONFIRMED",
+              "confirmation_breadth": "窄幅确认",
+              "stage": "已确认",
+              "summary": "已确认，20 只 ETF 达产品门但未达 BUY 信号（0 推荐），观察",
+              "top_action": {
+                "level": "OBSERVE",
+                "summary": "今日方向：观察 质量 · 高现金流资产（已确认，无 ETF 达 BUY 信号/无执行标的）"
+              }
+            },
+            "why": {
+              "confirmed": true,
+              "n_observe": 1,
+              "n_watch": 4,
+              "n_total": 6,
+              "n_strong": 1,
+              "observing_industries": [],
+              "median_participation": 0.57,
+              "median_hhi": 0.05,
+              "median_top3_share": 0.36,
+              "median_rps15": 46.7,
+              "strongest_industry_rps15": null,
+              "etf_median_rps15": 29.2,
+              "confirm_evidence": {
+                "industry": "",
+                "rps15": null
+              },
+              "confirmation_reason": "1/6 个 Tier 已确认（中位 Tier Strength 46.7）（Tier Gate）",
+              "expression_reason": "扩散形成中，ETF 作核心、龙头作卫星；窄幅确认（仅 1/6 个焦点行业支撑），主题开放但承接面窄，宜观察"
+            },
+            "recommendation": {
+              "expression": "ETF_CORE_PLUS_LEADER",
+              "expression_label": "ETF 核心 + 龙头卫星（扩散形成）",
+              "expression_reason": "扩散形成中，ETF 作核心、龙头作卫星；窄幅确认（仅 1/6 个焦点行业支撑），主题开放但承接面窄，宜观察",
+              "etf": [],
+              "stocks": [],
+              "primary_etf": [
+                {
+                  "code": "159819",
+                  "name": "人工智能ETF易方达",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "core",
+                  "theme": "ai_infrastructure",
+                  "rps15": 32.5,
+                  "rps20": 17.9,
+                  "rps60": 21.3,
+                  "rps1": 35.9,
+                  "delta_rps15": 28.8,
+                  "return_5d": 2.8,
+                  "return_20d": -2.8,
+                  "trend_status": "BELOW_TREND_GATE",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 32.5,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 100.0,
+                  "reason_codes": [
+                    "theme_confirmed",
+                    "vehicle_eligible",
+                    "below_trend_gate",
+                    "liquidity_ok"
+                  ],
+                  "rank_change_5d": -432.0,
+                  "liquidity": 650944735.3,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "WEAK",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "STRONG",
+                      "flags": [
+                        "delta_rps15_positive"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [],
+                  "selection_score": 100.0,
+                  "reason": "主题首选车辆（车辆适配度最高）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "LEADER",
+                  "theme_rank": 1,
+                  "position_level": "LOW",
+                  "position_pct": -9.25,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": true,
+                  "lane2_long_term_bottom": false,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "RECENT_BOTTOM",
+                  "lane3_transition_state": "POST_TRANSITION",
+                  "lane3_days_since_first_exit": 466.0
+                }
+              ],
+              "primary_stock": []
+            },
+            "rationale": {
+              "etf": [],
+              "stocks": []
+            },
+            "watchlist": {
+              "etf": [
+                {
+                  "code": "589020",
+                  "name": "科创半导体设备ETF鹏华",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "ai_infrastructure",
+                  "rps15": 7.1,
+                  "rps1": 3.9,
+                  "delta_rps15": 7.0,
+                  "return_5d": -4.9,
+                  "return_20d": -44.8,
+                  "trend_status": "UNKNOWN",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 7.1,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 100.0,
+                  "reason_codes": [
+                    "below_account",
+                    "below_trend_gate"
+                  ],
+                  "rank_change_5d": -105.0,
+                  "liquidity": 1629846102.0,
+                  "tradable": false,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "UNKNOWN",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "STRONG",
+                      "flags": [
+                        "delta_rps15_positive",
+                        "rps1_cold"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [
+                    "INSUFFICIENT_HISTORY",
+                    "CORPORATE_ACTION"
+                  ],
+                  "selection_score": 100.0,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "CORE",
+                  "theme_rank": 2,
+                  "position_level": "UNKNOWN",
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "reject_reason": "未达趋势门"
+                },
+                {
+                  "code": "588200",
+                  "name": "科创芯片ETF嘉实",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "ai_infrastructure",
+                  "rps15": 27.7,
+                  "rps20": 83.8,
+                  "rps1": 8.1,
+                  "delta_rps15": -57.5,
+                  "return_5d": -0.7,
+                  "return_20d": 5.1,
+                  "trend_status": "UNKNOWN",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 27.7,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 100.0,
+                  "reason_codes": [
+                    "below_account",
+                    "below_trend_gate"
+                  ],
+                  "rank_change_5d": 855.0,
+                  "liquidity": 7153203100.0,
+                  "tradable": false,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "UNKNOWN",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "WEAK",
+                      "flags": [
+                        "delta_rps15_negative",
+                        "rps1_cold"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [
+                    "INSUFFICIENT_HISTORY"
+                  ],
+                  "selection_score": 100.0,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "CORE",
+                  "theme_rank": 3,
+                  "position_level": "UNKNOWN",
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "reject_reason": "未达趋势门"
+                },
+                {
+                  "code": "588170",
+                  "name": "科创半导体ETF华夏",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "ai_infrastructure",
+                  "rps15": 7.7,
+                  "rps20": 97.0,
+                  "rps1": 3.6,
+                  "delta_rps15": -91.7,
+                  "return_5d": -4.7,
+                  "return_20d": 10.2,
+                  "trend_status": "UNKNOWN",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 7.7,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 100.0,
+                  "reason_codes": [
+                    "below_account",
+                    "below_trend_gate"
+                  ],
+                  "rank_change_5d": 1366.0,
+                  "liquidity": 7755198896.0,
+                  "tradable": false,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "UNKNOWN",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "WEAK",
+                      "flags": [
+                        "delta_rps15_negative",
+                        "rps1_cold"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [
+                    "INSUFFICIENT_HISTORY"
+                  ],
+                  "selection_score": 100.0,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "NON_CORE",
+                  "theme_rank": 4,
+                  "position_level": "UNKNOWN",
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "reject_reason": "未达趋势门"
+                },
+                {
+                  "code": "562590",
+                  "name": "半导体设备ETF华夏",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "ai_infrastructure",
+                  "rps15": 6.1,
+                  "rps20": 94.2,
+                  "rps1": 9.2,
+                  "delta_rps15": -92.1,
+                  "return_5d": -4.3,
+                  "return_20d": 9.0,
+                  "trend_status": "BELOW_TREND_GATE",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 6.1,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 100.0,
+                  "reason_codes": [
+                    "lane2_unreliable",
+                    "below_trend_gate"
+                  ],
+                  "rank_change_5d": 1372.0,
+                  "liquidity": 1034505551.0,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "WEAK",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "WEAK",
+                      "flags": [
+                        "delta_rps15_negative",
+                        "rps1_cold"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "LANE2_UNRELIABLE",
+                    "BREAKDOWN",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [
+                    "CORPORATE_ACTION"
+                  ],
+                  "selection_score": 100.0,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "NON_CORE",
+                  "theme_rank": 5,
+                  "position_level": "BREAKDOWN",
+                  "position_pct": -46.26,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": false,
+                  "lane2_long_term_bottom": false,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "UNRELIABLE",
+                  "lane3_transition_state": "UNRELIABLE",
+                  "reject_reason": "数据不可靠（Lane2 折算污染/360D 失真），③A 资格门未过 · 现价深破 60 日线 46.26%"
+                },
+                {
+                  "code": "561980",
+                  "name": "半导体设备ETF招商",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "ai_infrastructure",
+                  "rps15": 9.1,
+                  "rps20": 88.0,
+                  "rps1": 13.0,
+                  "delta_rps15": -82.3,
+                  "return_5d": -2.6,
+                  "return_20d": 5.7,
+                  "trend_status": "BELOW_TREND_GATE",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 9.1,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 100.0,
+                  "reason_codes": [
+                    "lane2_unreliable",
+                    "below_trend_gate"
+                  ],
+                  "rank_change_5d": 1226.0,
+                  "liquidity": 587868951.0,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "WEAK",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "WEAK",
+                      "flags": [
+                        "delta_rps15_negative",
+                        "rps1_cold"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "LANE2_UNRELIABLE",
+                    "BREAKDOWN",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [
+                    "CORPORATE_ACTION"
+                  ],
+                  "selection_score": 100.0,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "NON_CORE",
+                  "theme_rank": 6,
+                  "position_level": "BREAKDOWN",
+                  "position_pct": -51.82,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": false,
+                  "lane2_long_term_bottom": false,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "UNRELIABLE",
+                  "lane3_transition_state": "UNRELIABLE",
+                  "reject_reason": "数据不可靠（Lane2 折算污染/360D 失真），③A 资格门未过 · 现价深破 60 日线 51.82%"
+                },
+                {
+                  "code": "560780",
+                  "name": "半导体设备ETF广发",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "ai_infrastructure",
+                  "rps15": 5.5,
+                  "rps20": 94.2,
+                  "rps1": 9.3,
+                  "delta_rps15": -92.7,
+                  "return_5d": -4.4,
+                  "return_20d": 9.1,
+                  "trend_status": "BELOW_TREND_GATE",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 5.5,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 100.0,
+                  "reason_codes": [
+                    "lane2_unreliable",
+                    "below_trend_gate"
+                  ],
+                  "rank_change_5d": 1382.0,
+                  "liquidity": 1234528171.0,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "WEAK",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "WEAK",
+                      "flags": [
+                        "delta_rps15_negative",
+                        "rps1_cold"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "LANE2_UNRELIABLE",
+                    "BREAKDOWN",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [
+                    "CORPORATE_ACTION"
+                  ],
+                  "selection_score": 100.0,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "NON_CORE",
+                  "theme_rank": 7,
+                  "position_level": "BREAKDOWN",
+                  "position_pct": -37.2,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": false,
+                  "lane2_long_term_bottom": false,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "UNRELIABLE",
+                  "lane3_transition_state": "UNRELIABLE",
+                  "reject_reason": "数据不可靠（Lane2 折算污染/360D 失真），③A 资格门未过 · 现价深破 60 日线 37.2%"
+                }
+              ],
+              "stocks": []
+            },
+            "etf_monitoring": [
+              {
+                "code": "159819",
+                "name": "人工智能ETF易方达",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "core",
+                "theme": "ai_infrastructure",
+                "rps15": 32.5,
+                "rps20": 17.9,
+                "rps60": 21.3,
+                "rps1": 35.9,
+                "delta_rps15": 28.8,
+                "return_5d": 2.8,
+                "return_20d": -2.8,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 32.5,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 100.0,
+                "reason_codes": [
+                  "theme_confirmed",
+                  "vehicle_eligible",
+                  "below_trend_gate",
+                  "liquidity_ok"
+                ],
+                "rank_change_5d": -432.0,
+                "liquidity": 650944735.3,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "STRONG",
+                    "flags": [
+                      "delta_rps15_positive"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 100.0,
+                "reason": "主题首选车辆（车辆适配度最高）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "LEADER",
+                "theme_rank": 1,
+                "position_level": "LOW",
+                "position_pct": -9.25,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "RECENT_BOTTOM",
+                "lane3_transition_state": "POST_TRANSITION",
+                "lane3_days_since_first_exit": 466.0,
+                "monitoring_source": "recommendation",
+                "reject_reason": ""
+              },
+              {
+                "code": "513310",
+                "name": "中韩半导体ETF华泰柏瑞",
+                "role": "SUB_INDUSTRY_ETF",
+                "asset_type": "etf",
+                "bucket": "core",
+                "theme": "ai_infrastructure",
+                "rps15": 30.1,
+                "rps60": 7.5,
+                "rps1": 20.5,
+                "return_5d": -2.0,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 30.1,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 100.0,
+                "reason_codes": [
+                  "theme_confirmed",
+                  "vehicle_eligible",
+                  "below_trend_gate",
+                  "liquidity_ok"
+                ],
+                "liquidity": 14166992062.0,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "UNKNOWN",
+                    "flags": []
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [
+                  "INSUFFICIENT_HISTORY"
+                ],
+                "selection_score": 100.0,
+                "reason": "细分方向代表",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "CORE",
+                "theme_rank": 2,
+                "position_level": "UNKNOWN",
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "NORMAL",
+                "lane3_transition_state": "POST_TRANSITION",
+                "lane3_days_since_first_exit": 466.0,
+                "monitoring_source": "recommendation",
+                "reject_reason": ""
+              },
+              {
+                "code": "159142",
+                "name": "科创创业人工智能ETF景顺",
+                "role": "SUB_INDUSTRY_ETF",
+                "asset_type": "etf",
+                "bucket": "core",
+                "theme": "ai_infrastructure",
+                "rps15": 28.3,
+                "rps20": 19.4,
+                "rps60": 15.2,
+                "rps1": 37.3,
+                "delta_rps15": 25.2,
+                "return_5d": 3.2,
+                "return_20d": -2.7,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 28.3,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 95.4,
+                "reason_codes": [
+                  "theme_confirmed",
+                  "vehicle_eligible",
+                  "below_trend_gate",
+                  "liquidity_ok"
+                ],
+                "rank_change_5d": -378.0,
+                "liquidity": 449869688.2,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "STRONG",
+                    "flags": [
+                      "delta_rps15_positive"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 95.4,
+                "reason": "细分方向代表",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "CORE",
+                "theme_rank": 3,
+                "position_level": "LOW",
+                "position_pct": -10.71,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "RECENT_BOTTOM",
+                "lane3_transition_state": "POST_TRANSITION",
+                "monitoring_source": "recommendation",
+                "reject_reason": ""
+              },
+              {
+                "code": "589020",
+                "name": "科创半导体设备ETF鹏华",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "ai_infrastructure",
+                "rps15": 7.1,
+                "rps1": 3.9,
+                "delta_rps15": 7.0,
+                "return_5d": -4.9,
+                "return_20d": -44.8,
+                "trend_status": "UNKNOWN",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 7.1,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 100.0,
+                "reason_codes": [
+                  "below_account",
+                  "below_trend_gate"
+                ],
+                "rank_change_5d": -105.0,
+                "liquidity": 1629846102.0,
+                "tradable": false,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "UNKNOWN",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "STRONG",
+                    "flags": [
+                      "delta_rps15_positive",
+                      "rps1_cold"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [
+                  "INSUFFICIENT_HISTORY",
+                  "CORPORATE_ACTION"
+                ],
+                "selection_score": 100.0,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "CORE",
+                "theme_rank": 2,
+                "position_level": "UNKNOWN",
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "reject_reason": "未达趋势门",
+                "monitoring_source": "watchlist"
+              },
+              {
+                "code": "588200",
+                "name": "科创芯片ETF嘉实",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "ai_infrastructure",
+                "rps15": 27.7,
+                "rps20": 83.8,
+                "rps1": 8.1,
+                "delta_rps15": -57.5,
+                "return_5d": -0.7,
+                "return_20d": 5.1,
+                "trend_status": "UNKNOWN",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 27.7,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 100.0,
+                "reason_codes": [
+                  "below_account",
+                  "below_trend_gate"
+                ],
+                "rank_change_5d": 855.0,
+                "liquidity": 7153203100.0,
+                "tradable": false,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "UNKNOWN",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "WEAK",
+                    "flags": [
+                      "delta_rps15_negative",
+                      "rps1_cold"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [
+                  "INSUFFICIENT_HISTORY"
+                ],
+                "selection_score": 100.0,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "CORE",
+                "theme_rank": 3,
+                "position_level": "UNKNOWN",
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "reject_reason": "未达趋势门",
+                "monitoring_source": "watchlist"
+              },
+              {
+                "code": "588170",
+                "name": "科创半导体ETF华夏",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "ai_infrastructure",
+                "rps15": 7.7,
+                "rps20": 97.0,
+                "rps1": 3.6,
+                "delta_rps15": -91.7,
+                "return_5d": -4.7,
+                "return_20d": 10.2,
+                "trend_status": "UNKNOWN",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 7.7,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 100.0,
+                "reason_codes": [
+                  "below_account",
+                  "below_trend_gate"
+                ],
+                "rank_change_5d": 1366.0,
+                "liquidity": 7755198896.0,
+                "tradable": false,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "UNKNOWN",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "WEAK",
+                    "flags": [
+                      "delta_rps15_negative",
+                      "rps1_cold"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [
+                  "INSUFFICIENT_HISTORY"
+                ],
+                "selection_score": 100.0,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "NON_CORE",
+                "theme_rank": 4,
+                "position_level": "UNKNOWN",
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "reject_reason": "未达趋势门",
+                "monitoring_source": "watchlist"
+              },
+              {
+                "code": "562590",
+                "name": "半导体设备ETF华夏",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "ai_infrastructure",
+                "rps15": 6.1,
+                "rps20": 94.2,
+                "rps1": 9.2,
+                "delta_rps15": -92.1,
+                "return_5d": -4.3,
+                "return_20d": 9.0,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 6.1,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 100.0,
+                "reason_codes": [
+                  "lane2_unreliable",
+                  "below_trend_gate"
+                ],
+                "rank_change_5d": 1372.0,
+                "liquidity": 1034505551.0,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "WEAK",
+                    "flags": [
+                      "delta_rps15_negative",
+                      "rps1_cold"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "LANE2_UNRELIABLE",
+                  "BREAKDOWN",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [
+                  "CORPORATE_ACTION"
+                ],
+                "selection_score": 100.0,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "NON_CORE",
+                "theme_rank": 5,
+                "position_level": "BREAKDOWN",
+                "position_pct": -46.26,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": false,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "UNRELIABLE",
+                "lane3_transition_state": "UNRELIABLE",
+                "reject_reason": "数据不可靠（Lane2 折算污染/360D 失真），③A 资格门未过 · 现价深破 60 日线 46.26%",
+                "monitoring_source": "watchlist"
+              },
+              {
+                "code": "561980",
+                "name": "半导体设备ETF招商",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "ai_infrastructure",
+                "rps15": 9.1,
+                "rps20": 88.0,
+                "rps1": 13.0,
+                "delta_rps15": -82.3,
+                "return_5d": -2.6,
+                "return_20d": 5.7,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 9.1,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 100.0,
+                "reason_codes": [
+                  "lane2_unreliable",
+                  "below_trend_gate"
+                ],
+                "rank_change_5d": 1226.0,
+                "liquidity": 587868951.0,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "WEAK",
+                    "flags": [
+                      "delta_rps15_negative",
+                      "rps1_cold"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "LANE2_UNRELIABLE",
+                  "BREAKDOWN",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [
+                  "CORPORATE_ACTION"
+                ],
+                "selection_score": 100.0,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "NON_CORE",
+                "theme_rank": 6,
+                "position_level": "BREAKDOWN",
+                "position_pct": -51.82,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": false,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "UNRELIABLE",
+                "lane3_transition_state": "UNRELIABLE",
+                "reject_reason": "数据不可靠（Lane2 折算污染/360D 失真），③A 资格门未过 · 现价深破 60 日线 51.82%",
+                "monitoring_source": "watchlist"
+              },
+              {
+                "code": "560780",
+                "name": "半导体设备ETF广发",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "ai_infrastructure",
+                "rps15": 5.5,
+                "rps20": 94.2,
+                "rps1": 9.3,
+                "delta_rps15": -92.7,
+                "return_5d": -4.4,
+                "return_20d": 9.1,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 5.5,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 100.0,
+                "reason_codes": [
+                  "lane2_unreliable",
+                  "below_trend_gate"
+                ],
+                "rank_change_5d": 1382.0,
+                "liquidity": 1234528171.0,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "WEAK",
+                    "flags": [
+                      "delta_rps15_negative",
+                      "rps1_cold"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "LANE2_UNRELIABLE",
+                  "BREAKDOWN",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [
+                  "CORPORATE_ACTION"
+                ],
+                "selection_score": 100.0,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "NON_CORE",
+                "theme_rank": 7,
+                "position_level": "BREAKDOWN",
+                "position_pct": -37.2,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": false,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "UNRELIABLE",
+                "lane3_transition_state": "UNRELIABLE",
+                "reject_reason": "数据不可靠（Lane2 折算污染/360D 失真），③A 资格门未过 · 现价深破 60 日线 37.2%",
+                "monitoring_source": "watchlist"
+              }
+            ],
+            "monitoring": {
+              "leaders": [],
+              "high_beta": [],
+              "equipment": []
+            },
+            "strongest_etf": {
+              "code": "159819",
+              "name": "人工智能ETF易方达",
+              "rps15": 32.5,
+              "return_5d": 2.8,
+              "return_20d": -2.8
+            },
+            "distance_to_industry_confirm": 0,
+            "distance_to_etf_strength": 47.5,
+            "structural_expression": "ETF_CORE_PLUS_LEADER",
+            "execution_expression": "ETF_CORE_PLUS_LEADER",
+            "expression_status": "NORMAL",
+            "fallback_reason": "",
+            "eligible_etf_count": 20,
+            "eligible_stock_count": 0,
+            "etf_pool_total": 102
+          },
+          {
+            "theme": "china_auto_global",
+            "theme_label": "中国汽车全球化",
+            "bucket": "core",
+            "bucket_label": "核心",
+            "objective": "中国汽车产业链全球化（整车/电池/电动化零部件/激光雷达/供应链）",
+            "confirmed": true,
+            "today": {
+              "theme_state": "CONFIRMED",
+              "theme_state_label": "已确认",
+              "action": "OBSERVE",
+              "action_label": "观察",
+              "execution_action": "OBSERVE",
+              "execution_action_label": "观察",
+              "n_recommended_etf": 0,
+              "expression": "ETF_CORE_PLUS_LEADER",
+              "expression_label": "ETF 核心 + 龙头卫星（扩散形成）",
+              "structural_expression": "ETF_CORE_PLUS_LEADER",
+              "execution_expression": "ETF_CORE_PLUS_LEADER",
+              "expression_status": "NORMAL",
+              "fallback_reason": "",
+              "eligible_etf_count": 7,
+              "eligible_stock_count": 0,
+              "etf_pool_total": 55,
+              "confirmation_state": "NARROW_CONFIRMED",
+              "confirmation_breadth": "窄幅确认",
+              "stage": "已确认",
+              "summary": "已确认，7 只 ETF 达产品门但未达 BUY 信号（0 推荐），观察",
+              "top_action": {
+                "level": "OBSERVE",
+                "summary": "今日方向：观察 质量 · 高现金流资产（已确认，无 ETF 达 BUY 信号/无执行标的）"
+              }
+            },
+            "why": {
+              "confirmed": true,
+              "n_observe": 1,
+              "n_watch": 0,
+              "n_total": 5,
+              "n_strong": 1,
+              "observing_industries": [],
+              "median_participation": 0.58,
+              "median_hhi": 0.05,
+              "median_top3_share": 0.36,
+              "median_rps15": 10.0,
+              "strongest_industry_rps15": null,
+              "etf_median_rps15": 10.7,
+              "confirm_evidence": {
+                "industry": "",
+                "rps15": null
+              },
+              "confirmation_reason": "1/5 个 Tier 已确认（中位 Tier Strength 10.0）（Tier Gate）",
+              "expression_reason": "扩散形成中，ETF 作核心、龙头作卫星；窄幅确认（仅 1/5 个焦点行业支撑），主题开放但承接面窄，宜观察"
+            },
+            "recommendation": {
+              "expression": "ETF_CORE_PLUS_LEADER",
+              "expression_label": "ETF 核心 + 龙头卫星（扩散形成）",
+              "expression_reason": "扩散形成中，ETF 作核心、龙头作卫星；窄幅确认（仅 1/5 个焦点行业支撑），主题开放但承接面窄，宜观察",
+              "etf": [],
+              "stocks": [],
+              "primary_etf": [
+                {
+                  "code": "159755",
+                  "name": "电池ETF广发",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "core",
+                  "theme": "china_auto_global",
+                  "rps15": 3.4,
+                  "rps20": 8.0,
+                  "rps60": 8.9,
+                  "rps1": 3.2,
+                  "delta_rps15": -41.4,
+                  "return_5d": -5.3,
+                  "return_20d": -4.6,
+                  "trend_status": "BELOW_TREND_GATE",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 3.4,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 76.2,
+                  "reason_codes": [
+                    "theme_confirmed",
+                    "vehicle_eligible",
+                    "below_trend_gate",
+                    "liquidity_ok"
+                  ],
+                  "rank_change_5d": 617.0,
+                  "liquidity": 289063584.6,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "WEAK",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "WEAK",
+                      "flags": [
+                        "delta_rps15_negative",
+                        "rps1_cold"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [],
+                  "selection_score": 76.2,
+                  "reason": "主题首选车辆（车辆适配度最高）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "LEADER",
+                  "theme_rank": 1,
+                  "position_level": "LOW",
+                  "position_pct": -10.37,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": true,
+                  "lane2_long_term_bottom": false,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "RECENT_BOTTOM",
+                  "lane3_transition_state": "POST_TRANSITION",
+                  "lane3_days_since_first_exit": 466.0
+                }
+              ],
+              "primary_stock": []
+            },
+            "rationale": {
+              "etf": [],
+              "stocks": []
+            },
+            "watchlist": {
+              "etf": [
+                {
+                  "code": "159796",
+                  "name": "电池ETF汇添富",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "china_auto_global",
+                  "rps15": 0.7,
+                  "rps20": 6.6,
+                  "rps60": 0.9,
+                  "rps1": 14.5,
+                  "delta_rps15": -60.2,
+                  "return_5d": -6.8,
+                  "return_20d": -4.9,
+                  "trend_status": "BELOW_TREND_GATE",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 0.7,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 45.9,
+                  "reason_codes": [
+                    "below_trend_gate",
+                    "dedup_lost",
+                    "vehicle_eligible"
+                  ],
+                  "rank_change_5d": 897.0,
+                  "liquidity": 143834431.0,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "WEAK",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "WEAK",
+                      "flags": [
+                        "delta_rps15_negative",
+                        "rps1_cold"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "DEDUP_LOST",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [],
+                  "selection_score": 45.9,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "CORE",
+                  "theme_rank": 3,
+                  "position_level": "LOW",
+                  "position_pct": -12.73,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": true,
+                  "lane2_long_term_bottom": false,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "RECENT_BOTTOM",
+                  "lane3_transition_state": "POST_TRANSITION",
+                  "lane3_days_since_first_exit": 466.0,
+                  "reject_reason": "同类方向已有代表入选"
+                },
+                {
+                  "code": "520600",
+                  "name": "港股通汽车ETF广发",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "china_auto_global",
+                  "rps15": 12.0,
+                  "rps20": 1.9,
+                  "rps1": 2.7,
+                  "delta_rps15": -3.0,
+                  "return_5d": -5.6,
+                  "return_20d": -7.4,
+                  "trend_status": "UNKNOWN",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 12.0,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 34.3,
+                  "reason_codes": [
+                    "below_account",
+                    "below_trend_gate"
+                  ],
+                  "rank_change_5d": 44.0,
+                  "liquidity": 110079200.0,
+                  "tradable": false,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "UNKNOWN",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "NORMAL",
+                      "flags": [
+                        "delta_rps15_negative",
+                        "rps1_cold"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [
+                    "INSUFFICIENT_HISTORY"
+                  ],
+                  "selection_score": 34.3,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "NON_CORE",
+                  "theme_rank": 4,
+                  "position_level": "UNKNOWN",
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "reject_reason": "未达趋势门"
+                },
+                {
+                  "code": "159323",
+                  "name": "港股通汽车ETF华夏",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "china_auto_global",
+                  "rps15": 13.5,
+                  "rps20": 2.2,
+                  "rps60": 11.8,
+                  "rps1": 4.5,
+                  "delta_rps15": -2.8,
+                  "return_5d": -5.7,
+                  "return_20d": -7.3,
+                  "trend_status": "BELOW_TREND_GATE",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 13.5,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 23.7,
+                  "reason_codes": [
+                    "below_trend_gate",
+                    "vehicle_eligible"
+                  ],
+                  "rank_change_5d": 40.0,
+                  "liquidity": 86380956.0,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "WEAK",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "NORMAL",
+                      "flags": [
+                        "delta_rps15_negative",
+                        "rps1_cold"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [],
+                  "selection_score": 23.7,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "NON_CORE",
+                  "theme_rank": 6,
+                  "position_level": "LOW",
+                  "position_pct": -6.36,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": true,
+                  "lane2_long_term_bottom": true,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "DEEP_BOTTOM",
+                  "lane3_transition_state": "RETEST",
+                  "lane3_days_since_first_exit": 21.0,
+                  "reject_reason": "未达趋势门"
+                },
+                {
+                  "code": "159840",
+                  "name": "锂电池ETF工银",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "china_auto_global",
+                  "rps15": 4.6,
+                  "rps20": 8.5,
+                  "rps60": 10.8,
+                  "rps1": 3.9,
+                  "delta_rps15": -40.9,
+                  "return_5d": -5.2,
+                  "return_20d": -4.5,
+                  "trend_status": "BELOW_TREND_GATE",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 4.6,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 6.0,
+                  "reason_codes": [
+                    "below_trend_gate",
+                    "vehicle_eligible"
+                  ],
+                  "rank_change_5d": 609.0,
+                  "liquidity": 57413225.7,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "WEAK",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "WEAK",
+                      "flags": [
+                        "delta_rps15_negative",
+                        "rps1_cold"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [],
+                  "selection_score": 6.0,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "NON_CORE",
+                  "theme_rank": 7,
+                  "position_level": "LOW",
+                  "position_pct": -9.9,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": true,
+                  "lane2_long_term_bottom": false,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "RECENT_BOTTOM",
+                  "lane3_transition_state": "POST_TRANSITION",
+                  "lane3_days_since_first_exit": 466.0,
+                  "reject_reason": "未达趋势门"
+                },
+                {
+                  "code": "561910",
+                  "name": "电池ETF招商",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "china_auto_global",
+                  "rps15": 0.7,
+                  "rps20": 7.2,
+                  "rps60": 2.1,
+                  "rps1": 10.7,
+                  "delta_rps15": -59.0,
+                  "return_5d": -6.5,
+                  "return_20d": -4.7,
+                  "trend_status": "BELOW_TREND_GATE",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 0.7,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 2.3,
+                  "reason_codes": [
+                    "below_trend_gate",
+                    "dedup_lost",
+                    "vehicle_eligible"
+                  ],
+                  "rank_change_5d": 880.0,
+                  "liquidity": 52694096.0,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "WEAK",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "WEAK",
+                      "flags": [
+                        "delta_rps15_negative",
+                        "rps1_cold"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "DEDUP_LOST",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [],
+                  "selection_score": 2.3,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "NON_CORE",
+                  "theme_rank": 8,
+                  "position_level": "LOW",
+                  "position_pct": -12.53,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": true,
+                  "lane2_long_term_bottom": false,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "RECENT_BOTTOM",
+                  "lane3_transition_state": "POST_TRANSITION",
+                  "lane3_days_since_first_exit": 466.0,
+                  "reject_reason": "同类方向已有代表入选"
+                },
+                {
+                  "code": "520780",
+                  "name": "港股通汽车ETF华宝",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "china_auto_global",
+                  "rps15": 9.1,
+                  "rps20": 1.9,
+                  "rps1": 2.1,
+                  "delta_rps15": -9.6,
+                  "return_5d": -6.2,
+                  "return_20d": -7.4,
+                  "trend_status": "UNKNOWN",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 9.1,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 0.0,
+                  "reason_codes": [
+                    "below_account",
+                    "low_liquidity",
+                    "below_trend_gate"
+                  ],
+                  "rank_change_5d": 143.0,
+                  "liquidity": 13172696.0,
+                  "tradable": false,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "UNKNOWN",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "WEAK",
+                      "flags": [
+                        "delta_rps15_negative",
+                        "rps1_cold"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "LOW_LIQUIDITY",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [
+                    "INSUFFICIENT_HISTORY"
+                  ],
+                  "selection_score": 0.0,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "NON_CORE",
+                  "theme_rank": 9,
+                  "position_level": "UNKNOWN",
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "reject_reason": "未达趋势门且流动性不足"
+                }
+              ],
+              "stocks": []
+            },
+            "etf_monitoring": [
+              {
+                "code": "159755",
+                "name": "电池ETF广发",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "core",
+                "theme": "china_auto_global",
+                "rps15": 3.4,
+                "rps20": 8.0,
+                "rps60": 8.9,
+                "rps1": 3.2,
+                "delta_rps15": -41.4,
+                "return_5d": -5.3,
+                "return_20d": -4.6,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 3.4,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 76.2,
+                "reason_codes": [
+                  "theme_confirmed",
+                  "vehicle_eligible",
+                  "below_trend_gate",
+                  "liquidity_ok"
+                ],
+                "rank_change_5d": 617.0,
+                "liquidity": 289063584.6,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "WEAK",
+                    "flags": [
+                      "delta_rps15_negative",
+                      "rps1_cold"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 76.2,
+                "reason": "主题首选车辆（车辆适配度最高）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "LEADER",
+                "theme_rank": 1,
+                "position_level": "LOW",
+                "position_pct": -10.37,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "RECENT_BOTTOM",
+                "lane3_transition_state": "POST_TRANSITION",
+                "lane3_days_since_first_exit": 466.0,
+                "monitoring_source": "recommendation",
+                "reject_reason": ""
+              },
+              {
+                "code": "159566",
+                "name": "储能电池ETF易方达",
+                "role": "SUB_INDUSTRY_ETF",
+                "asset_type": "etf",
+                "bucket": "core",
+                "theme": "china_auto_global",
+                "rps15": 13.2,
+                "rps20": 34.7,
+                "rps60": 4.2,
+                "rps1": 22.9,
+                "delta_rps15": -71.6,
+                "return_5d": -6.4,
+                "return_20d": -1.1,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 13.2,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 67.5,
+                "reason_codes": [
+                  "theme_confirmed",
+                  "vehicle_eligible",
+                  "below_trend_gate",
+                  "liquidity_ok"
+                ],
+                "rank_change_5d": 1066.0,
+                "liquidity": 236678933.6,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "WEAK",
+                    "flags": [
+                      "delta_rps15_negative"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 67.5,
+                "reason": "细分方向代表",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "CORE",
+                "theme_rank": 2,
+                "position_level": "LOW",
+                "position_pct": -10.65,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "RECENT_BOTTOM",
+                "lane3_transition_state": "POST_TRANSITION",
+                "monitoring_source": "recommendation",
+                "reject_reason": ""
+              },
+              {
+                "code": "515030",
+                "name": "新能源车ETF华夏",
+                "role": "SUB_INDUSTRY_ETF",
+                "asset_type": "etf",
+                "bucket": "core",
+                "theme": "china_auto_global",
+                "rps15": 11.9,
+                "rps20": 11.5,
+                "rps60": 8.1,
+                "rps1": 6.0,
+                "delta_rps15": -33.8,
+                "return_5d": -4.5,
+                "return_20d": -3.7,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 11.9,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 24.9,
+                "reason_codes": [
+                  "theme_confirmed",
+                  "vehicle_eligible",
+                  "below_trend_gate",
+                  "liquidity_ok"
+                ],
+                "rank_change_5d": 503.0,
+                "liquidity": 88644515.0,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "WEAK",
+                    "flags": [
+                      "delta_rps15_negative",
+                      "rps1_cold"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 24.9,
+                "reason": "细分方向代表",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "CORE",
+                "theme_rank": 3,
+                "position_level": "LOW",
+                "position_pct": -9.13,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "RECENT_BOTTOM",
+                "lane3_transition_state": "POST_TRANSITION",
+                "lane3_days_since_first_exit": 466.0,
+                "monitoring_source": "recommendation",
+                "reject_reason": ""
+              },
+              {
+                "code": "159796",
+                "name": "电池ETF汇添富",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "china_auto_global",
+                "rps15": 0.7,
+                "rps20": 6.6,
+                "rps60": 0.9,
+                "rps1": 14.5,
+                "delta_rps15": -60.2,
+                "return_5d": -6.8,
+                "return_20d": -4.9,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 0.7,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 45.9,
+                "reason_codes": [
+                  "below_trend_gate",
+                  "dedup_lost",
+                  "vehicle_eligible"
+                ],
+                "rank_change_5d": 897.0,
+                "liquidity": 143834431.0,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "WEAK",
+                    "flags": [
+                      "delta_rps15_negative",
+                      "rps1_cold"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "DEDUP_LOST",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 45.9,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "CORE",
+                "theme_rank": 3,
+                "position_level": "LOW",
+                "position_pct": -12.73,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "RECENT_BOTTOM",
+                "lane3_transition_state": "POST_TRANSITION",
+                "lane3_days_since_first_exit": 466.0,
+                "reject_reason": "同类方向已有代表入选",
+                "monitoring_source": "watchlist"
+              },
+              {
+                "code": "520600",
+                "name": "港股通汽车ETF广发",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "china_auto_global",
+                "rps15": 12.0,
+                "rps20": 1.9,
+                "rps1": 2.7,
+                "delta_rps15": -3.0,
+                "return_5d": -5.6,
+                "return_20d": -7.4,
+                "trend_status": "UNKNOWN",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 12.0,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 34.3,
+                "reason_codes": [
+                  "below_account",
+                  "below_trend_gate"
+                ],
+                "rank_change_5d": 44.0,
+                "liquidity": 110079200.0,
+                "tradable": false,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "UNKNOWN",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "NORMAL",
+                    "flags": [
+                      "delta_rps15_negative",
+                      "rps1_cold"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [
+                  "INSUFFICIENT_HISTORY"
+                ],
+                "selection_score": 34.3,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "NON_CORE",
+                "theme_rank": 4,
+                "position_level": "UNKNOWN",
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "reject_reason": "未达趋势门",
+                "monitoring_source": "watchlist"
+              },
+              {
+                "code": "159323",
+                "name": "港股通汽车ETF华夏",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "china_auto_global",
+                "rps15": 13.5,
+                "rps20": 2.2,
+                "rps60": 11.8,
+                "rps1": 4.5,
+                "delta_rps15": -2.8,
+                "return_5d": -5.7,
+                "return_20d": -7.3,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 13.5,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 23.7,
+                "reason_codes": [
+                  "below_trend_gate",
+                  "vehicle_eligible"
+                ],
+                "rank_change_5d": 40.0,
+                "liquidity": 86380956.0,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "NORMAL",
+                    "flags": [
+                      "delta_rps15_negative",
+                      "rps1_cold"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 23.7,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "NON_CORE",
+                "theme_rank": 6,
+                "position_level": "LOW",
+                "position_pct": -6.36,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": true,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "DEEP_BOTTOM",
+                "lane3_transition_state": "RETEST",
+                "lane3_days_since_first_exit": 21.0,
+                "reject_reason": "未达趋势门",
+                "monitoring_source": "watchlist"
+              },
+              {
+                "code": "159840",
+                "name": "锂电池ETF工银",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "china_auto_global",
+                "rps15": 4.6,
+                "rps20": 8.5,
+                "rps60": 10.8,
+                "rps1": 3.9,
+                "delta_rps15": -40.9,
+                "return_5d": -5.2,
+                "return_20d": -4.5,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 4.6,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 6.0,
+                "reason_codes": [
+                  "below_trend_gate",
+                  "vehicle_eligible"
+                ],
+                "rank_change_5d": 609.0,
+                "liquidity": 57413225.7,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "WEAK",
+                    "flags": [
+                      "delta_rps15_negative",
+                      "rps1_cold"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 6.0,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "NON_CORE",
+                "theme_rank": 7,
+                "position_level": "LOW",
+                "position_pct": -9.9,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "RECENT_BOTTOM",
+                "lane3_transition_state": "POST_TRANSITION",
+                "lane3_days_since_first_exit": 466.0,
+                "reject_reason": "未达趋势门",
+                "monitoring_source": "watchlist"
+              },
+              {
+                "code": "561910",
+                "name": "电池ETF招商",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "china_auto_global",
+                "rps15": 0.7,
+                "rps20": 7.2,
+                "rps60": 2.1,
+                "rps1": 10.7,
+                "delta_rps15": -59.0,
+                "return_5d": -6.5,
+                "return_20d": -4.7,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 0.7,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 2.3,
+                "reason_codes": [
+                  "below_trend_gate",
+                  "dedup_lost",
+                  "vehicle_eligible"
+                ],
+                "rank_change_5d": 880.0,
+                "liquidity": 52694096.0,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "WEAK",
+                    "flags": [
+                      "delta_rps15_negative",
+                      "rps1_cold"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "DEDUP_LOST",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 2.3,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "NON_CORE",
+                "theme_rank": 8,
+                "position_level": "LOW",
+                "position_pct": -12.53,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "RECENT_BOTTOM",
+                "lane3_transition_state": "POST_TRANSITION",
+                "lane3_days_since_first_exit": 466.0,
+                "reject_reason": "同类方向已有代表入选",
+                "monitoring_source": "watchlist"
+              },
+              {
+                "code": "520780",
+                "name": "港股通汽车ETF华宝",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "china_auto_global",
+                "rps15": 9.1,
+                "rps20": 1.9,
+                "rps1": 2.1,
+                "delta_rps15": -9.6,
+                "return_5d": -6.2,
+                "return_20d": -7.4,
+                "trend_status": "UNKNOWN",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 9.1,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 0.0,
+                "reason_codes": [
+                  "below_account",
+                  "low_liquidity",
+                  "below_trend_gate"
+                ],
+                "rank_change_5d": 143.0,
+                "liquidity": 13172696.0,
+                "tradable": false,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "UNKNOWN",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "WEAK",
+                    "flags": [
+                      "delta_rps15_negative",
+                      "rps1_cold"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "LOW_LIQUIDITY",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [
+                  "INSUFFICIENT_HISTORY"
+                ],
+                "selection_score": 0.0,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "NON_CORE",
+                "theme_rank": 9,
+                "position_level": "UNKNOWN",
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "reject_reason": "未达趋势门且流动性不足",
+                "monitoring_source": "watchlist"
+              }
+            ],
+            "monitoring": {
+              "leaders": [],
+              "high_beta": [],
+              "equipment": []
+            },
+            "strongest_etf": {
+              "code": "159755",
+              "name": "电池ETF广发",
+              "rps15": 3.4,
+              "return_5d": -5.3,
+              "return_20d": -4.6
+            },
+            "distance_to_industry_confirm": 0,
+            "distance_to_etf_strength": 76.6,
+            "structural_expression": "ETF_CORE_PLUS_LEADER",
+            "execution_expression": "ETF_CORE_PLUS_LEADER",
+            "expression_status": "NORMAL",
+            "fallback_reason": "",
+            "eligible_etf_count": 7,
+            "eligible_stock_count": 0,
+            "etf_pool_total": 55
+          }
+        ]
+      },
+      {
+        "bucket": "quality",
+        "bucket_label": "质量",
+        "objective": "高现金流防守",
+        "n_themes": 1,
+        "n_confirmed": 1,
+        "themes": [
+          {
+            "theme": "high_cashflow",
+            "theme_label": "高现金流资产",
+            "bucket": "quality",
+            "bucket_label": "质量",
+            "objective": "电力（火电/水电/核电）/ 三大运营商 / 公用事业（高速·公路·港口）",
+            "confirmed": true,
+            "today": {
+              "theme_state": "CONFIRMED",
+              "theme_state_label": "已确认",
+              "action": "OBSERVE",
+              "action_label": "观察",
+              "execution_action": "OBSERVE",
+              "execution_action_label": "观察",
+              "n_recommended_etf": 0,
+              "expression": "ETF_PRIORITY",
+              "expression_label": "优先 ETF（广泛上涨）",
+              "structural_expression": "ETF_PRIORITY",
+              "execution_expression": "ETF_PRIORITY",
+              "expression_status": "NORMAL",
+              "fallback_reason": "",
+              "eligible_etf_count": 5,
+              "eligible_stock_count": 0,
+              "etf_pool_total": 32,
+              "confirmation_state": "BROAD_CONFIRMED",
+              "confirmation_breadth": "广泛确认",
+              "stage": "已确认",
+              "summary": "已确认，5 只 ETF 达产品门但未达 BUY 信号（0 推荐），观察",
+              "top_action": {
+                "level": "OBSERVE",
+                "summary": "今日方向：观察 质量 · 高现金流资产（已确认，无 ETF 达 BUY 信号/无执行标的）"
+              }
+            },
+            "why": {
+              "confirmed": true,
+              "n_observe": 4,
+              "n_watch": 0,
+              "n_total": 5,
+              "n_strong": 4,
+              "observing_industries": [],
+              "median_participation": 0.91,
+              "median_hhi": 0.08,
+              "median_top3_share": 0.42,
+              "median_rps15": 78.3,
+              "strongest_industry_rps15": null,
+              "etf_median_rps15": 59.9,
+              "confirm_evidence": {
+                "industry": "",
+                "rps15": null
+              },
+              "confirmation_reason": "4/5 个 Tier 已确认（中位 Tier Strength 78.3）（Tier Gate）",
+              "expression_reason": "参与率≥60% 且结构分散，ETF 完整承接行业 Beta"
+            },
+            "recommendation": {
+              "expression": "ETF_PRIORITY",
+              "expression_label": "优先 ETF（广泛上涨）",
+              "expression_reason": "参与率≥60% 且结构分散，ETF 完整承接行业 Beta",
+              "etf": [],
+              "stocks": [],
+              "primary_etf": [
+                {
+                  "code": "159611",
+                  "name": "电力ETF广发",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "quality",
+                  "theme": "high_cashflow",
+                  "rps15": 55.7,
+                  "rps20": 18.7,
+                  "rps60": 19.9,
+                  "rps1": 94.7,
+                  "delta_rps15": 43.3,
+                  "return_5d": -0.3,
+                  "return_20d": -2.8,
+                  "trend_status": "BELOW_TREND_GATE",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 55.7,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 100.0,
+                  "reason_codes": [
+                    "theme_confirmed",
+                    "vehicle_eligible",
+                    "below_trend_gate",
+                    "liquidity_ok"
+                  ],
+                  "rank_change_5d": -650.0,
+                  "liquidity": 1244061384.6,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "WEAK",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "STRONG",
+                      "flags": [
+                        "delta_rps15_positive",
+                        "rps1_hot"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [],
+                  "selection_score": 100.0,
+                  "reason": "主题首选车辆（车辆适配度最高）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "LEADER",
+                  "theme_rank": 1,
+                  "position_level": "MID",
+                  "position_pct": -1.66,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": true,
+                  "lane2_long_term_bottom": false,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "NORMAL",
+                  "lane3_transition_state": "POST_TRANSITION"
+                }
+              ],
+              "primary_stock": []
+            },
+            "rationale": {
+              "etf": [],
+              "stocks": []
+            },
+            "watchlist": {
+              "etf": [
+                {
+                  "code": "561560",
+                  "name": "电力ETF华泰柏瑞",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "high_cashflow",
+                  "rps15": 57.1,
+                  "rps20": 19.2,
+                  "rps60": 19.0,
+                  "rps1": 95.5,
+                  "delta_rps15": 45.5,
+                  "return_5d": -0.2,
+                  "return_20d": -2.8,
+                  "trend_status": "BELOW_TREND_GATE",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 57.1,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 41.4,
+                  "reason_codes": [
+                    "below_trend_gate",
+                    "dedup_lost",
+                    "vehicle_eligible"
+                  ],
+                  "rank_change_5d": -683.0,
+                  "liquidity": 129760365.0,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "WEAK",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "STRONG",
+                      "flags": [
+                        "delta_rps15_positive",
+                        "rps1_hot"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "DEDUP_LOST",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [],
+                  "selection_score": 41.4,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "CORE",
+                  "theme_rank": 3,
+                  "position_level": "MID",
+                  "position_pct": -1.61,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": true,
+                  "lane2_long_term_bottom": false,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "NORMAL",
+                  "lane3_transition_state": "POST_TRANSITION",
+                  "reject_reason": "同类方向已有代表入选"
+                },
+                {
+                  "code": "159158",
+                  "name": "电力ETF景顺",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "high_cashflow",
+                  "rps15": 53.9,
+                  "rps20": 19.5,
+                  "rps60": 18.1,
+                  "rps1": 95.0,
+                  "delta_rps15": 41.5,
+                  "return_5d": -0.2,
+                  "return_20d": -2.7,
+                  "trend_status": "BELOW_TREND_GATE",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 53.9,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 0.1,
+                  "reason_codes": [
+                    "below_trend_gate",
+                    "dedup_lost",
+                    "vehicle_eligible"
+                  ],
+                  "rank_change_5d": -624.0,
+                  "liquidity": 50105674.3,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "WEAK",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "STRONG",
+                      "flags": [
+                        "delta_rps15_positive",
+                        "rps1_hot"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "DEDUP_LOST",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [],
+                  "selection_score": 0.1,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "NON_CORE",
+                  "theme_rank": 5,
+                  "position_level": "MID",
+                  "position_pct": -1.66,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": true,
+                  "lane2_long_term_bottom": false,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "NORMAL",
+                  "lane3_transition_state": "POST_TRANSITION",
+                  "reject_reason": "同类方向已有代表入选"
+                },
+                {
+                  "code": "560930",
+                  "name": "电力ETF易方达",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "high_cashflow",
+                  "rps15": 54.2,
+                  "rps20": 19.3,
+                  "rps60": 20.7,
+                  "rps1": 92.3,
+                  "delta_rps15": 41.1,
+                  "return_5d": -0.3,
+                  "return_20d": -2.8,
+                  "trend_status": "BELOW_TREND_GATE",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 54.2,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 0.0,
+                  "reason_codes": [
+                    "low_liquidity",
+                    "below_trend_gate"
+                  ],
+                  "rank_change_5d": -617.0,
+                  "liquidity": 23051022.0,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "WEAK",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "STRONG",
+                      "flags": [
+                        "delta_rps15_positive",
+                        "rps1_hot"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "LOW_LIQUIDITY",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [],
+                  "selection_score": 0.0,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "NON_CORE",
+                  "theme_rank": 6,
+                  "position_level": "MID",
+                  "position_pct": -1.58,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": true,
+                  "lane2_long_term_bottom": false,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "NORMAL",
+                  "lane3_transition_state": "POST_TRANSITION",
+                  "reject_reason": "未达趋势门且流动性不足"
+                },
+                {
+                  "code": "560580",
+                  "name": "电力ETF南方",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "high_cashflow",
+                  "rps15": 58.9,
+                  "rps20": 17.3,
+                  "rps60": 17.8,
+                  "rps1": 93.9,
+                  "delta_rps15": 47.9,
+                  "return_5d": -0.2,
+                  "return_20d": -2.9,
+                  "trend_status": "BELOW_TREND_GATE",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 58.9,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 0.0,
+                  "reason_codes": [
+                    "low_liquidity",
+                    "below_trend_gate"
+                  ],
+                  "rank_change_5d": -720.0,
+                  "liquidity": 38745046.0,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "WEAK",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "STRONG",
+                      "flags": [
+                        "delta_rps15_positive",
+                        "rps1_hot"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "WEAK",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "LOW_LIQUIDITY",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [],
+                  "selection_score": 0.0,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "NON_CORE",
+                  "theme_rank": 7,
+                  "position_level": "MID",
+                  "position_pct": -1.55,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": true,
+                  "lane2_long_term_bottom": false,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "NORMAL",
+                  "lane3_transition_state": "POST_TRANSITION",
+                  "reject_reason": "未达趋势门且流动性不足"
+                },
+                {
+                  "code": "560620",
+                  "name": "公用事业ETF万家",
+                  "role": "CORE_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "high_cashflow",
+                  "rps15": 73.7,
+                  "rps20": 27.7,
+                  "rps60": 30.4,
+                  "rps1": 97.5,
+                  "delta_rps15": 60.9,
+                  "return_5d": 0.5,
+                  "return_20d": -1.9,
+                  "trend_status": "WATCH",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 73.7,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 0.0,
+                  "reason_codes": [
+                    "low_liquidity",
+                    "below_trend_gate"
+                  ],
+                  "rank_change_5d": -914.0,
+                  "liquidity": 1012823.0,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "NORMAL",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "STRONG",
+                      "flags": [
+                        "delta_rps15_positive",
+                        "rps1_hot"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "NORMAL",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "BELOW_TREND_GATE",
+                    "LOW_LIQUIDITY",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [],
+                  "selection_score": 0.0,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "NON_CORE",
+                  "theme_rank": 8,
+                  "position_level": "MID",
+                  "position_pct": -0.24,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": true,
+                  "lane2_long_term_bottom": false,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "NORMAL",
+                  "lane3_transition_state": "POST_TRANSITION",
+                  "reject_reason": "未达趋势门且流动性不足"
+                },
+                {
+                  "code": "560690",
+                  "name": "电信ETF鹏华",
+                  "role": "SUB_INDUSTRY_ETF",
+                  "asset_type": "etf",
+                  "bucket": "",
+                  "theme": "high_cashflow",
+                  "rps15": 88.4,
+                  "rps20": 54.1,
+                  "rps60": 28.6,
+                  "rps1": 89.8,
+                  "delta_rps15": 65.8,
+                  "return_5d": 1.5,
+                  "return_20d": 0.8,
+                  "trend_status": "STRONG_WATCH",
+                  "trend_metric_name": "rps15",
+                  "trend_metric_value": 88.4,
+                  "metric_scope": "etf_cross_section",
+                  "strategy_score": 0.0,
+                  "reason_codes": [
+                    "low_liquidity"
+                  ],
+                  "rank_change_5d": -989.0,
+                  "liquidity": 1290726.0,
+                  "tradable": true,
+                  "recommended": false,
+                  "state": "WATCH",
+                  "data_status": "current",
+                  "selection_status": "available",
+                  "state_change": "",
+                  "days_in_state": 1,
+                  "last_trend_qualified_date": "",
+                  "risk_gate_passed": true,
+                  "risk_flags": [],
+                  "technical_diagnostics": {
+                    "trend": {
+                      "level": "STRONG",
+                      "flags": []
+                    },
+                    "momentum": {
+                      "level": "STRONG",
+                      "flags": [
+                        "delta_rps15_positive",
+                        "rps1_hot"
+                      ]
+                    },
+                    "relative_strength": {
+                      "level": "STRONG",
+                      "flags": []
+                    }
+                  },
+                  "blocking_flags": [
+                    "LOW_LIQUIDITY",
+                    "SIGNAL_WATCH"
+                  ],
+                  "data_quality_flags": [],
+                  "selection_score": 0.0,
+                  "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                  "tier": "",
+                  "tier_label": "",
+                  "participation": "tradeable",
+                  "evidence_stage": "",
+                  "revenue_evidence": "",
+                  "leadership_level": "NON_CORE",
+                  "theme_rank": 9,
+                  "position_level": "MID",
+                  "position_pct": -3.03,
+                  "position_lookback_days": 60,
+                  "signal": "WAIT",
+                  "lane2_reliable_360": true,
+                  "lane2_long_term_bottom": false,
+                  "lane2_target_stage": "NON_TARGET",
+                  "lane2_bottom_state": "NORMAL",
+                  "lane3_transition_state": "POST_TRANSITION",
+                  "reject_reason": "流动性不足"
+                }
+              ],
+              "stocks": []
+            },
+            "etf_monitoring": [
+              {
+                "code": "159611",
+                "name": "电力ETF广发",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "quality",
+                "theme": "high_cashflow",
+                "rps15": 55.7,
+                "rps20": 18.7,
+                "rps60": 19.9,
+                "rps1": 94.7,
+                "delta_rps15": 43.3,
+                "return_5d": -0.3,
+                "return_20d": -2.8,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 55.7,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 100.0,
+                "reason_codes": [
+                  "theme_confirmed",
+                  "vehicle_eligible",
+                  "below_trend_gate",
+                  "liquidity_ok"
+                ],
+                "rank_change_5d": -650.0,
+                "liquidity": 1244061384.6,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "STRONG",
+                    "flags": [
+                      "delta_rps15_positive",
+                      "rps1_hot"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 100.0,
+                "reason": "主题首选车辆（车辆适配度最高）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "LEADER",
+                "theme_rank": 1,
+                "position_level": "MID",
+                "position_pct": -1.66,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "NORMAL",
+                "lane3_transition_state": "POST_TRANSITION",
+                "monitoring_source": "recommendation",
+                "reject_reason": ""
+              },
+              {
+                "code": "562550",
+                "name": "绿电ETF华夏",
+                "role": "SUB_INDUSTRY_ETF",
+                "asset_type": "etf",
+                "bucket": "quality",
+                "theme": "high_cashflow",
+                "rps15": 63.5,
+                "rps20": 20.4,
+                "rps60": 20.0,
+                "rps1": 97.6,
+                "delta_rps15": 53.1,
+                "return_5d": 0.2,
+                "return_20d": -2.6,
+                "trend_status": "WATCH",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 63.5,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 44.7,
+                "reason_codes": [
+                  "theme_confirmed",
+                  "vehicle_eligible",
+                  "below_trend_gate",
+                  "liquidity_ok"
+                ],
+                "rank_change_5d": -798.0,
+                "liquidity": 139848406.0,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "NORMAL",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "STRONG",
+                    "flags": [
+                      "delta_rps15_positive",
+                      "rps1_hot"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "NORMAL",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 44.7,
+                "reason": "细分方向代表",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "CORE",
+                "theme_rank": 2,
+                "position_level": "MID",
+                "position_pct": -1.44,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "NORMAL",
+                "lane3_transition_state": "POST_TRANSITION",
+                "monitoring_source": "recommendation",
+                "reject_reason": ""
+              },
+              {
+                "code": "159625",
+                "name": "绿色电力ETF嘉实",
+                "role": "SUB_INDUSTRY_ETF",
+                "asset_type": "etf",
+                "bucket": "quality",
+                "theme": "high_cashflow",
+                "rps15": 60.7,
+                "rps20": 21.3,
+                "rps60": 22.0,
+                "rps1": 95.7,
+                "delta_rps15": 49.3,
+                "return_5d": 0.1,
+                "return_20d": -2.6,
+                "trend_status": "WATCH",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 60.7,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 2.8,
+                "reason_codes": [
+                  "theme_confirmed",
+                  "vehicle_eligible",
+                  "below_trend_gate",
+                  "liquidity_ok"
+                ],
+                "rank_change_5d": -740.0,
+                "liquidity": 53291290.9,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "NORMAL",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "STRONG",
+                    "flags": [
+                      "delta_rps15_positive",
+                      "rps1_hot"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "NORMAL",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 2.8,
+                "reason": "细分方向代表",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "CORE",
+                "theme_rank": 3,
+                "position_level": "MID",
+                "position_pct": -1.4,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "NORMAL",
+                "lane3_transition_state": "POST_TRANSITION",
+                "lane3_days_since_first_exit": 626.0,
+                "monitoring_source": "recommendation",
+                "reject_reason": ""
+              },
+              {
+                "code": "561560",
+                "name": "电力ETF华泰柏瑞",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "high_cashflow",
+                "rps15": 57.1,
+                "rps20": 19.2,
+                "rps60": 19.0,
+                "rps1": 95.5,
+                "delta_rps15": 45.5,
+                "return_5d": -0.2,
+                "return_20d": -2.8,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 57.1,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 41.4,
+                "reason_codes": [
+                  "below_trend_gate",
+                  "dedup_lost",
+                  "vehicle_eligible"
+                ],
+                "rank_change_5d": -683.0,
+                "liquidity": 129760365.0,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "STRONG",
+                    "flags": [
+                      "delta_rps15_positive",
+                      "rps1_hot"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "DEDUP_LOST",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 41.4,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "CORE",
+                "theme_rank": 3,
+                "position_level": "MID",
+                "position_pct": -1.61,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "NORMAL",
+                "lane3_transition_state": "POST_TRANSITION",
+                "reject_reason": "同类方向已有代表入选",
+                "monitoring_source": "watchlist"
+              },
+              {
+                "code": "159158",
+                "name": "电力ETF景顺",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "high_cashflow",
+                "rps15": 53.9,
+                "rps20": 19.5,
+                "rps60": 18.1,
+                "rps1": 95.0,
+                "delta_rps15": 41.5,
+                "return_5d": -0.2,
+                "return_20d": -2.7,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 53.9,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 0.1,
+                "reason_codes": [
+                  "below_trend_gate",
+                  "dedup_lost",
+                  "vehicle_eligible"
+                ],
+                "rank_change_5d": -624.0,
+                "liquidity": 50105674.3,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "STRONG",
+                    "flags": [
+                      "delta_rps15_positive",
+                      "rps1_hot"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "DEDUP_LOST",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 0.1,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "NON_CORE",
+                "theme_rank": 5,
+                "position_level": "MID",
+                "position_pct": -1.66,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "NORMAL",
+                "lane3_transition_state": "POST_TRANSITION",
+                "reject_reason": "同类方向已有代表入选",
+                "monitoring_source": "watchlist"
+              },
+              {
+                "code": "560930",
+                "name": "电力ETF易方达",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "high_cashflow",
+                "rps15": 54.2,
+                "rps20": 19.3,
+                "rps60": 20.7,
+                "rps1": 92.3,
+                "delta_rps15": 41.1,
+                "return_5d": -0.3,
+                "return_20d": -2.8,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 54.2,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 0.0,
+                "reason_codes": [
+                  "low_liquidity",
+                  "below_trend_gate"
+                ],
+                "rank_change_5d": -617.0,
+                "liquidity": 23051022.0,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "STRONG",
+                    "flags": [
+                      "delta_rps15_positive",
+                      "rps1_hot"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "LOW_LIQUIDITY",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 0.0,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "NON_CORE",
+                "theme_rank": 6,
+                "position_level": "MID",
+                "position_pct": -1.58,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "NORMAL",
+                "lane3_transition_state": "POST_TRANSITION",
+                "reject_reason": "未达趋势门且流动性不足",
+                "monitoring_source": "watchlist"
+              },
+              {
+                "code": "560580",
+                "name": "电力ETF南方",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "high_cashflow",
+                "rps15": 58.9,
+                "rps20": 17.3,
+                "rps60": 17.8,
+                "rps1": 93.9,
+                "delta_rps15": 47.9,
+                "return_5d": -0.2,
+                "return_20d": -2.9,
+                "trend_status": "BELOW_TREND_GATE",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 58.9,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 0.0,
+                "reason_codes": [
+                  "low_liquidity",
+                  "below_trend_gate"
+                ],
+                "rank_change_5d": -720.0,
+                "liquidity": 38745046.0,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "WEAK",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "STRONG",
+                    "flags": [
+                      "delta_rps15_positive",
+                      "rps1_hot"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "WEAK",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "LOW_LIQUIDITY",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 0.0,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "NON_CORE",
+                "theme_rank": 7,
+                "position_level": "MID",
+                "position_pct": -1.55,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "NORMAL",
+                "lane3_transition_state": "POST_TRANSITION",
+                "reject_reason": "未达趋势门且流动性不足",
+                "monitoring_source": "watchlist"
+              },
+              {
+                "code": "560620",
+                "name": "公用事业ETF万家",
+                "role": "CORE_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "high_cashflow",
+                "rps15": 73.7,
+                "rps20": 27.7,
+                "rps60": 30.4,
+                "rps1": 97.5,
+                "delta_rps15": 60.9,
+                "return_5d": 0.5,
+                "return_20d": -1.9,
+                "trend_status": "WATCH",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 73.7,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 0.0,
+                "reason_codes": [
+                  "low_liquidity",
+                  "below_trend_gate"
+                ],
+                "rank_change_5d": -914.0,
+                "liquidity": 1012823.0,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "NORMAL",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "STRONG",
+                    "flags": [
+                      "delta_rps15_positive",
+                      "rps1_hot"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "NORMAL",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "BELOW_TREND_GATE",
+                  "LOW_LIQUIDITY",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 0.0,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "NON_CORE",
+                "theme_rank": 8,
+                "position_level": "MID",
+                "position_pct": -0.24,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "NORMAL",
+                "lane3_transition_state": "POST_TRANSITION",
+                "reject_reason": "未达趋势门且流动性不足",
+                "monitoring_source": "watchlist"
+              },
+              {
+                "code": "560690",
+                "name": "电信ETF鹏华",
+                "role": "SUB_INDUSTRY_ETF",
+                "asset_type": "etf",
+                "bucket": "",
+                "theme": "high_cashflow",
+                "rps15": 88.4,
+                "rps20": 54.1,
+                "rps60": 28.6,
+                "rps1": 89.8,
+                "delta_rps15": 65.8,
+                "return_5d": 1.5,
+                "return_20d": 0.8,
+                "trend_status": "STRONG_WATCH",
+                "trend_metric_name": "rps15",
+                "trend_metric_value": 88.4,
+                "metric_scope": "etf_cross_section",
+                "strategy_score": 0.0,
+                "reason_codes": [
+                  "low_liquidity"
+                ],
+                "rank_change_5d": -989.0,
+                "liquidity": 1290726.0,
+                "tradable": true,
+                "recommended": false,
+                "state": "WATCH",
+                "data_status": "current",
+                "selection_status": "available",
+                "state_change": "",
+                "days_in_state": 1,
+                "last_trend_qualified_date": "",
+                "risk_gate_passed": true,
+                "risk_flags": [],
+                "technical_diagnostics": {
+                  "trend": {
+                    "level": "STRONG",
+                    "flags": []
+                  },
+                  "momentum": {
+                    "level": "STRONG",
+                    "flags": [
+                      "delta_rps15_positive",
+                      "rps1_hot"
+                    ]
+                  },
+                  "relative_strength": {
+                    "level": "STRONG",
+                    "flags": []
+                  }
+                },
+                "blocking_flags": [
+                  "LOW_LIQUIDITY",
+                  "SIGNAL_WATCH"
+                ],
+                "data_quality_flags": [],
+                "selection_score": 0.0,
+                "reason": "观察池 ETF（资格/时机原因见 reason_codes）",
+                "tier": "",
+                "tier_label": "",
+                "participation": "tradeable",
+                "evidence_stage": "",
+                "revenue_evidence": "",
+                "leadership_level": "NON_CORE",
+                "theme_rank": 9,
+                "position_level": "MID",
+                "position_pct": -3.03,
+                "position_lookback_days": 60,
+                "signal": "WAIT",
+                "lane2_reliable_360": true,
+                "lane2_long_term_bottom": false,
+                "lane2_target_stage": "NON_TARGET",
+                "lane2_bottom_state": "NORMAL",
+                "lane3_transition_state": "POST_TRANSITION",
+                "reject_reason": "流动性不足",
+                "monitoring_source": "watchlist"
+              }
+            ],
+            "monitoring": {
+              "leaders": [],
+              "high_beta": [],
+              "equipment": []
+            },
+            "strongest_etf": {
+              "code": "159611",
+              "name": "电力ETF广发",
+              "rps15": 55.7,
+              "return_5d": -0.3,
+              "return_20d": -2.8
+            },
+            "distance_to_industry_confirm": 0,
+            "distance_to_etf_strength": 24.3,
+            "structural_expression": "ETF_PRIORITY",
+            "execution_expression": "ETF_PRIORITY",
+            "expression_status": "NORMAL",
+            "fallback_reason": "",
+            "eligible_etf_count": 5,
+            "eligible_stock_count": 0,
+            "etf_pool_total": 32
+          }
+        ]
+      }
+    ]
+  },
+  "alignment": {
+    "selection_date": "20260902",
+    "alignment_status": "aligned",
+    "industry_lag_days": 0
+  },
+  "lane": {
+    "status": "aligned",
+    "trade_date": "20260902",
+    "lane_lag_days": 0,
+    "reason": ""
+  },
+  "scope": "etf_only",
+  "layers": {
+    "etf": {
+      "trade_date": "20260902",
+      "data_status": "confirmed"
+    },
+    "account_candidates": {
+      "trade_date": "20260902",
+      "data_status": "confirmed"
+    },
+    "sw_industry": {
+      "trade_date": "20260902",
+      "data_status": "provisional"
+    }
+  },
+  "config_issues": {
+    "cross_theme_assets": {
+      "601689": [
+        "ai_infrastructure",
+        "china_auto_global"
+      ],
+      "002050": [
+        "ai_infrastructure",
+        "china_auto_global"
+      ]
+    }
+  },
+  "degraded": "config_issues",
+  "coverage": {
+    "etf_reused": "18/18",
+    "stock_inputs_loaded": "55/55",
+    "selection_coverage": "73/73",
+    "selection_coverage_pct": 100.0,
+    "degraded_assets": [],
+    "stock_input_trade_date": "20260902",
+    "online_fetches": 0
+  }
+}

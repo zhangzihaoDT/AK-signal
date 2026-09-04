@@ -9,6 +9,12 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+import html as _html
+
+
+def _esc(v: Any) -> str:
+    return _html.escape("" if v is None else str(v))
+
 
 def _num(v: Any) -> str:
     if v is None:
@@ -183,7 +189,7 @@ def _etf_conclusion_text(row: dict[str, Any]) -> str:
         return "推荐"
     codes = [str(c) for c in (row.get("reason_codes") or [])]
     if "lane2_unreliable" in codes:
-        return "L2否决"
+        return "不可靠"
     signal = str(row.get("signal", "") or "")
     if signal == "HOLD":
         return "持有"
@@ -310,11 +316,18 @@ AUDIT_CATEGORY_CN = {
     "breakdown": "破位", "blocked": "阻塞", "qualified_unselected": "合格未选",
     "recommended": "推荐", "normal": "正常观察", "monitor_only": "仅监控",
     "dynamic_watch": "动态观察",
+    # v0.12.1 V2 ETF 分类（资格 → 载体 → 时机）
+    "eligible": "③A 合格", "vehicle": "③B 载体", "timing_ready": "③C 时机到",
+    "unreliably": "数据不可靠", "below_account": "不在账户",
+    "low_liquidity": "流动性不足", "below_trend": "③C 未达趋势", "dedup_lost": "③B 载体落选",
 }
 AUDIT_CATEGORY_TAG = {
     "breakdown": "tag-weak", "blocked": "tag-weak", "qualified_unselected": "tag-observe",
     "recommended": "tag-strong", "normal": "tag-none", "monitor_only": "tag-none",
     "dynamic_watch": "tag-none",
+    "eligible": "tag-observe", "vehicle": "tag-strong", "timing_ready": "tag-strong",
+    "unreliably": "tag-weak", "below_account": "tag-observe",
+    "low_liquidity": "tag-observe", "below_trend": "tag-none", "dedup_lost": "tag-none",
 }
 
 
@@ -406,9 +419,7 @@ def fmt_etf_audit_reason(row: dict[str, Any]) -> str:
         return "—"
     codes = [str(c) for c in (row.get("reason_codes") or [])]
     if "lane2_unreliable" in codes:
-        base = str(row.get("signal", "") or "")
-        prefix = f"基础 {base} 被否决" if base in ("STRONG_BUY", "BUY") else "被否决"
-        return f"{prefix} · L2 数据可靠性硬 gate（原基础信号 → 观察）"
+        return "数据不可靠（Lane2 折算污染/360D 失真）· ③A 资格门未过，不能作为表达车辆"
     if row.get("position_level") == "BREAKDOWN":
         pct = row.get("position_pct")
         pct_txt = "—" if pct is None else f"{float(pct):g}%"
@@ -493,7 +504,7 @@ def fmt_lane3_state(row: dict[str, Any]) -> str:
 
 
 def fmt_lane2_reliable(row: dict[str, Any]) -> str:
-    """Lane2 数据可靠性（Phase 2 起作硬 gate；此处仅展示）。缺 → —。"""
+    """Lane2 数据可靠性（v0.12 起前置 ③A Eligibility；此处仅展示）。缺 → —。"""
     v = row.get("lane2_reliable_360")
     if v is None:
         return "—"
@@ -503,22 +514,39 @@ def fmt_lane2_reliable(row: dict[str, Any]) -> str:
 
 
 def fmt_signal_chain(row: dict[str, Any]) -> str:
-    """决策链（R2，B1 修复）：基础信号(base) → Validation → 最终状态。
+    """决策链（v0.12.0 Selection V2）：signal 为 ③C timing 结果。
 
-    signal 恒为四段 base；只有发生 Policy veto（当前仅 lane2 可靠性硬 gate）时
-    显式展示「base → veto → final」，否则只显示 base（base==final 语义）。
+    recommended = theme_confirmed ∧ 趋势门 ∧ signal∈BUY；lane2 不可靠在 ③A 已挡在
+    车辆宇宙外（不会出现「先推荐再被 lane2 veto」），故 signal 即最终可读链。
     """
     sig = str(row.get("signal", "") or "")
     if not sig:
         return "—"
     codes = [str(c) for c in (row.get("reason_codes") or [])]
+    if "lane2_unreliable" in codes:
+        return f"{sig} · <span style='color:#C62828'>③A 不可靠，不作车辆</span>"
     if row.get("recommended"):
         return f"{sig} · 推荐"
-    if "lane2_unreliable" in codes:
-        st = str(row.get("state", "") or "")
-        final_cn = {"WATCH": "观察", "QUALIFIED": "合格", "RECOMMENDED": "推荐"}.get(st, st or "等待")
-        return f"<span style='color:#C62828'>{sig} → L2否决 → {final_cn}</span>"
     return sig
+
+
+# ── V2 IA formatters（v0.12.1） ────────────────────────────────────
+
+
+def fmt_confirmed_tag(row: dict[str, Any]) -> str:
+    """02 主题成立标签：已成立（strong）/ 未成立（none）。"""
+    val = str(row.get("confirmed_tag", "") or "")
+    if val == "confirmed":
+        return "<span class='tag tag-strong'>已成立</span>"
+    return "<span class='tag tag-none'>未成立</span>"
+
+
+def fmt_timing_exec(row: dict[str, Any]) -> str:
+    """05 ③C 今日执行：__exec__ ∈ {BUY, WATCH, WAIT, HOLD} → 彩色 tag。"""
+    exec_ = str(row.get("__exec__", "") or "")
+    label = {"BUY": "买入", "WATCH": "观察", "WAIT": "等待", "HOLD": "持有"}.get(exec_, exec_ or "—")
+    cls = {"BUY": "tag-strong", "WATCH": "tag-observe", "WAIT": "tag-none", "HOLD": "tag-none"}.get(exec_, "tag-none")
+    return f"<span class='tag {cls}'>{_esc(label)}</span>"
 
 
 # ── 注册表 ───────────────────────────────────────────────────────────
@@ -558,6 +586,8 @@ FORMATTERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "lane2_reliable": fmt_lane2_reliable,
     "signal_chain": fmt_signal_chain,
     "leadership": fmt_leadership,
+    "confirmed_tag": fmt_confirmed_tag,
+    "timing_exec": fmt_timing_exec,
 }
 
 HEADER_FORMATTERS: dict[str, Callable[[Any], str]] = {

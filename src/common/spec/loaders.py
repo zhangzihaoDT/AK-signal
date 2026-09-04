@@ -18,6 +18,7 @@ from .model import (
     AllocationSpec, AmountScoreSpec, EntrySpec, EtfSelectionSpec, ExecutionSpec,
     ExitSpec, HistoricalPositionSpec, IndicatorSpec, LaneValidationSpec, LeadershipSpec,
     PortfolioSpec, SignalPolicySpec, SignalRule, StockSelectionSpec, StrategySpec,
+    VehicleSpec,
 )
 
 
@@ -118,21 +119,24 @@ def load_indicator_spec() -> IndicatorSpec:
 
 @lru_cache(maxsize=None)
 def load_etf_selection_spec() -> EtfSelectionSpec:
-    """Layer③ ETF 候选策略（准入 + 排序权重 + amount_score 口径 + 四段）。"""
+    """Layer③ ETF 候选策略（③A 门槛 + ③B vehicle 适配度 + ③C 四段）。"""
     cfg = _read_yaml("strategy_spec.yaml")
     sch.validate_etf_selection(cfg)
     es = cfg["etf_selection"]
     trend = es["trend"]
-    amt = es["ranking"]["amount_score"]
+    veh = es["vehicle"]
+    amt = veh["amount_score"]
     lv = es.get("lane_validation") or {}
     return EtfSelectionSpec(
         allowed_trend_states=tuple(trend["allowed_trend_states"]),
         watch_allowed_trend_states=tuple(trend["watch_allowed_trend_states"]),
         min_amount=float(trend["min_amount"]),
-        ranking_weights={k: float(v) for k, v in es["ranking"]["weights"].items()},
-        amount_score=AmountScoreSpec(
-            method=str(amt["method"]), floor=float(amt["floor"]),
-            reference=float(amt["reference"]), cap=float(amt["cap"]),
+        vehicle=VehicleSpec(
+            weights={k: float(v) for k, v in (veh.get("weights") or {"amount": 1.0}).items()},
+            amount_score=AmountScoreSpec(
+                method=str(amt["method"]), floor=float(amt["floor"]),
+                reference=float(amt["reference"]), cap=float(amt["cap"]),
+            ),
         ),
         leadership=_parse_leadership(es.get("leadership") or {}),
         historical_position=_parse_historical_position(es.get("historical_position") or {}),

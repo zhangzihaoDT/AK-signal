@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-RULE_VERSION = "v0.11.1"
+RULE_VERSION = "v0.12.0"
 
 
 @dataclass(frozen=True)
@@ -51,6 +51,17 @@ class AmountScoreSpec:
     floor: float
     reference: float
     cap: float
+
+
+@dataclass(frozen=True)
+class VehicleSpec:
+    """③B Vehicle Selection（v0.12.0）— 车辆适配度（选车，去 timing）。
+
+    - weights: {"amount": ...}（amount = amount_score，rps15/rps20 不进选车分）
+    - amount_score：固定区间 log 评分口径（floor→0 / reference→cap / cap）
+    """
+    weights: dict[str, float]
+    amount_score: AmountScoreSpec
 
 
 @dataclass(frozen=True)
@@ -113,10 +124,9 @@ class SignalPolicySpec:
 class LaneValidationSpec:
     """Lane Validation（v0.11 Phase 2）—— Layer③ Decision 的验证 Policy。
 
-    - reliability_hard_gate_enabled：Lane2 数据可靠性 **硬 gate**。three_lane 明确
-      lane2_reliable_360=False（360D 价格不可信，如份额折算污染）→ 本可推荐的 ETF
-      强制不可推荐（recommended=False / state→WATCH / reason=lane2_unreliable）。
-      lane-less（无 lane 行 / None）不触发（只在有明确不可靠证据时拦）。
+    v0.12.0 Selection V2：L2 数据可靠性已前移至 ③A Eligibility（`_etf_eligible_pool`
+    直接把 lane2_reliable_360=False 剔出车辆宇宙），`reliability_hard_gate_enabled`
+    保留为向后兼容字段，不再做后置 veto（本字段不参与决策，仅文档/审计）。
     - Lane2 结构（repair-retest TARGET 等）= soft validation（仅标注/观察，不 gate）；
       Lane3 阶段 = 纯 context（不 gate）。二者不设 Policy 开关，进展示层。
     """
@@ -125,12 +135,17 @@ class LaneValidationSpec:
 
 @dataclass(frozen=True)
 class EtfSelectionSpec:
-    """Layer③ ETF 候选「准入—排序—输出」策略（Policy，v0.9.0 四段）。"""
+    """Layer③ ETF 候选策略（Policy，v0.12.0 Selection V2 三段）。
+
+    - allowed_trend_states / watch_allowed_trend_states：趋势态展示口径（③C Timing），不作资格门
+    - min_amount：③A Eligibility 流动性门
+    - vehicle：③B Vehicle Selection 车辆适配度（去 timing）
+    - leadership / historical_position / signal：③C Timing（与个股共用词汇）
+    """
     allowed_trend_states: tuple[str, ...]
     watch_allowed_trend_states: tuple[str, ...]
     min_amount: float
-    ranking_weights: dict[str, float]           # {"rps15": 0.55, "rps20": 0.25, "amount_score": 0.20}
-    amount_score: AmountScoreSpec
+    vehicle: VehicleSpec
     leadership: LeadershipSpec = field(default_factory=LeadershipSpec)
     historical_position: HistoricalPositionSpec = field(default_factory=HistoricalPositionSpec)
     lane_validation: LaneValidationSpec = field(default_factory=LaneValidationSpec)

@@ -63,16 +63,10 @@ def _num(v: Any) -> float | None:
 
 def _theme_core_etf(rotation_df: pd.DataFrame, account_df: pd.DataFrame,
                     master_df: pd.DataFrame, theme: str) -> dict[str, Any]:
-    """主题核心 ETF：按生产三级降级（严格门 → watch 门 → 不过滤）+ 评分 top1。"""
-    etf_pool = sel_module.select_etf_candidates(rotation_df, account_df, master_df, theme,
-                                                trend_gates=sel_module.ETF_TREND_GATES)
+    """主题核心车辆（v0.12.0 Selection V2 语义）：③A eligible（账户/流动性，lane-less）
+    → ③B 方向 dedup → vehicle_score（amount）top1。不再做趋势门三级降级。"""
+    etf_pool = sel_module.select_etf_candidates(rotation_df, account_df, master_df, theme)
     dedup = sel_module._dedup_etf(etf_pool)
-    if dedup.empty:
-        dedup = sel_module._dedup_etf(sel_module.select_etf_candidates(
-            rotation_df, account_df, master_df, theme, trend_gates=sel_module.ETF_WATCH_GATES))
-    if dedup.empty:
-        dedup = sel_module._dedup_etf(sel_module.select_etf_candidates(
-            rotation_df, account_df, master_df, theme, trend_gates=None))
     if dedup.empty:
         return {"code": "", "name": "", "rps15": None, "trend_status": ""}
     top = dedup.sort_values("selection_score", ascending=False).iloc[0]

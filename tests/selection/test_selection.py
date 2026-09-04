@@ -118,12 +118,13 @@ class TestExpressionDecision:
 
 class TestEtfSelection:
     def test_trend_and_liquidity_gate(self):
+        """v0.12.0 Selection V2：③A 资格不含趋势门——WATCH/STRONG_WATCH/… 都进车辆宇宙。"""
         etf = selection.select_etf_candidates(_sample_rotation(), _sample_account(), _sample_master(), "ai_infrastructure")
         assert not etf.empty
-        # 515880 WATCH 被过滤
-        assert "515880" not in etf["fund_code"].tolist()
-        # 512480/159819/588000 通过（BUY_CANDIDATE/STRONG_WATCH）
-        assert set(etf["fund_code"]).issubset({"512480", "159819", "588000"})
+        # 主题关键词命中 ∩ 账户内 ∩ 流动性 ≥ min：512480/159819/515880/588000 全在（趋势不作资格）
+        assert set(etf["fund_code"]) == {"512480", "159819", "515880", "588000"}
+        # ③B vehicle 适配度列存在（amount 权重），rps 不再驱动排序
+        assert "selection_score" in etf.columns
 
     def test_theme_keyword_matching(self):
         # 电力/电信/公用事业 → high_cashflow；军工/煤炭/券商 已移出两方向
@@ -182,6 +183,97 @@ class TestEtfSelection:
         # 两个半导体ETF 去重后只留评分最高一只
         semis = dedup[dedup["fund_name"].str.contains("半导体")]
         assert len(semis) <= 1
+
+
+class TestSelectionV2:
+    """v0.12.0 Selection V2：③A Eligibility → ③B Vehicle → ③C Timing。"""
+
+    def _build(self, rows, *, reliable_map, conf="强势", trend="BUY_CANDIDATE",
+               lane2_bottom="NORMAL", account_tradable=True):
+        rot = pd.DataFrame([
+            {**r, "return_5d": r.get("return_5d", 1.0), "return_20d": r.get("return_20d", 3.0),
+             "rank_change_5d": r.get("rank_change_5d", 5.0)} for r in rows])
+        acct = pd.DataFrame({"fund_code": rot["fund_code"], "trend_state": trend,
+                             "account_tradable": account_tradable})
+        master = pd.DataFrame({"fund_code": rot["fund_code"], "amount": 5e8})
+        lane = pd.DataFrame({
+            "fund_code": rot["fund_code"],
+            "lane2_reliable_360": [reliable_map.get(c, True) for c in rot["fund_code"]],
+            "lane2_long_term_bottom": False, "lane2_bottom_state": lane2_bottom,
+            "lane2_target_stage": "NON_TARGET", "lane3_transition_state": "POST_TRANSITION"})
+        conf = pd.DataFrame({"industry_code": ["801102.SI"], "industry_name": ["通信设备"],
+                             "RPS15": [92.0], "strength_level": [conf],
+                             "participation_rate": [None], "hhi": [None], "top3_share": [None]})
+        return selection.build_candidates(
+            rotation_df=rot, account_df=acct, master_df=master, confirmation_df=conf,
+            universe_items=[], trend_df=pd.DataFrame(), tier_confirmation_df=pd.DataFrame(),
+            trade_date="20260902", lane_df=lane, include_stocks=False)
+
+    def _ai(self, cands):
+        for b in cands["buckets"]:
+            for t in b["themes"]:
+                if t["theme"] == "ai_infrastructure":
+                    return t
+        raise AssertionError("ai theme missing")
+
+    def test_v2a_unreliable_cannot_take_direction_slot(self):
+        """③A 前置：unreliable 高分 ETF 不进车辆宇宙 → 可靠次分成为方向代表（dedup bug 修复）。"""
+        c = self._build(
+            [{"fund_code": "515880", "fund_name": "通信ETF国泰", "rps15": 90.0, "rps20": 80.0,
+              "rps60": 50.0},
+             {"fund_code": "515050", "fund_name": "通信ETF华夏", "rps15": 85.0, "rps20": 75.0,
+              "rps60": 45.0}],
+            reliable_map={"515880": False, "515050": True})
+        ai = self._ai(c)
+        vehicle_codes = [a["code"] for a in ai["core_etf"] + ai["sub_industry_etf"]]
+        assert "515880" not in vehicle_codes   # unreliable 不得占方向代表位
+        assert "515050" in vehicle_codes
+        # 观察池仍展示 unreliable（原因 lane2_unreliable），不丢事实
+        pool = {e["code"]: e for e in ai["etf_pool"]}
+        assert "lane2_unreliable" in pool["515880"]["reason_codes"]
+
+    def test_v2a_all_unreliable_no_vehicle(self):
+        """全方向 unreliable → 无车辆（core/sub 空），观察池仍列原因。"""
+        c = self._build(
+            [{"fund_code": "515880", "fund_name": "通信ETF国泰", "rps15": 90.0, "rps20": 80.0,
+              "rps60": 50.0}],
+            reliable_map={"515880": False})
+        ai = self._ai(c)
+        assert ai["core_etf"] == [] and ai["sub_industry_etf"] == []
+        pool = {e["code"]: e for e in ai["etf_pool"]}
+        assert "lane2_unreliable" in pool["515880"]["reason_codes"]
+
+    def test_v2b_vehicle_score_not_driven_by_rps(self):
+        """③B：车辆分 = amount（去 timing）——rps15 高低不影响同 amount 的选车顺序。"""
+        c1 = self._build([{"fund_code": "515880", "fund_name": "通信ETF国泰", "rps15": 90.0,
+                           "rps20": 80.0, "rps60": 50.0}], reliable_map={})
+        c2 = self._build([{"fund_code": "515880", "fund_name": "通信ETF国泰", "rps15": 10.0,
+                           "rps20": 5.0, "rps60": 3.0}], reliable_map={})
+        v1 = self._ai(c1)["core_etf"][0]
+        v2 = self._ai(c2)["core_etf"][0]
+        assert v1["selection_score"] == v2["selection_score"]
+        assert v1["code"] == v2["code"] == "515880"
+
+    def test_v2c_recommended_requires_theme_confirmed(self):
+        """③C：theme 未确认时 vehicle 不推荐（修「未确认主题仍 recommended=True」缺陷）。"""
+        c = self._build([{"fund_code": "515880", "fund_name": "通信ETF国泰", "rps15": 90.0,
+                          "rps20": 80.0, "rps60": 50.0}],
+                        reliable_map={}, conf="弱势")
+        ai = self._ai(c)
+        assert ai["confirmed"] is False
+        assert ai["core_etf"][0]["recommended"] is False
+        assert "theme_not_confirmed" in ai["core_etf"][0]["reason_codes"]
+
+    def test_v2c_vehicle_still_selected_when_not_trending(self):
+        """③B 车辆身份不随当日趋势消失：below-gate 车辆仍可选为工具，timing=WAIT。"""
+        c = self._build([{"fund_code": "515880", "fund_name": "通信ETF国泰", "rps15": 30.0,
+                          "rps20": 20.0, "rps60": 10.0}],
+                        reliable_map={}, trend="OUT_OF_SCOPE")
+        ai = self._ai(c)
+        veh = ai["core_etf"][0]
+        assert veh["code"] == "515880"
+        assert "below_trend_gate" in veh["reason_codes"]
+        assert veh["recommended"] is False
 
 
 class TestBuildCandidates:
@@ -360,38 +452,12 @@ class TestEtfOnlyOutput:
         assert called, "include_stocks=True 应调用个股观察池（research/parity 保留）"
 
 
-class TestLaneReliabilityGate:
-    """Phase 2：Lane2 数据可靠性硬 gate（lane2_reliable_360=False → 本可推荐强制不可推荐）。"""
+class TestLaneReliabilityDisplay:
+    """v0.12.0 Selection V2：lane2 不可靠已在 ③A 资格层排除（不再后置 veto）。
 
-    def _cand(self, reliable, recommended=True, reason=""):
-        return selection.AssetCandidate(
-            code="159583", name="通信ETF富国", role="CORE_ETF", asset_type="etf",
-            bucket="core", theme="ai_infrastructure",
-            lane2_reliable_360=reliable,
-            recommended=recommended,
-            state=selection.STOCK_STATE_RECOMMENDED if recommended else selection.STOCK_STATE_WATCH,
-            reason_codes=["theme_confirmed", "trend_gate_passed", "liquidity_ok"],
-            reason=reason,
-        )
-
-    def test_unreliable_blocks_recommendation(self):
-        cand = self._cand(reliable=False, reason="主题评分最高")
-        selection._apply_lane_reliability_gate(cand)
-        assert cand.recommended is False
-        assert cand.state == selection.STOCK_STATE_WATCH
-        assert "lane2_unreliable" in cand.reason_codes
-        assert "数据不可靠" in (cand.reason or "")
-
-    def test_reliable_true_keeps_recommendation(self):
-        cand = self._cand(reliable=True)
-        selection._apply_lane_reliability_gate(cand)
-        assert cand.recommended is True
-        assert "lane2_unreliable" not in cand.reason_codes
-
-    def test_lane_less_keeps_recommendation(self):
-        cand = self._cand(reliable=None)
-        selection._apply_lane_reliability_gate(cand)
-        assert cand.recommended is True  # lane-less 不触发（缺证据不放行也不拦）
+    展示层（audit/conclusion/signal_chain）把 lane2_unreliable 渲染为「③A 不可靠，
+    不作车辆」而非「先推荐再 L2 否决」。
+    """
 
     def test_reject_reason_surfaces_lane_gate(self):
         from src.selection.recommendation import _etf_reject_reason
@@ -404,16 +470,17 @@ class TestLaneReliabilityGate:
                "trend_status": "STRONG_WATCH", "recommended": False,
                "reason_codes": ["theme_confirmed", "trend_gate_passed", "lane2_unreliable"],
                "monitoring_source": "recommendation", "state": "WATCH", "signal": "BUY"}
-        assert _etf_audit_category(row) == "blocked"
+        # v0.12.1 V2：lane2 不可靠归「unreliably」（③A 资格层），非旧「blocked」物料阻塞
+        assert _etf_audit_category(row) == "unreliably"
 
-    def test_audit_text_lane_veto_chain(self):
+    def test_audit_text_lane_eligibility(self):
         from src.selection.report_formatters import (
             _etf_conclusion_text, fmt_etf_audit_reason, fmt_signal_chain)
         row = {"recommended": False, "signal": "BUY", "state": "WATCH",
                "reason_codes": ["trend_gate_passed", "lane2_unreliable"]}
-        assert _etf_conclusion_text(row) == "L2否决"
-        assert "L2 数据可靠性硬 gate" in fmt_etf_audit_reason(row)
-        assert "BUY → L2否决" in fmt_signal_chain(row)
+        assert _etf_conclusion_text(row) == "不可靠"
+        assert "③A 资格门未过" in fmt_etf_audit_reason(row)
+        assert "③A 不可靠" in fmt_signal_chain(row)
 
 
 def _top_theme(theme, confirmed=True, rec_codes=(), eligible=4, expr="ETF_PRIORITY"):
@@ -529,7 +596,7 @@ class TestAmountScore:
     def test_fixed_threshold_absolute(self):
         from src.common.spec.loaders import load_etf_selection_spec
         from src.selection.selection import _amount_score
-        amt = load_etf_selection_spec().amount_score
+        amt = load_etf_selection_spec().vehicle.amount_score
         assert _amount_score(50_000_000, amt) == 0.0          # floor → 0
         assert _amount_score(500_000_000, amt) == 100.0       # reference → cap
         assert _amount_score(5_000_000_000, amt) == 100.0     # 超过 → cap
@@ -556,13 +623,15 @@ class TestEtfMinAmountConfig:
     def test_etf_min_amount_single_source(self, monkeypatch):
         """_etf_min_amount() 每次从 spec loader 读取（函数内 import，monkeypatch 生效）。"""
         from src.common.spec import loaders
-        from src.common.spec.model import AmountScoreSpec, EtfSelectionSpec
+        from src.common.spec.model import AmountScoreSpec, EtfSelectionSpec, VehicleSpec
         fake = EtfSelectionSpec(
             allowed_trend_states=("BUY_CANDIDATE", "STRONG_WATCH"),
             watch_allowed_trend_states=("BUY_CANDIDATE", "STRONG_WATCH", "WATCH"),
             min_amount=123_000_000,
-            ranking_weights={"rps15": 0.55, "rps20": 0.25, "amount_score": 0.20},
-            amount_score=AmountScoreSpec(method="log_threshold", floor=5e7, reference=5e8, cap=100.0),
+            vehicle=VehicleSpec(
+                weights={"amount": 1.0},
+                amount_score=AmountScoreSpec(method="log_threshold", floor=5e7, reference=5e8, cap=100.0),
+            ),
         )
         monkeypatch.setattr(loaders, "load_etf_selection_spec", lambda: fake)
         assert selection._etf_min_amount() == 123_000_000
@@ -572,7 +641,7 @@ class TestEtfMinAmountConfig:
         pool = selection.theme_etf_pool(_sample_rotation(), _sample_account(), _sample_master(),
                                         "ai_infrastructure")
         by_code = {c.code: c for c in pool}
-        assert "liquidity_ok" in by_code["512480"].reason_codes
+        assert "low_liquidity" not in by_code["512480"].reason_codes
         monkeypatch.setattr(selection, "ETF_MIN_AMOUNT", 9e8)
         pool2 = selection.theme_etf_pool(_sample_rotation(), _sample_account(), _sample_master(),
                                          "ai_infrastructure")

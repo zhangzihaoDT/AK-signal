@@ -78,7 +78,7 @@ etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipe
 |---|---|---|
 | ① ETF 轮动 | `outputs/etf_signal/etf_rotation_{date}.html` | ①大类资产往哪里动 ②趋势活跃 ETF ③我的主题 ETF（④ 三 Lane 路径视图，仅当 three_lane 与报告日对齐时注入） |
 | ② 行业轮动 | `outputs/sw_industry_rps/sw_industry_rps_{date}.html`（CONFIRMED 同步 `_latest.html`；provisional 只落 `_{date}_provisional.html`） | ①产业方向Top ②行业/阶段表 ③每主题 Tier+判断+申万证据 |
-| ③ 今日投资建议 | `outputs/selection/tradable_candidates_{date}.html` | 01 今日结论→02 主题状态→03 为什么→04 怎么表达→05 风险与变化→06 决策审计 |
+| ③ 今日投资建议 | `outputs/selection/tradable_candidates_{date}.html` | 01 今日结论→02 Theme Confirmation→03 ③A Eligibility→04 ③B 表达载体→05 ③C Timing→06 Why Now→07 Next Trigger→08 决策审计 |
 | Lane2 全市场扫描 | `outputs/research/etf_bottom/scan_{date}.html` | Layer A Market Bottom Map · B Repair-Retest Scanner · C Historical Odds · 口径与限定 |
 | Opportunity Radar | `outputs/opportunity_radar/opportunity_radar_{date}.html` | 01 今日 Radar · 02 Candidate Directions（方向级+成员折叠）· 02b Market Beta 单列 · 03 Possible Mapping Gaps · 04 Audit/Rejected |
 | 三 Lane 合成 | `outputs/etf_signal/three_lane_{date}.{csv,parquet}` | ETF｜Lane2 底部/target｜Lane3 迁移｜离开底部天数｜Lane1 趋势 |
@@ -118,6 +118,15 @@ etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipe
    ETF State Fusion（three_lane）以 exact 日期对齐消费，缺失 → lane-less 不 gate。
    Validation：**L2 数据可靠性=硬 gate**（`lane2_reliable_360=False` → 不可推荐，
    reason=lane2_unreliable）；L2 结构=soft；L3 阶段=纯 context（不 gate）。`RULE_VERSION`=v0.11.0。
+   **Layer③ ETF Selection V2（v0.12.0，Eligibility/Vehicle/Timing）**：ETF 表达路径重写为三段——
+   ③A Eligibility（`_etf_eligible_pool`：theme + 账户可交易 + 流动性 + **lane2 可靠性前置** + rps15；
+   趋势不作资格）→ ③B Vehicle Selection（`_dedup_etf` 在 eligible 内按 **vehicle_score=amount 适配度**
+   取方向代表；rps 不进选车）→ ③C Timing（`_to_etf_candidate`：recommended = theme_confirmed ∧
+   trend_gate ∧ signal∈BUY）。`selection_score` 语义收敛为车辆适配度；`eligible_etf_count`=③A 通过数。
+   观察池 reason_codes：vehicle_eligible / lane2_unreliable / below_trend_gate / low_liquidity /
+   dedup_lost（仅 eligible 内）。修两个缺陷：① lane2 后置 veto 拖累同方向可靠次名（dedup bug，
+   可靠性前置 ③A 后结构消除）；② 未确认主题仍 recommended=True（③C 显式 AND theme_confirmed）。
+   `RULE_VERSION`=v0.12.0。
 7. **ETF 技术详情证据栈（Evidence Stack，v0.11）**：单只 ETF 的可审计「技术详情 · 底层证据」由
    三块产物聚合而成，但**不是无冗余的最小集，也不是仅此三块才完整**：
 

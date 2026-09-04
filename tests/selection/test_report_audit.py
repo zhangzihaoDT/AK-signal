@@ -1,4 +1,4 @@
-"""Layer③ 06 决策审计（Decision Audit）测试：分类器 / 摘要 / audit_reason / theme_role。"""
+"""Layer③ 08 决策审计（Decision Audit）测试：V2 分类器 / 摘要 / audit_reason / theme_role。"""
 
 from __future__ import annotations
 
@@ -9,15 +9,15 @@ from src.selection.report_viewmodel import _audit_category, _etf_audit_category,
 from src.selection.report_spec import load_report_spec
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "report"
+FIX_DATE = "20260902"
 
 
 def _vm(sort: str = "", etf_sort: str = ""):
-    d = json.loads((FIXTURES / "selection_20260827.json").read_text(encoding="utf-8"))
+    d = json.loads((FIXTURES / f"selection_{FIX_DATE}.json").read_text(encoding="utf-8"))
     spec = load_report_spec()
     return build_view_model(
         d["layer3"], {}, d["date"],
         display_priority=spec.display_priority,
-        execution_labels=spec.execution_labels,
         audit_summary_spec=[(s.id, s.label) for s in spec.audit["stock_matrix"].summary],
         audit_sort=sort,
         audit_etf_summary_spec=[(s.id, s.label) for s in spec.audit["etf_matrix"].summary],
@@ -26,7 +26,6 @@ def _vm(sort: str = "", etf_sort: str = ""):
 
 class TestAuditCategory:
     def test_priority_breakdown_beats_monitor_only(self):
-        """monitor-only 且破位 → 归 breakdown（provenance 不覆盖风险状态）。"""
         assert _audit_category({"position_level": "BREAKDOWN", "participation": "monitor_only"}) == "breakdown"
 
     def test_breakdown_beats_blocked(self):
@@ -51,6 +50,87 @@ class TestAuditCategory:
     def test_rows_carry_asset_key(self):
         vm = _vm()
         assert all(r.get("_asset_key") for r in vm.audit_stock)
+
+
+class TestEtfAuditCategoryV2:
+    """v0.12.1 V2 分类：资格 → 载体 → 时机（reason_codes 语义）。"""
+
+    def test_breakdown_yields_to_eligibility(self):
+        """V2：③A 资格是最上游门控，lane2_unreliable 优先于 BREAKDOWN。"""
+        assert _etf_audit_category({"position_level": "BREAKDOWN", "reason_codes": ["lane2_unreliable"]}) == "unreliably"
+
+    def test_breakdown_still_categorized_when_no_eligibility_block(self):
+        """V2：无 ③A 阻塞时，BREAKDOWN 仍正常归 breakdown。"""
+        assert _etf_audit_category({"position_level": "BREAKDOWN", "reason_codes": [], "trend_status": "WATCH"}) == "breakdown"
+
+    def test_lane2_unreliable_is_eligible_block(self):
+        # ③A 数据不可靠（lane2 前置资格层，非后置 veto）
+        assert _etf_audit_category({"reason_codes": ["below_trend_gate", "lane2_unreliable"]}) == "unreliably"
+
+    def test_below_account_is_eligibility_block(self):
+        assert _etf_audit_category({"reason_codes": ["below_account", "below_trend_gate"]}) == "below_account"
+
+    def test_low_liquidity_is_eligibility_block(self):
+        assert _etf_audit_category({"reason_codes": ["low_liquidity"]}) == "low_liquidity"
+
+    def test_position_high_material_block(self):
+        assert _etf_audit_category({"position_level": "HIGH", "blocking_flags": ["POSITION_HIGH"]}) == "blocked"
+
+    def test_recommended_is_timing_ready(self):
+        assert _etf_audit_category({"recommended": True, "monitoring_source": "recommendation"}) == "timing_ready"
+
+    def test_recommendation_source_is_vehicle(self):
+        assert _etf_audit_category({"recommended": False, "monitoring_source": "recommendation",
+                                    "reason_codes": ["vehicle_eligible", "below_trend_gate"]}) == "vehicle"
+
+    def test_eligible_but_unselected(self):
+        assert _etf_audit_category({"recommended": False, "monitoring_source": "watchlist",
+                                    "reason_codes": ["vehicle_eligible"]}) == "eligible"
+
+    def test_dedup_lost_is_vehicle_lost(self):
+        assert _etf_audit_category({"recommended": False, "monitoring_source": "watchlist",
+                                    "reason_codes": ["vehicle_eligible", "dedup_lost"]}) == "dedup_lost"
+
+    def test_below_trend_gate_is_timing_not_qual(self):
+        assert _etf_audit_category({"recommended": False, "monitoring_source": "watchlist",
+                                    "reason_codes": ["below_trend_gate"]}) == "below_trend"
+
+    def test_summary_counts_sum(self):
+        vm = _vm(etf_sort="anomaly_first")
+        assert sum(n for _, _, n in vm.audit_etf_summary) == len(vm.audit_etf)
+
+    def test_summary_maps_one_to_one_to_rows(self):
+        from collections import Counter
+        vm = _vm(etf_sort="anomaly_first")
+        rows = Counter(r["_audit_category"] for r in vm.audit_etf)
+        for cid, _, n in vm.audit_etf_summary:
+            assert rows.get(cid, 0) == n, f"ETF {cid}: summary={n} rows={rows.get(cid, 0)}"
+
+    def test_etf_anomaly_first_sort(self):
+        vm = _vm(etf_sort="anomaly_first")
+        rank = {"breakdown": 0, "blocked": 1, "unreliably": 1, "low_liquidity": 2,
+                "below_account": 2, "qualified_unselected": 2, "eligible": 3,
+                "vehicle": 4, "dedup_lost": 4, "timing_ready": 5, "recommended": 5,
+                "below_trend": 6, "normal": 6, "monitor_only": 7, "dynamic_watch": 8}
+        ranks = [rank[r["_audit_category"]] for r in vm.audit_etf]
+        assert ranks == sorted(ranks)
+
+
+class TestEtfFormatters:
+    def test_etf_theme_role(self):
+        from src.selection.report_formatters import fmt_etf_theme_role
+        assert fmt_etf_theme_role({"_theme_label": "高现金流资产", "role": "CORE_ETF",
+                                   "monitoring_source": "recommendation"}) == "高现金流资产 · 核心ETF"
+        assert fmt_etf_theme_role({"_theme_label": "AI 基础设施", "role": "CORE_ETF",
+                                   "monitoring_source": "watchlist"}) == "AI 基础设施 · 动态观察"
+
+    def test_etf_audit_reason(self):
+        from src.selection.report_formatters import fmt_etf_audit_reason
+        assert fmt_etf_audit_reason({"recommended": True}) == "—"
+        assert "中期破位" in fmt_etf_audit_reason({"position_level": "BREAKDOWN", "position_pct": -39.2})
+        assert "成交额不足" == fmt_etf_audit_reason({"blocking_flags": ["LOW_LIQUIDITY"]})
+        assert "未达趋势门" in fmt_etf_audit_reason({"blocking_flags": ["BELOW_TREND_GATE"], "rps15": 22.0})
+        assert "动态观察" in fmt_etf_audit_reason({"monitoring_source": "watchlist"})
 
 
 class TestAuditReason:
@@ -78,106 +158,3 @@ class TestThemeRole:
         from src.selection.report_formatters import fmt_theme_role
         assert fmt_theme_role({"_theme_label": "高现金流资产", "role": "LEADER"}) == "高现金流资产 · 龙头"
         assert fmt_theme_role({"_theme_label": "AI 基础设施", "role": "UPSTREAM"}) == "AI 基础设施 · 设备与上游"
-
-
-class TestAnomalyFirstSort:
-    _RANK = {"breakdown": 0, "blocked": 1, "qualified_unselected": 2,
-             "recommended": 3, "normal": 4, "monitor_only": 5}
-
-    def test_anomaly_first_orders_categories(self):
-        vm = _vm(sort="anomaly_first")
-        ranks = [self._RANK[r["_audit_category"]] for r in vm.audit_stock]
-        assert ranks == sorted(ranks)
-
-    def test_unsorted_differs_from_sorted(self):
-        """sort='' 保持主题×tier 原始顺序；anomaly_first 会重排分类序列。"""
-        unsorted_ranks = [self._RANK[r["_audit_category"]] for r in _vm(sort="").audit_stock]
-        sorted_ranks = [self._RANK[r["_audit_category"]] for r in _vm(sort="anomaly_first").audit_stock]
-        assert sorted_ranks != unsorted_ranks
-        assert sorted_ranks == sorted(sorted_ranks)
-
-    def test_within_category_sorted_by_trend_desc(self):
-        vm = _vm(sort="anomaly_first")
-        breakdown = [r for r in vm.audit_stock if r["_audit_category"] == "breakdown"]
-        scores = [r.get("score_trend") for r in breakdown]
-        assert scores == sorted(scores, reverse=True)
-
-
-class TestEtfAuditCategory:
-    _RANK = {"breakdown": 0, "blocked": 1, "qualified_unselected": 2,
-             "recommended": 3, "normal": 4, "monitor_only": 5, "dynamic_watch": 6}
-
-    def test_breakdown_first(self):
-        assert _etf_audit_category({"position_level": "BREAKDOWN",
-                                    "blocking_flags": ["LOW_LIQUIDITY"]}) == "breakdown"
-
-    def test_pure_below_gate_not_blocked(self):
-        """纯 BELOW_TREND_GATE（常态门控）不算物料阻塞。"""
-        assert _etf_audit_category({"trend_status": "BELOW_TREND_GATE",
-                                    "blocking_flags": ["BELOW_TREND_GATE"]}) == "dynamic_watch"
-
-    def test_material_block(self):
-        assert _etf_audit_category({"trend_status": "BELOW_TREND_GATE",
-                                    "blocking_flags": ["LOW_LIQUIDITY"]}) == "blocked"
-        assert _etf_audit_category({"trend_status": "STRONG_WATCH",
-                                    "blocking_flags": ["DEDUP_LOST", "POSITION_HIGH"]}) == "blocked"
-
-    def test_dedup_not_material_goes_qualified(self):
-        """DEDUP_LOST 不属物料阻塞；趋势达标的去重 ETF → 合格未选。"""
-        assert _etf_audit_category({"trend_status": "WATCH", "recommended": False,
-                                    "blocking_flags": ["DEDUP_LOST", "SIGNAL_WATCH"]}) == "qualified_unselected"
-
-    def test_in_gate_not_recommended_qualified(self):
-        assert _etf_audit_category({"trend_status": "STRONG_WATCH", "recommended": False,
-                                    "blocking_flags": []}) == "qualified_unselected"
-
-    def test_normal_vs_dynamic(self):
-        assert _etf_audit_category({"trend_status": "BELOW_TREND_GATE", "recommended": False,
-                                    "monitoring_source": "recommendation", "blocking_flags": []}) == "normal"
-        assert _etf_audit_category({"trend_status": "BELOW_TREND_GATE", "recommended": False,
-                                    "monitoring_source": "watchlist", "blocking_flags": []}) == "dynamic_watch"
-
-    def test_summary_counts_sum(self):
-        vm = _vm(etf_sort="anomaly_first")
-        assert sum(n for _, _, n in vm.audit_etf_summary) == len(vm.audit_etf)
-
-    def test_summary_maps_one_to_one_to_rows(self):
-        """摘要计数 ↔ 列表行一一对应：每个分类的计数必须等于带该分类标记的行数。"""
-        from collections import Counter
-        vm = _vm(etf_sort="anomaly_first")
-        rows = Counter(r["_audit_category"] for r in vm.audit_etf)
-        for cid, _, n in vm.audit_etf_summary:
-            assert rows.get(cid, 0) == n, f"ETF {cid}: summary={n} rows={rows.get(cid,0)}"
-        vm2 = _vm(sort="anomaly_first")
-        srows = Counter(r["_audit_category"] for r in vm2.audit_stock)
-        for cid, _, n in vm2.audit_summary:
-            assert srows.get(cid, 0) == n, f"stock {cid}: summary={n} rows={srows.get(cid,0)}"
-
-    def test_etf_anomaly_first_sort(self):
-        vm = _vm(etf_sort="anomaly_first")
-        ranks = [self._RANK[r["_audit_category"]] for r in vm.audit_etf]
-        assert ranks == sorted(ranks)
-
-    def test_product_availability(self):
-        vm = _vm()
-        by_label = {label: (e0, tot) for label, e0, tot in vm.etf_product_availability}
-        assert by_label["高现金流资产"] == (0, 32)   # 0/32 可交易 ⚠
-
-
-class TestEtfFormatters:
-    def test_etf_theme_role(self):
-        from src.selection.report_formatters import fmt_etf_theme_role
-        assert fmt_etf_theme_role({"_theme_label": "高现金流资产", "role": "CORE_ETF",
-                                   "monitoring_source": "recommendation"}) == "高现金流资产 · 核心ETF"
-        assert fmt_etf_theme_role({"_theme_label": "AI 基础设施", "role": "CORE_ETF",
-                                   "monitoring_source": "watchlist"}) == "AI 基础设施 · 动态观察"
-
-    def test_etf_audit_reason(self):
-        from src.selection.report_formatters import fmt_etf_audit_reason
-        assert fmt_etf_audit_reason({"recommended": True}) == "—"
-        assert "中期破位" in fmt_etf_audit_reason({"position_level": "BREAKDOWN", "position_pct": -39.2})
-        assert "成交额不足" == fmt_etf_audit_reason({"blocking_flags": ["LOW_LIQUIDITY"]})
-        assert "同主题有更优产品" == fmt_etf_audit_reason({"blocking_flags": ["DEDUP_LOST"]})
-        assert "未达趋势门" in fmt_etf_audit_reason({"blocking_flags": ["BELOW_TREND_GATE"], "rps15": 22.0})
-        assert "第 3" in fmt_etf_audit_reason({"state": "RECOMMENDED", "recommended": False, "theme_rank": 3})
-        assert "动态观察" in fmt_etf_audit_reason({"monitoring_source": "watchlist"})

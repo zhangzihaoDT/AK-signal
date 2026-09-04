@@ -1,10 +1,10 @@
-"""Layer③ 报告解释器（Report Engine, v2）。
+"""Layer③ 报告解释器（Report Engine, v2 → v0.12.1 IA）。
 
 流程：Report Spec（report_spec.yaml）+ recommendation JSON + ReportViewModel → HTML。
 Spec 管结构（sections/columns/expand/include），本模块管「怎么渲染」：
   - 通用渲染器：table / verdict / chip / section / details
-  - 6 段 renderer：decision_summary / theme_matrix / theme_narrative /
-    execution_cards / change_log / audit
+  - 8 段 renderer：decision_summary / theme_confirmation / eligibility / vehicle /
+    timing / why_now / next_trigger / audit
 HTML 是 Spec 的生成结果；本模块不制造决策事实。
 """
 
@@ -143,126 +143,144 @@ def _render_executive(spec: ReportSpec, vm: ReportViewModel) -> str:
     return _section(vm.meta.get("title", "01 今日结论"), "\n".join(body))
 
 
-# ── 02 主题状态 ──────────────────────────────────────────────────────
+# ── 02 Theme Confirmation ──────────────────────────────────────────
 
-def _render_theme_matrix(spec: ReportSpec, vm: ReportViewModel) -> str:
+def _render_theme_confirmation(spec: ReportSpec, vm: ReportViewModel) -> str:
     rows = []
     for t in vm.themes:
+        confirmed = t.confirmed
         rows.append({
             "theme_label": t.theme_label,
-            "display_state": t.display_state,
+            "confirmed_tag": "confirmed" if confirmed else "unconfirmed",
+            "breadth": t.theme_obj.get("today", {}).get("confirmation_breadth", ""),
+            "confirm_reason": t.theme_obj.get("why", {}).get("confirmation_reason", ""),
             "action": t.action,
-            "primary": t.primary,
-            "change": t.change,
         })
-    return _section(spec.section("theme_matrix").title, _render_table(spec.theme_matrix_columns, rows))
+    if not rows:
+        return _section(spec.section("theme_confirmation").title, "<div class='empty'>无主题</div>")
+    return _section(spec.section("theme_confirmation").title, _render_table(spec.theme_confirmation_columns, rows))
 
 
-# ── 03 为什么（叙事） ────────────────────────────────────────────────
+# ── 03 ③A Eligibility ────────────────────────────────────────────────
 
-def _render_narratives(spec: ReportSpec, vm: ReportViewModel) -> str:
-    if not vm.narratives:
-        return _section(spec.section("narratives").title,
-                        "<div class='empty'>今日无需要额外解释的异常（正常状态已压缩）。</div>")
+def _render_eligibility(spec: ReportSpec, vm: ReportViewModel) -> str:
+    rows = []
+    for pnl in vm.panels:
+        groups = pnl.eligibility_groups
+        eligible = groups.get("vehicle_eligible", 0)
+        rows.append({
+            "theme_label": pnl.theme_label,
+            "eligible": pnl.eligible_count,
+            "pool": pnl.pool_total,
+            "gate_note": "③A 合格 = 账户可交易 ∧ 流动性 ∧ Lane2 可靠；趋势态不是资格（vehicle 身份不随涨跌变）",
+            "lanes_note": "Lane2 不可靠已从 ③A 剔除（如需明细看 08）",
+        })
+    if not rows:
+        return _section(spec.section("eligibility").title, "<div class='empty'>无主题</div>")
+    return _section(spec.section("eligibility").title, _render_table(spec.eligibility_columns, rows))
+
+
+# ── 04 ③B 表达载体 ──────────────────────────────────────────────────
+
+def _render_vehicle(spec: ReportSpec, vm: ReportViewModel) -> str:
     blocks = []
-    for n in vm.narratives:
-        body = [f"<h3 style='font-size:14px;color:var(--zh-blue)'>{_esc(n.title)}</h3>",
-                f"<div class='insight'>{_esc(n.argument)}</div>"]
-        if n.evidence:
-            body.append("<table><tbody>" + "".join(
-                f"<tr><th style='width:180px'>{_esc(k)}</th><td>{_esc(v)}</td></tr>"
-                for k, v in n.evidence) + "</tbody></table>")
-        blocks.append("<div class='card'>" + "\n".join(body) + "</div>")
-    return _section(spec.section("narratives").title, "\n".join(blocks))
-
-
-# ── 04 怎么表达 ──────────────────────────────────────────────────────
-
-def _execution_line(a: dict[str, Any], label: str) -> str:
-    signal = str(a.get("signal", "") or "")
-    lead = FORMATTERS["leadership"](a)
-    pos = str(a.get("position_level", "") or "")
-    meta = " · ".join(x for x in (signal, lead, pos) if x)
-    reason = str(a.get("reason", "") or a.get("reject_reason", "") or "")
-    if a.get("recommended"):
-        reason_txt = f"<span class='meta'> · {_esc(reason)}</span>" if reason else ""
-    else:
-        reason_txt = f"<span class='reject'> — {_esc(reason)}</span>" if reason else ""
-    return (f"<div class='line'><b>{_esc(label)}：</b>"
-            f"<b>{_esc(a.get('name', ''))}</b> <span class='meta'>{_esc(a.get('code', ''))} · {_esc(meta)}</span>"
-            f"{reason_txt}</div>")
-
-
-def _render_execution(spec: ReportSpec, vm: ReportViewModel) -> str:
-    blocks = []
-    for card in vm.execution:
-        lines = []
-        if card.note:
-            lines.append(f"<div class='insight' style='margin:4px 0'>{_esc(card.note)}</div>")
-        if card.primary:
-            for a in card.primary:
-                lines.append(_execution_line(a, spec.execution_labels.get("primary", "首选")))
-        elif card.display_state != "watch":
-            lines.append("<div class='empty'>— 无合格标的</div>")
-        if card.mode == "expanded":
-            if card.alternatives:
-                lines.append(f"<div class='line' style='margin-top:6px'><b>{_esc(spec.execution_labels.get('alternative', '备选'))}：</b></div>")
-                for a in card.alternatives[:4]:
-                    lines.append(_execution_line(a, "·"))
-            if card.not_consider:
-                lines.append(f"<div class='line' style='margin-top:6px'><b>{_esc(spec.execution_labels.get('not_consider', '不做什么'))}：</b></div>")
-                for a in card.not_consider[:6]:
-                    reject = str(a.get("reject_reason", "") or "")
-                    lines.append(
-                        f"<div class='line'><span class='meta'>{_esc(a.get('name', ''))}</span>"
-                        f"<span class='reject'>× {_esc(reject)}</span></div>")
+    for pnl in vm.panels:
+        vehs = pnl.vehicles
+        if not vehs:
+            blocks.append(
+                f"<div class='card'><h3>{_esc(pnl.theme_label)}"
+                f" <span class='tag {_state_tag(_state(pnl.confirmed))}'>{_esc('已成立' if pnl.confirmed else '未成立')}</span></h3>"
+                f"<div class='empty'>无 ③A 合格表达载体（数据不可靠/流动性不足/不在账户）</div></div>")
+            continue
+        rows = []
+        for v in vehs:
+            rows.append({
+                "name": v.get("name", ""),
+                "code": v.get("code", ""),
+                "role_label": {"CORE_ETF": "核心载体", "SUB_INDUSTRY_ETF": "细分载体"}.get(str(v.get("role", "")), str(v.get("role", ""))),
+                "selection_score": v.get("selection_score"),
+                "carrier_reason": v.get("reason", ""),
+            })
         blocks.append(
-            f"<div class='card'><h3>{_esc(card.theme_label)}"
-            f" <span class='tag {_state_tag(card.display_state)}'>{_esc(_state_label(card.display_state))}</span></h3>"
-            + "\n".join(lines) + "</div>")
-    return _section(spec.section("execution").title, "\n".join(blocks) if blocks else "<div class='empty'>—</div>")
+            f"<div class='card'><h3>{_esc(pnl.theme_label)}"
+            f" <span class='tag tag-strong'>{_esc(pnl.action_label)}</span></h3>"
+            + _render_table(spec.vehicle_columns, rows) + "</div>")
+    title = spec.section("vehicle").title
+    return _section(title, "\n".join(blocks) if blocks else "<div class='empty'>—</div>")
+
+
+# ── 05 ③C Timing（今日执行） ────────────────────────────────────────
+
+def _render_timing(spec: ReportSpec, vm: ReportViewModel) -> str:
+    blocks = []
+    for pnl in vm.panels:
+        rows = pnl.timing_rows
+        if not rows:
+            blocks.append(
+                f"<div class='card'><h3>{_esc(pnl.theme_label)}</h3>"
+                f"<div class='empty'>无载体 → 无 ③C 执行判定</div></div>")
+            continue
+        blocks.append(
+            f"<div class='card'><h3>{_esc(pnl.theme_label)}"
+            f" <span class='tag {ACTION_TAG.get(str(pnl.action_label), 'tag-none')}'>{_esc(pnl.action_label)}</span></h3>"
+            + _render_table(spec.timing_columns, rows) + "</div>")
+    return _section(spec.section("timing").title,
+                    "\n".join(blocks) if blocks else "<div class='empty'>—</div>")
+
+
+# ── 06 Why Now / 07 Next Trigger ─────────────────────────────────────
+
+def _render_why_now(spec: ReportSpec, vm: ReportViewModel) -> str:
+    sec = spec.section("why_now")
+    if not vm.panels:
+        return _section(sec.title, "<div class='empty'>—</div>")
+    blocks = []
+    for pnl in vm.panels:
+        blocks.append(
+            f"<div class='card'><h3>{_esc(pnl.theme_label)}</h3>"
+            f"<div class='insight'>{_esc(pnl.why_text)}</div></div>")
+    return _section(sec.title, "\n".join(blocks))
+
+
+def _render_next_trigger(spec: ReportSpec, vm: ReportViewModel) -> str:
+    sec = spec.section("next_trigger")
+    if not vm.panels:
+        return _section(sec.title, "<div class='empty'>—</div>")
+    blocks = []
+    for pnl in vm.panels:
+        if not pnl.triggers:
+            continue
+        items = "".join(f"<li>{_esc(x)}</li>" for x in pnl.triggers)
+        blocks.append(
+            f"<div class='card'><h3>{_esc(pnl.theme_label)}</h3>"
+            f"<ul class='change-list'>{items}</ul></div>")
+    body = "\n".join(blocks) if blocks else "<div class='empty'>今日结果已定格：无可改变 Policy 结果的条件需要展示。</div>"
+    return _section(sec.title, body)
+
+
+# ── helpers ──────────────────────────────────────────────────────────
+
+def _state(confirmed: bool) -> str:
+    return "normal" if confirmed else "watch"
 
 
 def _state_tag(ds: str) -> str:
-    return {"degraded": "tag-weak", "changed": "tag-observe", "actionable": "tag-strong",
-            "watch": "tag-none", "normal": "tag-strong"}.get(ds, "tag-none")
+    return {"normal": "tag-strong", "watch": "tag-none"}.get(ds, "tag-none")
 
 
-def _state_label(ds: str) -> str:
-    return {"degraded": "已确认 · 降级", "changed": "已确认 · 有变化", "actionable": "已确认",
-            "watch": "观察", "normal": "已确认"}.get(ds, ds)
-
-
-# ── 05 风险与变化 ────────────────────────────────────────────────────
-
-def _render_changes(spec: ReportSpec, vm: ReportViewModel) -> str:
-    if not vm.changes:
-        return _section(spec.section("changes").title, "<div class='empty'>今日无显著变化。</div>")
-    status_txt = {"OK": "对比上一交易日", "NO_PREV": "无上一份报告（首次/缺历史），仅日内变化",
-                  "UNAVAILABLE": "上一份报告不可用，跳过跨日对比",
-                  "VERSION_MISMATCH": "上一份报告跨版本，跳过结构对比"}.get(vm.comparison_status, "")
-    body = [f"<div class='subtitle' style='margin-bottom:6px'>{_esc(status_txt)}</div>",
-            "<ul class='change-list'>"]
-    for c in vm.changes:
-        body.append(
-            f"<li><span class='tag {SEVERITY_TAG.get(c.severity, 'tag-none')}'>{_esc(c.severity)}</span> "
-            f"<b>{_esc(c.theme_label)}</b> · {_esc(c.text)}"
-            f"<span class='who'> · {_esc(c.kind)}</span></li>")
-    body.append("</ul>")
-    return _section(spec.section("changes").title, "\n".join(body))
-
-
-# ── 06 决策审计 ──────────────────────────────────────────────────────
+# ── 08 决策审计 ──────────────────────────────────────────────────────
 
 _AUDIT_SUMMARY_CLS = {
-    "breakdown": "tag-weak", "blocked": "tag-weak",
-    "qualified_unselected": "tag-observe", "recommended": "tag-strong",
+    "breakdown": "tag-weak", "blocked": "tag-weak", "unreliably": "tag-weak",
+    "low_liquidity": "tag-observe", "below_account": "tag-observe",
+    "qualified_unselected": "tag-observe", "eligible": "tag-observe",
+    "recommended": "tag-strong", "timing_ready": "tag-strong", "vehicle": "tag-strong",
+    "below_trend": "tag-none", "dedup_lost": "tag-none",
     "normal": "tag-none", "monitor_only": "tag-none", "dynamic_watch": "tag-none",
 }
 
 
 def _render_audit_summary(vm: ReportViewModel, *, etf: bool = False) -> str:
-    """审计摘要（debug index）：先告诉有什么异常，再定位具体资产。"""
     summary = vm.audit_etf_summary if etf else vm.audit_summary
     rows = vm.audit_etf if etf else vm.audit_stock
     if not summary:
@@ -275,27 +293,11 @@ def _render_audit_summary(vm: ReportViewModel, *, etf: bool = False) -> str:
     return f"<div class='insight' style='margin:0 0 12px'><b>{prefix} · {len(rows)} 只</b>　" + " ".join(chips) + "</div>"
 
 
-def _render_etf_product_availability(vm: ReportViewModel) -> str:
-    """主题产品可用性：每个主题有没有可交易 ETF 产品（读 theme 既有 eligible/etf_pool 事实）。"""
-    if not vm.etf_product_availability:
-        return ""
-    lines = []
-    for label, e0, tot in vm.etf_product_availability:
-        if tot <= 0:
-            continue
-        warn = " ⚠" if e0 == 0 else ""
-        lines.append(f"<span>{_esc(label)} <b>{e0}/{tot}</b> 可交易{warn}</span>")
-    if not lines:
-        return ""
-    return f"<div class='calibre' style='margin:0 0 12px'><b>主题产品可用性</b>　" + "　".join(lines) + "</div>"
-
-
 def _render_audit(spec: ReportSpec, vm: ReportViewModel) -> str:
     sec = spec.section("audit")
     parts = [_section(sec.title, f"<div class='calibre'>{_esc(vm.audit_calibre)}</div>", sec.subtitle)]
     stock_tab = spec.audit["stock_matrix"]
     etf_tab = spec.audit["etf_matrix"]
-    # v0.11 Phase 1：Layer③ ETF-only 时无个股行 → 不渲染个股矩阵区块
     if vm.audit_stock:
         parts.append(f"<h3 style='color:var(--zh-blue);margin:18px 0 6px'>{_esc(stock_tab.title)}</h3>")
         parts.append(_render_audit_summary(vm))
@@ -306,7 +308,8 @@ def _render_audit(spec: ReportSpec, vm: ReportViewModel) -> str:
                          + "</div></details>")
     parts.append(f"<h3 style='color:var(--zh-blue);margin:18px 0 6px'>{_esc(etf_tab.title)}</h3>")
     parts.append(_render_audit_summary(vm, etf=True))
-    parts.append(_render_etf_product_availability(vm))
+    if vm.audit_etf_note:
+        parts.append(f"<div class='calibre' style='margin:0 0 10px;color:#8a5a1d'>{_esc(vm.audit_etf_note)}</div>")
     parts.append(_render_table(etf_tab.columns, vm.audit_etf))
     if etf_tab.detail_columns:
         parts.append("<details><summary>ETF 技术详情（全字段 · 底层证据）</summary>"
@@ -317,10 +320,12 @@ def _render_audit(spec: ReportSpec, vm: ReportViewModel) -> str:
 
 RENDERERS = {
     "decision_summary": _render_executive,
-    "theme_matrix": _render_theme_matrix,
-    "theme_narrative": _render_narratives,
-    "execution_cards": _render_execution,
-    "change_log": _render_changes,
+    "theme_confirmation": _render_theme_confirmation,
+    "eligibility": _render_eligibility,
+    "vehicle": _render_vehicle,
+    "timing": _render_timing,
+    "why_now": _render_why_now,
+    "next_trigger": _render_next_trigger,
     "audit": _render_audit,
 }
 
@@ -374,9 +379,7 @@ def render_selection_html_v2(
     vm = build_view_model(
         recommendation, meta or {}, date_str,
         display_priority=spec.display_priority,
-        execution_labels=spec.execution_labels,
         prev=prev,
-        narratives_spec=spec.narratives,
         audit_summary_spec=[(s.id, s.label) for s in spec.audit["stock_matrix"].summary],
         audit_sort=spec.audit["stock_matrix"].sort,
         audit_etf_summary_spec=[(s.id, s.label) for s in spec.audit["etf_matrix"].summary],

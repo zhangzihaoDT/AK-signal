@@ -180,23 +180,26 @@ def _validate_signal_policy(node: dict[str, Any], prefix: str) -> None:
 
 
 def validate_etf_selection(cfg: dict[str, Any]) -> None:
-    """Layer③ ETF 候选策略校验（准入/排序权重/amount_score 口径/四段）。"""
+    """Layer③ ETF 候选策略校验（③A 门槛 / ③B vehicle 适配度 / ③C 四段）。"""
     es = _require(cfg, "etf_selection", "must define etf_selection policy")
     trend = _require(es, "trend", "etf_selection.trend required")
     states = trend.get("allowed_trend_states")
     if not isinstance(states, list) or not states:
         raise SpecValidationError("etf_selection.trend.allowed_trend_states required")
     _num_in_range(trend.get("min_amount"), 0, 1e15, "etf_selection.trend.min_amount")
-    weights = _require(es, "ranking.weights", "ranking weights required")
-    w = float(weights.get("rps15", 0)) + float(weights.get("rps20", 0)) + float(weights.get("amount_score", 0))
-    if abs(w - 1.0) > 1e-6:
-        raise SpecValidationError(f"etf_selection ranking weights must sum to 1, got {w}")
-    amt = _require(es, "ranking.amount_score", "amount_score spec required")
+    # ③B vehicle：weights（amount）+ amount_score log 口径
+    veh = _require(es, "vehicle", "etf_selection.vehicle required (v0.12.0 Selection V2)")
+    vw = _require(veh, "weights", "etf_selection.vehicle.weights required")
+    for key in vw:
+        if key not in ("amount", "fixed_pool"):
+            raise SpecValidationError(f"etf_selection.vehicle.weights unsupported key: {key!r}")
+    _num_in_range(vw.get("amount", 0), 0, 1e6, "etf_selection.vehicle.weights.amount")
+    amt = _require(veh, "amount_score", "etf_selection.vehicle.amount_score required")
     if amt.get("method", "") != "log_threshold":
-        raise SpecValidationError(f"etf_selection.amount_score.method unsupported: {amt.get('method')!r}")
-    _num_in_range(amt.get("floor"), 0, 1e15, "etf_selection.amount_score.floor")
-    _num_in_range(amt.get("reference"), 0, 1e15, "etf_selection.amount_score.reference")
-    _num_in_range(amt.get("cap"), 0, 1e6, "etf_selection.amount_score.cap")
+        raise SpecValidationError(f"etf_selection.vehicle.amount_score.method unsupported: {amt.get('method')!r}")
+    _num_in_range(amt.get("floor"), 0, 1e15, "etf_selection.vehicle.amount_score.floor")
+    _num_in_range(amt.get("reference"), 0, 1e15, "etf_selection.vehicle.amount_score.reference")
+    _num_in_range(amt.get("cap"), 0, 1e6, "etf_selection.vehicle.amount_score.cap")
     _validate_leadership(es.get("leadership") or {}, "etf_selection.leadership")
     _validate_historical_position(es.get("historical_position") or {}, "etf_selection.historical_position")
 

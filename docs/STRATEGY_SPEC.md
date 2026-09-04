@@ -88,15 +88,15 @@ Schema 校验（`src/common/spec/schema.py`）在**运行开始阶段**失败：
 | `etf_signal/rotation.py` RPS_WINDOWS | (15,20,60) | A | ✅ | indicators.rps |
 | `selection/selection.py` ETF_TREND_GATES | {BUY_CANDIDATE, STRONG_WATCH} | A | ✅ | strategies.etf_selection.allowed_trend_states |
 | `selection/selection.py` ETF_MIN_AMOUNT | 5e7 | A | ✅ | strategies.etf_selection.min_amount |
-| `selection/selection.py` selection_score 权重 | 0.55/0.25/0.20 | A | ✅ | strategies.etf_selection.ranking.weights |
-| `selection/selection.py` amount_score 口径 | 候选集合 log 归一化 | A | ✅ | strategies.etf_selection.ranking.amount_score（log_threshold 固定区间） |
+| `selection/selection.py` selection_score 权重（旧排序） | 0.55/0.25/0.20 | A | ✅(v0.12 废弃) | v0.12.0 起改 `strategies.etf_selection.vehicle.weights`（amount） |
+| `selection/selection.py` amount_score 口径 | 固定区间 log（floor/ref/cap） | A | ✅ | strategies.etf_selection.vehicle.amount_score |
 | `selection/selection.py` STOCK_QUALIFIED_SCORE | 70 | A | ✅ | strategies.stock_selection.qualified_score |
 | `selection/selection.py` 个股 S/A 准入 | {"S","A"} | A | ✅ | strategies.stock_selection.allowed_trend_states |
 | `selection/selection.py` 主题门控（观察/强势） | {观察,强势} | A | ✅ | strategies.stock_selection.theme_confirm_states |
 | `sw_industry_rps/confirmation.py` 90/80/60 | 90/80/60 | A | ✅ | indicators.confirmation |
 | `backtest` entry rps15_min / fee / slippage | 80 / 5bp / 5bp | A | ✅ | strategies.entry / execution.yaml |
 | `portfolio` max_positions / max_weight / deploy | 5 / 0.2 / 1.0 | A | ✅ | portfolio.yaml |
-| ETF 候选 amount_score 固定区间口径 | floor 5000万 / ref 5亿 / cap 100 | A | ✅ | strategies.etf_selection.ranking.amount_score |
+| ETF 候选 amount_score 固定区间口径 | floor 5000万 / ref 5亿 / cap 100 | A | ✅ | strategies.etf_selection.vehicle.amount_score |
 | RPS 百分位/趋势分计算 | — | B | 留代码 | — |
 | next_open / unfilled / as-of / no_pyramiding | — | C | 留代码+测试 | — |
 | report.py 90/80/70 展示阈值 | 90/80/70 | D | 不纳入 | — |
@@ -112,6 +112,33 @@ Schema 校验（`src/common/spec/schema.py`）在**运行开始阶段**失败：
 - **WATCH / UNCONFIRMED**：主题不开放，仅输出观察候选。
 
 「确认」的状态集合是 Policy（`stock_selection.theme_confirm_states`，可调如只认「强势」）；生成 `strength_level` 的阈值是 Observation（`indicators.confirmation.observe_threshold`），两者分离。
+
+## 7.2 Layer③ ETF Selection V2（Eligibility / Vehicle / Timing，v0.12.0）
+
+ETF 表达路径不再「从主题里找最强 ETF → 看能不能买」，改为三段职责（`selection.py`）：
+
+- **③A Eligibility — 资格**：哪些 ETF 可靠可用进入车辆宇宙（`_etf_eligible_pool`）。
+  条件 = theme 归属（keyword+exclude）∧ 账户内可交易 ∧ 流动性 ≥ `etf_selection.trend.min_amount`
+  ∧ **数据可靠（`lane2_reliable_360 is not False`，lane-less 放行）** ∧ rps15 有效。
+  **趋势态不是资格**——vehicle 身份不随当日涨跌而变。
+- **③B Vehicle Selection — 选车**：同一表达方向（方向词）在 **eligible 内**选代表（`_dedup_etf`），
+  **车辆分 = amount 适配度**（`etf_selection.vehicle.weights`，默认 `{amount: 1.0}`），
+  rps15/20 不进选车（时机波动不换车）。core=rank1 LEADER / sub=rank2..3 CORE。
+- **③C Timing — 时机**：对选定车辆独立判时机（leadership → position → signal），
+  `recommended = theme_confirmed ∧ 趋势门 ∧ signal∈{BUY,STRONG_BUY}`。
+  Lane2/3 = soft context（可靠性已前置 ③A，不再后置否决）。
+
+**与旧语义的关键差异**
+- lane2 可靠性前置 ③A：不可靠 ETF 无法占据方向代表位 → 同方向可靠次名自动胜出
+  （结构修复，旧版是「dedup 抢位 → 后置 veto → 可靠次名被拖累」）。
+- `selection_score` 语义收敛为**车辆适配度**（非「最强 rps 分」）。
+- `eligible_etf_count` = ③A 通过数（产品门，决定 OBSERVE vs WAIT_FOR_ETF），不再含趋势门。
+- `recommended` 显式 AND `theme_confirmed`（修「未确认主题仍可 recommended=True」缺陷）。
+- 观察池 reason_codes：`vehicle_eligible / lane2_unreliable / below_trend_gate / low_liquidity /
+  dedup_lost（仅 eligible 内）`。
+
+**示例（20260902）**：AI 基建窄确认（1/6 Tier），真 A股 基建 ETF（固定池 7 只）均在车辆宇宙；
+当日技术面未达趋势门/BUY → `recommended=0` → 顶层 action OBSERVE（「窄确认 + 无合格表达 → 不买」）。
 
 ## 8. 验收（已满足）
 

@@ -53,10 +53,11 @@ class TestLoaders:
         es = load_etf_selection_spec()
         assert es.allowed_trend_states == ("BUY_CANDIDATE", "STRONG_WATCH")
         assert es.min_amount == 50_000_000
-        assert es.ranking_weights == {"rps15": 0.55, "rps20": 0.25, "amount_score": 0.20}
-        assert es.amount_score.floor == 50_000_000
-        assert es.amount_score.reference == 500_000_000
-        assert es.amount_score.cap == 100
+        # v0.12.0 Selection V2：vehicle 适配度（去 timing，rps 不进选车）
+        assert es.vehicle.weights == {"amount": 1.0}
+        assert es.vehicle.amount_score.floor == 50_000_000
+        assert es.vehicle.amount_score.reference == 500_000_000
+        assert es.vehicle.amount_score.cap == 100
         # v0.11 Phase 2 Lane Validation：可靠性硬 gate 默认开启
         assert es.lane_validation.reliability_hard_gate_enabled is True
 
@@ -218,7 +219,7 @@ class TestSchemaValidation:
     def test_etf_selection_nested_trend(self):
         raw = {"etf_selection": {
             "trend": {"allowed_trend_states": ["BUY_CANDIDATE"], "watch_allowed_trend_states": ["WATCH"], "min_amount": 5e7},
-            "ranking": {"weights": {"rps15": 0.55, "rps20": 0.25, "amount_score": 0.20},
+            "vehicle": {"weights": {"amount": 1.0},
                         "amount_score": {"method": "log_threshold", "floor": 5e7, "reference": 5e8, "cap": 100}},
             "leadership": {"core_rank_max": 1, "satellite_rank_max": 3},
             "historical_position": {"lookback_days": 756, "low_max": 30, "mid_max": 70},
@@ -228,7 +229,7 @@ class TestSchemaValidation:
     def test_etf_selection_flat_trend_rejected(self):
         raw = {"etf_selection": {
             "allowed_trend_states": ["BUY_CANDIDATE"], "min_amount": 5e7,
-            "ranking": {"weights": {"rps15": 0.55, "rps20": 0.25, "amount_score": 0.20},
+            "vehicle": {"weights": {"amount": 1.0},
                         "amount_score": {"method": "log_threshold", "floor": 5e7, "reference": 5e8, "cap": 100}},
         }}
         with pytest.raises(sch.SpecValidationError):

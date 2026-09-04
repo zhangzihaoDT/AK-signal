@@ -1,37 +1,42 @@
-# v0.9.0 主题级策略规格（Strategy Specification）— Layer③ 四段选筹
+# v0.12.0 Layer③ Selection V2 — Eligibility / Vehicle / Timing Rewrite
 #
 # 架构结论：策略规则按主题配置，不共用全局 EntryPolicy / ExitPolicy。
 # 每个策略有稳定 strategy_id（进入历史信号与回测产物的 Provenance）。
 # 算法语义（状态转换如何识别、MA 如何计算等）留在代码；这里只放策略参数。
 #
-# Layer③ 统一选筹逻辑（四段）：
-#   1. trend      — 有没有趋势（无趋势不进入买入候选）
-#   2. leadership — 是不是主题龙头/核心成分（主题内相对地位）
-#   3. position   — 当前相对 60 日线的位置/赔率（乖离率；低位只提高赔率，不产生趋势）
-#   4. signal     — 三者组合后给出最终行动信号（STRONG_BUY / BUY / WATCH / HOLD / WAIT）
+# Layer③ ETF 表达路径三段职责（冻结，v0.12.0）：
+#   ③A Eligibility  哪些 ETF 可靠可用 → 进入车辆宇宙（主题归属 + 账户可交易 +
+#                    流动性 + 数据可靠 lane2_reliable_360≠False + rps15/历史有效）。
+#                    趋势态不是资格条件（vehicle 身份不随当天涨跌而变）。
+#   ③B Vehicle Selection  同一表达方向内，在可靠候选中选「表达工具」。
+#                    车辆分 = 纯适配度（amount_score + 固定池代表性），**不含 rps**。
+#   ③C Timing  对已选定车辆独立判当前技术时机（trend → leadership → position → signal）
+#                    → STRONG_BUY / BUY / WATCH / HOLD / WAIT。
+#                    recommended = theme_confirmed ∧ signal∈{BUY,STRONG_BUY}。
 #
 # 纪律：position 从不单独产生买入信号。趋势不成立（trend=NOT_QUALIFIED）的标的
 #       即使大幅低于 60 日线，仍然 WAIT；偏离 60 日线过高（HIGH）只输出 HOLD，不追高；
 #       破位（BREAKDOWN，现价低于 MA60 超 breakdown_pct）中期趋势破坏，禁止买入。
 
 etf_selection:
-  # Layer③ ETF 候选的「准入—排序—输出」策略（Policy，非指标定义）。
-  #   - 准入：trend.allowed_trend_states（趋势门）+ trend.min_amount（流动性门）
-  #   - 排序：ranking.weights（rps15/rps20/amount_score 权重）
-  #   - amount_score：固定区间 log 评分（floor→0，reference→cap，跨期/跨候选池可比，
-  #     不依赖当天候选集合的相对大小）
-  #   - leadership：主题内排序 → LEADER（rank≤core_rank_max）/ CORE（≤satellite_rank_max）
-  #   - signal：与 stock_selection.signal_policy 共用同一信号词汇表与规则（ETF 沿用个股思想）
+  # Layer③ ETF 候选策略（Policy，非指标定义）。
+  #   - ③A Eligibility：trend.min_amount（流动性门）+ lane2 可靠性（见 lane_validation）
+  #     + 主题归属/账户可交易。trend.allowed_trend_states 仅作 ③C 展示口径，不作资格门。
+  #   - ③B Vehicle：vehicle.weights（amount_score 适配度）→ 方向去重选代表。
+  #   - ③C Timing：leadership（主题内排序 → LEADER/CORE）→ historical_position → signal。
+  #     signal 与 stock_selection.signal_policy 共用同一信号词汇表与规则（ETF 沿用个股思想）
   trend:
     allowed_trend_states: ["BUY_CANDIDATE", "STRONG_WATCH"]
     watch_allowed_trend_states: ["BUY_CANDIDATE", "STRONG_WATCH", "WATCH"]
     min_amount: 50000000
 
-  ranking:
+  # v0.12.0 ③B Vehicle Selection — 车辆适配度（选车，去 timing）
+  #   weights: {"amount": 1.0, "fixed_pool": ...}（amount = amount_score，rps 不进选车）
+  #   amount_score：固定区间 log 评分（floor→0，reference→cap，跨期/跨候选池可比，
+  #     不依赖当天候选集合的相对大小）
+  vehicle:
     weights:
-      rps15: 0.55
-      rps20: 0.25
-      amount_score: 0.20
+      amount: 1.0
     amount_score:
       method: log_threshold
       floor: 50000000        # 成交额 ≤ floor → 0
@@ -50,11 +55,10 @@ etf_selection:
     low_below_pct: -5.0      # 低于 MA60 5%~15% → LOW（深度回调，赔率区）
     high_above_pct: 10.0     # 高于 MA60 超 10% → HIGH（追高，不追）
 
-  # v0.11 Phase 2 — Lane Validation（Decision 验证 Policy，叠加于四段之上）
-  #   reliability_hard_gate_enabled：Lane2 数据可靠性 = 硬 gate。three_lane 明确
-  #   lane2_reliable_360=False（如份额折算污染 360D 价格）→ 本可推荐的 ETF 强制不可推荐
-  #   （recommended=False / state→WATCH / reason=lane2_unreliable）。lane-less（无 lane
-  #   行 / None）不触发 —— 只在有明确「不可靠」证据时拦，不缺证据即放行。
+  # v0.11 Phase 2 — Lane Validation（Decision 验证 Policy）。
+  #   v0.12.0 Selection V2：L2 数据可靠性已前移至 ③A Eligibility——`_etf_eligible_pool`
+  #   直接把 lane2_reliable_360=False 剔出车辆宇宙（lane-less 放行）。`reliability_hard_gate_enabled`
+  #   保留为向后兼容字段，代码不再后置 veto（本字段已不参与决策，仅文档/审计）。
   #   Lane2 结构（repair-retest TARGET 等）= soft validation：仅标注/观察，不 gate；
   #   Lane3 阶段 = 纯 context（不 gate）。二者无 Policy 开关，由展示层消费。
   lane_validation:

@@ -61,7 +61,7 @@ def _etf_reject_reason(a: dict[str, Any]) -> str:
     codes = a.get("reason_codes") or []
     reason = ""
     if "lane2_unreliable" in codes:
-        reason = "数据不可靠（Lane2 折算污染/360D 失真），硬 gate 拦下"
+        reason = "数据不可靠（Lane2 折算污染/360D 失真），③A 资格门未过"
     elif "dedup_lost" in codes:
         reason = "同类方向已有代表入选"
     elif "below_trend_gate" in codes and "low_liquidity" in codes:

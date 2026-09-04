@@ -22,7 +22,8 @@ def test_load_current_spec():
     spec = load_report_spec()
     assert spec.spec_version == 2
     assert [s.id for s in spec.sections] == [
-        "executive", "theme_matrix", "narratives", "execution", "changes", "audit"]
+        "executive", "theme_confirmation", "eligibility", "vehicle",
+        "timing", "why_now", "next_trigger", "audit"]
 
 
 def test_bad_spec_version():
@@ -34,20 +35,12 @@ def test_bad_spec_version():
 
 def test_bad_formatter_rejected():
     raw = _raw()
-    raw["report"]["theme_matrix_columns"][0]["fmt"] = "not_a_formatter"
+    raw["report"]["theme_confirmation_columns"][0]["fmt"] = "not_a_formatter"
     with pytest.raises(ReportSpecError):
         validate_report_spec(raw)
 
 
-def test_bad_clause_predicate_rejected():
-    raw = _raw()
-    raw["report"]["narratives"]["degraded_execution"]["clauses"].append(
-        {"when": "no_such_predicate", "text": "x"})
-    with pytest.raises(ReportSpecError):
-        validate_report_spec(raw)
-
-
-def test_unknown_renderer_rejected():
+def test_bad_unknown_renderer_rejected():
     raw = _raw()
     raw["report"]["sections"][0]["renderer"] = "unknown_renderer"
     with pytest.raises(ReportSpecError):
@@ -59,3 +52,16 @@ def test_bad_display_priority_rejected():
     raw["report"]["display_priority"].append("bogus")
     with pytest.raises(ReportSpecError):
         validate_report_spec(raw)
+
+
+def test_missing_why_labels_rejected():
+    raw = _raw()
+    del raw["report"]["why_labels"]
+    with pytest.raises(ReportSpecError):
+        validate_report_spec(raw)
+
+
+def test_audit_category_ids_registered():
+    spec = load_report_spec()
+    ids = [s.id for s in spec.audit["etf_matrix"].summary]
+    assert {"eligible", "vehicle", "timing_ready", "unreliably", "below_trend"} <= set(ids)

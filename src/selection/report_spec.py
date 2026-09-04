@@ -7,7 +7,6 @@ Spec 只描述「呈现什么」（结构/顺序/列/标签/条件/优先级）�
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -26,26 +25,22 @@ SUPPORTED_SPEC_VERSIONS = {2}
 PRIORITIES = {"primary", "secondary", "appendix"}
 # 多标签分类 / 展示状态标签（Spec display_priority / expand.only / include 的取值集合）
 DISPLAY_LABELS = {"degraded", "changed", "actionable", "watch", "normal", "confirmed"}
-# 已知 renderer（report_engine 注册表；启动期校验）
+# 已知 renderer（report_engine 注册表；启动期校验）—— v0.12.1 8 段 IA
 KNOWN_RENDERERS = {
-    "decision_summary", "theme_matrix", "theme_narrative",
-    "execution_cards", "change_log", "audit",
+    "decision_summary", "theme_confirmation", "eligibility",
+    "vehicle", "timing", "why_now", "next_trigger", "audit",
 }
 # 已知列条件谓词（决定某列是否显示）
 KNOWN_COLUMN_CONDITIONS = {"has_evidence"}
-# 已知审计摘要分类 id（audit.*.summary）
+# 已知审计摘要分类 id（audit.*.summary）—— 个股矩阵沿用决策分类；ETF 矩阵用 V2 资格/载体/时机分类
 KNOWN_AUDIT_CATEGORIES = {
     "breakdown", "blocked", "qualified_unselected", "recommended",
     "normal", "monitor_only", "dynamic_watch",
+    "eligible", "vehicle", "timing_ready", "unreliably",
+    "below_account", "low_liquidity", "below_trend", "dedup_lost",
 }
 # 已知审计排序模式
 KNOWN_AUDIT_SORTS = {"", "anomaly_first"}
-# 已知叙事 clause 触发谓词（report_narrative 解析）
-KNOWN_CLAUSE_PREDICATES = {
-    "concentration_high", "breadth_weak", "etf_ineligible", "stock_available",
-    "narrow_confirmed", "breadth_high", "concentration_low", "etf_strong",
-    "consistent", "watch_near", "watch_far",
-}
 # formatter 名称（report_formatters 注册表；Spec 引用必须在其中）
 KNOWN_FORMATTERS = {
     "num", "pct", "money", "liquidity", "change_1d", "trajectory",
@@ -56,6 +51,7 @@ KNOWN_FORMATTERS = {
     "etf_theme_role", "etf_audit_reason", "etf_strength", "etf_position",
     "audit_category", "leadership",
     "lane3_state", "lane2_reliable", "signal_chain",
+    "confirmed_tag", "timing_exec",
 }
 
 
@@ -66,20 +62,6 @@ class ColumnSpec:
     fmt: str = ""
     header_fmt: str = ""
     when: str = ""
-
-
-@dataclass(frozen=True)
-class ClauseSpec:
-    when: str
-    text: str
-
-
-@dataclass(frozen=True)
-class NarrativeSpec:
-    name: str
-    title: str
-    clauses: list[ClauseSpec]
-    evidence_labels: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -120,9 +102,12 @@ class ReportSpec:
     subtitle: str
     display_priority: list[str]
     sections: list[SectionSpec]
-    theme_matrix_columns: list[ColumnSpec]
-    narratives: dict[str, NarrativeSpec]
-    execution_labels: dict[str, str]
+    theme_confirmation_columns: list[ColumnSpec]
+    eligibility_columns: list[ColumnSpec]
+    vehicle_columns: list[ColumnSpec]
+    timing_columns: list[ColumnSpec]
+    why_labels: dict[str, str]
+    next_trigger_labels: dict[str, str]
     audit: dict[str, TableSpec]
 
     def section(self, section_id: str) -> SectionSpec:
@@ -161,32 +146,10 @@ def _validate_columns(cols: Any, path: str) -> list[ColumnSpec]:
     return out
 
 
-def _validate_narratives(raw: Any, path: str) -> dict[str, NarrativeSpec]:
+def _validate_labels(raw: Any, path: str) -> dict[str, str]:
     if not isinstance(raw, dict) or not raw:
-        raise ReportSpecError(f"report spec: {path}: narratives required")
-    out: dict[str, NarrativeSpec] = {}
-    for name, cfg in raw.items():
-        if not isinstance(cfg, dict) or not cfg.get("title"):
-            raise ReportSpecError(f"report spec: {path}.{name}: title required")
-        clauses = cfg.get("clauses")
-        if not isinstance(clauses, list) or not clauses:
-            raise ReportSpecError(f"report spec: {path}.{name}.clauses: non-empty list required")
-        parsed: list[ClauseSpec] = []
-        for i, cl in enumerate(clauses):
-            when = cl.get("when", "") if isinstance(cl, dict) else ""
-            text = cl.get("text", "") if isinstance(cl, dict) else ""
-            if when not in KNOWN_CLAUSE_PREDICATES:
-                raise ReportSpecError(f"report spec: {path}.{name}.clauses[{i}].when {when!r} unknown")
-            if not text:
-                raise ReportSpecError(f"report spec: {path}.{name}.clauses[{i}]: text required")
-            parsed.append(ClauseSpec(when=when, text=text))
-        out[name] = NarrativeSpec(
-            name=name,
-            title=str(cfg["title"]),
-            clauses=parsed,
-            evidence_labels=[str(x) for x in (cfg.get("evidence_labels") or [])],
-        )
-    return out
+        raise ReportSpecError(f"report spec: {path}: labels dict required")
+    return {str(k): str(v) for k, v in raw.items()}
 
 
 def _validate_sections(raw: Any, path: str) -> list[SectionSpec]:
@@ -241,10 +204,11 @@ def validate_report_spec(raw: dict[str, Any]) -> None:
         raise ReportSpecError(f"report spec: unsupported spec_version {r.get('spec_version')!r}")
     _validate_display_priority(r.get("display_priority"), "report.display_priority")
     _validate_sections(r.get("sections"), "report.sections")
-    _validate_columns(r.get("theme_matrix_columns"), "report.theme_matrix_columns")
-    _validate_narratives(r.get("narratives"), "report.narratives")
-    if not isinstance(r.get("execution_labels"), dict) or not r.get("execution_labels"):
-        raise ReportSpecError("report spec: report.execution_labels required")
+    for key in ("theme_confirmation_columns", "eligibility_columns",
+                "vehicle_columns", "timing_columns"):
+        _validate_columns(r.get(key), f"report.{key}")
+    _validate_labels(r.get("why_labels"), "report.why_labels")
+    _validate_labels(r.get("next_trigger_labels"), "report.next_trigger_labels")
     audit = r.get("audit")
     if not isinstance(audit, dict):
         raise ReportSpecError("report spec: report.audit required")
@@ -300,9 +264,13 @@ def _parse(raw: dict[str, Any]) -> ReportSpec:
         subtitle=str(r.get("subtitle", "")),
         display_priority=_validate_display_priority(r.get("display_priority"), "report.display_priority"),
         sections=sections,
-        theme_matrix_columns=_validate_columns(r.get("theme_matrix_columns"), "report.theme_matrix_columns"),
-        narratives=_validate_narratives(r.get("narratives"), "report.narratives"),
-        execution_labels={str(k): str(v) for k, v in (r.get("execution_labels") or {}).items()},
+        theme_confirmation_columns=_validate_columns(
+            r.get("theme_confirmation_columns"), "report.theme_confirmation_columns"),
+        eligibility_columns=_validate_columns(r.get("eligibility_columns"), "report.eligibility_columns"),
+        vehicle_columns=_validate_columns(r.get("vehicle_columns"), "report.vehicle_columns"),
+        timing_columns=_validate_columns(r.get("timing_columns"), "report.timing_columns"),
+        why_labels=_validate_labels(r.get("why_labels"), "report.why_labels"),
+        next_trigger_labels=_validate_labels(r.get("next_trigger_labels"), "report.next_trigger_labels"),
         audit=audit,
     )
 
@@ -322,7 +290,3 @@ def load_report_spec(path: Path | None = None) -> ReportSpec:
     validate_report_spec(raw)
     return _parse(raw)
 
-
-def clause_placeholders(text: str) -> list[str]:
-    """提取 clause 文本中的 {field} 占位符（用于渲染期字段解析）。"""
-    return re.findall(r"\{(\w+)\}", text)
