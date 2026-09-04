@@ -608,7 +608,9 @@ def cmd_calculate(args: argparse.Namespace) -> None:
     velocity_window = cfg.get("rps", {}).get("velocity_window", 5)
 
     full_rebuild = getattr(args, "full", False)
-    explicit_date = getattr(args, "date", None)
+    # 兼容两种入口：独立 `calculate --date YYYY-MM-DD`（别名）与
+    # 由 run-day 透传的 `--target-date YYYYMMDD`。target_date 优先（run-day 锚点）。
+    explicit_date = getattr(args, "target_date", "") or getattr(args, "date", None) or None
 
     master = storage.load_master(raw_dir)
     if master.empty:
@@ -781,7 +783,8 @@ def cmd_report(args: argparse.Namespace) -> None:
         logger.error("no metrics data, run calculate first")
         return
 
-    explicit_target = getattr(args, "target_date", "") or ""
+    # 兼容 run-day 透传：run-day 把锚点写进 args.date，report 独立入口用 args.target_date。
+    explicit_target = getattr(args, "target_date", "") or getattr(args, "date", "") or ""
     if explicit_target:
         target_ts = pd.Timestamp(explicit_target)
         if target_ts not in metrics_df["trade_date"].values:
@@ -1204,7 +1207,9 @@ def cmd_confirm(args: argparse.Namespace) -> None:
         logger.error("no metrics data, run calculate first")
         return
 
-    explicit_date = getattr(args, "date", "") or ""
+    # 兼容两种入口：独立 `confirm --date`（别名）与 run-day 透传的
+    # `--target-date YYYYMMDD`。target_date 优先（run-day 锚点）。
+    explicit_date = getattr(args, "target_date", "") or getattr(args, "date", "") or ""
     if explicit_date:
         ts = pd.Timestamp(explicit_date)
         if ts not in metrics_df["trade_date"].values:
@@ -1370,7 +1375,8 @@ def cmd_structure(args: argparse.Namespace) -> None:
     processed_dir = sw_industry_processed_dir()
     window = getattr(args, "window", 10)
     offline = not getattr(args, "allow_online_fetch", False)
-    target_date = getattr(args, "target_date", "") or ""
+    # 兼容 run-day 透传：run-day 把锚点写进 args.date。
+    target_date = getattr(args, "target_date", "") or getattr(args, "date", "") or ""
 
     metrics_df = storage.load_metrics(processed_dir)
     if metrics_df.empty:
@@ -1412,6 +1418,13 @@ def cmd_run_day(args: argparse.Namespace) -> None:
     t_start = time.monotonic()
     requested_target = getattr(args, "target_date", "") or _default_target_date()
     force_report = getattr(args, "force_report", False)
+
+    # 归一化日期透传：run-day 只暴露 --target-date（YYYYMMDD）。
+    # calculate / confirm 独立入口用 --date，这里统一把锚点喂给 args.date，
+    # 使下游各 cmd_* 能按同一目标日推进，避免 calculate 因读 args.date 而
+    # 走隐式 auto-date、confirm 拿不到日期。
+    if requested_target:
+        args.date = requested_target
 
     # ── Step 1: Update ────────────────────────────────────────────────
     t0 = time.monotonic()
@@ -1504,6 +1517,14 @@ def cmd_run_day(args: argparse.Namespace) -> None:
     cmd_calculate(args)
     calc_dur = time.monotonic() - t0
 
+    # ── Step 2.3: Confirm（Layer② 主题确认）─────────────────────────────
+    # 落 confirmation_{date}.parquet + tier_confirmation_{date}.parquet，
+    # 供 report 第三问消费。此前 CLI run-day 缺此步，confirm 只在 Makefile
+    # 级 sw-rps-run-day 单独出现；这里补上使 CLI run-day 单一入口完整。
+    t0 = time.monotonic()
+    cmd_confirm(args)
+    confirm_dur = time.monotonic() - t0
+
     # ── Step 2.5: Structure（Enrichment，offline-only，soft-fail）──────
     # Structure 是 Layer② 的 Enrichment（驱动模式解释），非 Core 事实：
     #   缓存够 → 生成 sw_industry_structure_{date}.parquet，日报出现驱动；
@@ -1530,6 +1551,7 @@ def cmd_run_day(args: argparse.Namespace) -> None:
     logger.info("  source_latest_common_date: %s", result.source_latest_common_date)
     logger.info("  fetch:      %.1fs", fetch_dur)
     logger.info("  calculate:  %.1fs", calc_dur)
+    logger.info("  confirm:    %.1fs", confirm_dur)
     logger.info("  structure:  %.1fs (enrichment, soft-fail)", structure_dur)
     logger.info("  report:     %.1fs", report_dur)
     logger.info("  total:      %.1fs", total_dur)
@@ -1555,7 +1577,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_update.add_argument("--log-level", default="INFO")
 
     p_calc = sub.add_parser("calculate", help="计算 RPS 指标（幂等替换目标日期分区）")
-    p_calc.add_argument("--date", default="", help="目标日期 YYYY-MM-DD（默认最新）")
+    p_calc.add_argument("--target-date", default="", dest="target_date", help="目标日期 YYYYMMDD（推荐，与 update/report 一致）")
+    p_calc.add_argument("--date", dest="date", help="目标日期 YYYY-MM-DD（兼容别名；与 --target-date 等价）")
     p_calc.add_argument("--full", action="store_true", help="全量重建（慎用）")
     p_calc.add_argument("--allow-provisional", action="store_true", help="允许对 provisional 数据计算指标")
     p_calc.add_argument("--log-level", default="INFO")
@@ -1578,7 +1601,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_confirm = sub.add_parser("confirm", help="[Layer ②] 主题确认（Theme Confirmation：行业证据 + 龙头/广度 + 背离）")
     p_confirm.add_argument("--window", type=int, default=10, help="贡献分析回看窗口（交易日数，默认 10）")
     p_confirm.add_argument("--max-drill", type=int, default=10, help="最多穿透的行业数（默认 10 = 全部重点行业，结构字段全覆盖）")
-    p_confirm.add_argument("--date", default="", help="目标日期 YYYYMMDD（默认 metrics 最新日）")
+    p_confirm.add_argument("--target-date", default="", dest="target_date", help="目标日期 YYYYMMDD（推荐，与 update/report 一致）")
+    p_confirm.add_argument("--date", dest="date", help="目标日期 YYYYMMDD（兼容别名；与 --target-date 等价）")
     p_confirm.add_argument("--log-level", default="INFO")
 
     p_struct = sub.add_parser("structure", help="[Layer ②] Enrichment 行业内部结构（offline 读缓存生成，soft-fail；--allow-online-fetch 做 Cache Refresh）")
@@ -1587,7 +1611,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_struct.add_argument("--allow-online-fetch", action="store_true", help="Structure Cache Refresh：允许联网补数（默认仅读缓存，缺数据 soft-fail）")
     p_struct.add_argument("--log-level", default="INFO")
 
-    p_run = sub.add_parser("run-day", help="依次执行 update → calculate → report")
+    p_run = sub.add_parser("run-day", help="依次执行 update → calculate → confirm → structure → report")
     p_run.add_argument("--target-date", default="", help="目标日期 YYYYMMDD（默认今天）")
     p_run.add_argument("--force-report", action="store_true", help="允许对已有报告的日期重新生成报告")
     p_run.add_argument("--allow-provisional", action="store_true", help="允许使用 provisional 数据运行完整 pipeline（默认已放行）")

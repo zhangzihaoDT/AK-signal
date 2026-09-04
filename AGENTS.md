@@ -166,7 +166,7 @@
 ```bash
 make run-day          # 每日全流程
 make etf-pipeline     # 仅 ETF 发现链路
-make sw-rps-run-day   # SW-RPS 全流程：update(含probe)→calculate→report→confirm
+make sw-rps-run-day   # SW-RPS 全流程：update(含probe)→calculate→confirm→structure(offline,soft-fail)→report；SW_DATE=YYYYMMDD 可钉定全链目标日
 make sw-rps-structure # [Layer ②] Enrichment 行业内部结构（offline 读缓存 soft-fail；--allow-online-fetch 做 Cache Refresh）
 make stock-metrics     # 构建个股趋势指标产物（Observation 层，离线读缓存）
 make stock-metrics-online  # 个股行情在线补数（run-day 离线不抓个股）

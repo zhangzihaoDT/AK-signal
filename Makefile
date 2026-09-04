@@ -125,20 +125,24 @@ sw-rps-run-day: ## SW-RPS 全流程：update→calculate→confirm→structure(o
 	$(MAKE) sw-rps-confirm     # 3. Layer ② 主题确认（落 confirmation parquet，下游 report 第三问消费）
 	$(MAKE) sw-rps-report      # 4. report 前置 offline structure enrichment（soft-fail），再生成报告（消费 confirmation）
 
-sw-rps-run-day-provisional: ## SW-RPS 全流程（允许 provisional 数据）
-	$(PYTHON) $(SRC_MAIN) industry run-day --allow-provisional
+# SW-RPS 日期锚点：SW_DATE=YYYYMMDD 从 Makefile 一路透传到 update/calculate/confirm/report。
+# 空（默认）时各 stage 用自身最新/默认日；设置后全部按同一目标日推进（对齐 TL_DATE/SCAN_DATE/L3_DATE 写法）。
+SW_DATE ?=
 
-sw-rps-update: ## 增量拉取行业行情
-	$(PYTHON) $(SRC_MAIN) industry update
+sw-rps-run-day-provisional: ## SW-RPS 全流程（允许 provisional 数据）
+	$(PYTHON) $(SRC_MAIN) industry run-day --allow-provisional $(if $(SW_DATE),--target-date $(SW_DATE),)
+
+sw-rps-update: ## 增量拉取行业行情（SW_DATE=YYYYMMDD 可选钉定目标日）
+	$(PYTHON) $(SRC_MAIN) industry update $(if $(SW_DATE),--target-date $(SW_DATE),)
 
 sw-rps-update-provisional: ## 增量拉取行业行情（允许 provisional）
-	$(PYTHON) $(SRC_MAIN) industry update --allow-provisional
+	$(PYTHON) $(SRC_MAIN) industry update --allow-provisional $(if $(SW_DATE),--target-date $(SW_DATE),)
 
-sw-rps-calculate: ## 计算行业 RPS
-	$(PYTHON) $(SRC_MAIN) industry calculate
+sw-rps-calculate: ## 计算行业 RPS（SW_DATE=YYYYMMDD 可选钉定目标日）
+	$(PYTHON) $(SRC_MAIN) industry calculate $(if $(SW_DATE),--target-date $(SW_DATE),)
 
-sw-rps-report: ## 生成行业报告
-	$(PYTHON) $(SRC_MAIN) industry report
+sw-rps-report: ## 生成行业报告（SW_DATE=YYYYMMDD 可选钉定目标日）
+	$(PYTHON) $(SRC_MAIN) industry report $(if $(SW_DATE),--target-date $(SW_DATE),)
 
 sw-rps-bootstrap: ## 初始化行业列表并拉取全部历史数据
 	$(PYTHON) $(SRC_MAIN) industry bootstrap
@@ -149,8 +153,8 @@ sw-rps-validate: ## 校验行业数据质量
 sw-rps-drilldown: ## 强势区成分股贡献穿透分析
 	$(PYTHON) $(SRC_MAIN) industry drilldown
 
-sw-rps-confirm: ## [Layer ②] 主题确认（Theme Confirmation：行业证据，bucket/theme 分层）
-	$(PYTHON) $(SRC_MAIN) industry confirm
+sw-rps-confirm: ## [Layer ②] 主题确认（Theme Confirmation：行业证据，bucket/theme 分层）。SW_DATE=YYYYMMDD 可选钉定目标日
+	$(PYTHON) $(SRC_MAIN) industry confirm $(if $(SW_DATE),--target-date $(SW_DATE),)
 
 sw-rps-structure: ## [Layer ②] Enrichment 行业内部结构（offline 读缓存生成，soft-fail；--allow-online-fetch 做 Cache Refresh）
 	$(PYTHON) $(SRC_MAIN) industry structure
