@@ -86,13 +86,25 @@ def evaluate(
         warns.append(f"Lane 1 watchlist 滞后 {lane1_lag_days} 交易日（_watchlist_date < trade_date）"
                      f"——FIRST_EXIT × Lane 1 交叉分析需按日错位解读，勿把滞后当状态先后")
 
-    # 层证据状态：etf 与 sw_industry 两者任一 provisional → PROVISIONAL；
-    # 全部 confirmed → CONFIRMED；缺失/不一致 → UNKNOWN
+    # 层证据状态（V0.1，来源/完整性分离）：
+    #   confirmed = 申万官方主源完全确认 → CONFIRMED
+    #   complete  = 兜底源但目标交易日已完整收盘 → COMPLETE（不再降级 PROVISIONAL）
+    #   partial   = 兜底源且盘中未收盘 → PARTIAL（不得标 COMPLETE）
+    #   legacy provisional（旧产物）→ 视同 complete
+    #   etf 与 sw_industry 两者取最保守档；缺失/不一致 → UNKNOWN
     etf_status = ((layers or {}).get("etf") or {}).get("data_status", "")
     sw_status = ((layers or {}).get("sw_industry") or {}).get("data_status", "")
-    statuses = [s for s in (etf_status, sw_status) if s]
-    if "provisional" in statuses:
-        status = "PROVISIONAL"
+    sw_status_norm = "complete" if sw_status == "provisional" else sw_status
+    statuses = [s for s in (etf_status, sw_status_norm) if s]
+    if "partial" in statuses:
+        status = "PARTIAL"
+    elif "complete" in statuses:
+        status = "COMPLETE"
+        if sw_status_norm == "complete":
+            warns.append(
+                "Layer②: COMPLETE · FALLBACK_SOURCE —— "
+                "Awaiting SW L1 primary-source verification."
+            )
     elif statuses and all(s == "confirmed" for s in statuses):
         status = "CONFIRMED"
     elif not statuses:

@@ -15,7 +15,8 @@
 - **统一约定**：Layer1（ETF）、Layer2（SW-RPS 确认）、Layer ③（Selection）一律以 **trade_date（最近完整交易日）** 作为信号分区日期与文件名日期。
 - 盘中运行时（16:30 前 / SW 15:10 前），trade_date 自动锚定到上一完整交易日（周一回溯到上周五）；收盘后取当日。
 - `run_date`（运行日）与 `generated_at`（生成时间）**仅承担审计语义**，写入 parquet 元数据，不参与文件命名与消费对齐。
-- 每个产物 parquet 内带元数据列：`trade_date` / `run_date` / `generated_at` / `data_status`（confirmed/provisional）/ `source`（ETF=em；SW=sw_daily / sw_realtime+ths_enrichment / sw_hist）。
+- 每个产物 parquet 内带元数据列：`trade_date` / `run_date` / `generated_at` / `data_status`（Layer② SW：confirmed/complete/partial；ETF=confirmed）/ `source_status`（Layer② SW：primary/fallback）/ `source`（ETF=em；SW=sw_daily / sw_realtime+ths_enrichment / sw_hist）。
+- **Layer② 状态语义（V0.1，来源/完整性分离，two axes）**：`source_status` = 主源（swsresearch/analysis_daily/hist_sw，`primary`）还是兜底源（realtime/ths_board，`fallback`）；`data_status` = 观测是否完整 + 来源是否主源合成——`confirmed`（primary 且完整）/ `complete`（fallback 但目标交易**日已完整收盘**）/ `partial`（fallback 且盘中未收盘）。**兜底源不再叫 provisional**；「兜底」与「观测不完整」是两个正交语义，不再混为一个标签。
 - Selection 消费逻辑：读取各层**元数据 trade_date** 做共同对齐，输出 `alignment`（aligned / stale_industry / stale_etf + industry_lag_days）。ETF 与 SW 不同步时显式标记滞后，不静默组合。
 - `select run --date YYYYMMDD` 的 `--date` 语义 = **目标 trade_date**，字面按 `rotation_{date} / account_candidates_{date} / confirmation_{date}` 精确加载、缺文件不降级。
 - 盘中快照与日频收盘信号分离：日频 run-day 只输出完整交易日横截面；盘中版本（snapshot_type=intraday）为独立模式，未启用。
@@ -74,14 +75,14 @@
   - 失败（产物缺失等）：`Run completed with errors` + errors 明细，退出码 1
   - **Lane 3 为正式每日能力**：缺 `trend_transition_state_{trade_date}.parquet` 与缺 Lane 1/2 一样视为 run-day 不完整（mandatory）
   - **Lane 1 数据日对齐门控**：要求 three_lane 的 `_watchlist_date == trade_date`（final-check 读 `three_lane_{trade_date}.parquet` 计算 `lane1_lag_days`）；允许上一交易日 fallback 时必须**显式标记** `Lane 1 watchlist 滞后 N 交易日`（报告 ④ 区 tag + run-day-check warnings），防止 FIRST_EXIT × Lane 1 交叉分析把「一天时间差」误读成真正的状态先后关系。对齐（_watchlist_date == trade_date）不标 warning；产物/列缺失时 lane1_lag_days=None 不误报
-  - `status`：各层均 confirmed → `CONFIRMED`；任一 provisional → `PROVISIONAL`；缺失/不一致 → `UNKNOWN`
+  - `status`：各层均 confirmed → `CONFIRMED`；任一层 complete（兜底源已完整收盘，不降级）→ `COMPLETE`（附 `FALLBACK_SOURCE` warning）；任一层 partial（兜底源盘中未收盘）→ `PARTIAL`；缺失/不一致 → `UNKNOWN`
   - `action`：取 selection `layer3.action.level`（BUY / OBSERVE / WAIT）
   - `warnings`：读 `outputs/run_warnings_{trade_date}.json`（confirm 的 drilldown 个股抓取失败等）+ 层对齐异常 + 配置降级
 - **数据发布时点（实测 2026-07-31）**：
   - ETF 行情（东财 spot）：盘中即可用，当日 07:30 前已覆盖前一交易日
   - SW-RPS 行业行情（swsresearch/legulegu）：**T+1 上午约 10:00 前后发布**。09:25 探测仍为空，10:08 已确认
-- **provisional 兜底（2026-08-03 起）**：申万日报晚发布时，`industry update` 走 **L2 provisional = realtime 基底（覆盖全部 124 申万二级，真实申万指数值）+ 同花顺 90 板块增强（78 个映射行业的成交额/量）**。报告标记 `_provisional`；次日申万确认后重算覆盖并转 confirmed（RPS 用全横截面重算）
-- **结论**：上午 10:00 后运行最理想；若申万发布延迟（如周一），run-day 会输出 provisional 报告而非停在 T-1
+- **兜底通备用语（V0.1 起不再叫 provisional）**：申万日报晚发布时，`industry update` 走 **兜底源（fallback）= realtime 基底（覆盖全部 124 申万二级，真实申万指数值）+ 同花顺 90 板块增强（78 个映射行业的成交额/量）**。`source_status=fallback`；目标交易日已完整收盘 → `data_status=complete`（顶层 `COMPLETE`+`FALLBACK_SOURCE` warning），盘中未收盘 → `partial`（顶层 `PARTIAL`）。次日申万确认后重算覆盖转 `confirmed`（RPS 用全横截面重算）
+- **结论**：上午 10:00 后运行最理想；若申万发布延迟（如周一），run-day 会输出 complete 报告（COMPLETE + FALLBACK_SOURCE warning）而非停在 T-1
 - 若已跑过 `run-day`，申万确认数据发布后重跑一次 `make run-day` 即可补齐并转 confirmed，系统支持免重复发布
 
 ## ETF 行情获取 Performance V1（2026-09，Data Acquisition）
@@ -194,7 +195,7 @@ make test             # 全部测试
 - ETF 轮动数据：`data/etf_signal/daily/rotation_{trade_date}.parquet`（全市场横截面 RPS15/20/60 + 5日排名变动，含 trade_date/run_date/data_status/source 元数据）
 - 账户候选：`data/etf_signal/signals/account_candidates_{trade_date}.parquet`（趋势池 ∩ 账户池，含元数据列）
 - SW-RPS 主报告（Layer ② 日报精简，v0.8.4）：`outputs/sw_industry_rps/sw_industry_rps_{date}.html`（+ `_latest.html` 指向最新，标题「② A股全市场 行业轮动」，认知路径「产业方向 → 趋势行业 → 我的主题支撑」）——「一句话 + 一张表」×3：① 一句话+Top10 产业方向表 · ② 一句话+单张行业表（行业/阶段/RPS15/RPS5/驱动）· ③ 每主题独立区块（v0.9.1：全部主题 = 头部状态 + Tier 表 + 判断 + 申万交叉证据；无 Tier 主题回退 = 头部状态 + 最强行业）。完整证据（矩阵/状态变化/124全表/确认四段/结构明细）保留在 parquet+CSV，不进日报。
-- Layer ② 主题确认事实：`data/processed/sw_industry/confirmation_{trade_date}.parquet`（仅焦点行业主题确认事实，含 data_status/source/coverage/generated_at；v0.7.1 起含 RPS1/Δ5RPS15/rotation_state；v0.9.1 起为各主题的 Evidence，不再是 Gate；由主报告第三问消费渲染）
+- Layer ② 主题确认事实：`data/processed/sw_industry/confirmation_{trade_date}.parquet`（仅焦点行业主题确认事实，含 data_status/source_status/source/coverage/generated_at；v0.7.1 起含 RPS1/Δ5RPS15/rotation_state；v0.9.1 起为各主题的 Evidence，不再是 Gate；V0.1 起 data_status=confirmed/complete/partial + source_status=primary/fallback；由主报告第三问消费渲染）
 - Layer ② 统一 Tier basket 确认：`data/processed/sw_industry/tier_confirmation_{trade_date}.parquet`（v0.9.1，三个主题确认 Gate 事实：每 Tier 的 Tier Strength/上涨比例/Trend Score 中位/强趋势数/龙头贡献度 + trade_date/run_date/generated_at/data_status/source 元数据；兼容旧命名 `ai_tier_confirmation` 读取）
 - Layer ② 行业内部结构产物（Enrichment）：`data/processed/sw_industry/sw_industry_structure_{trade_date}.parquet`（范围 = 趋势行业 ∪ 主题焦点行业，每行含 participation_rate/hhi/top1_share/top3_share/driver_mode/结构字段 + `structure_status` = available/insufficient/failed/not_in_scope 可审计，不静默空值）——独立于 confirmation，避免把非焦点行业混入「主题确认事实」；第二问驱动模式只消费此产物。run-day offline soft-fail 生成，联网补数走 `industry structure --allow-online-fetch`
 - Layer ③ 个股趋势指标：`outputs/stock_metrics/stock_metrics_{trade_date}.parquet`（预计算趋势指标，Observation 层产物，Layer② Tier 确认 与 Layer③ Selection 共同消费）

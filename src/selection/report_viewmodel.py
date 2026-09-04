@@ -525,10 +525,18 @@ def build_view_model(
                     "sw_industry": "Layer② 行业"}
     prov = []
     for ln, v in ((meta or {}).get("layers", {}) or {}).items():
-        if isinstance(v, dict) and str(v.get("data_status", "") or "") == "provisional":
-            prov.append(layer_labels.get(ln, ln))
+        if not isinstance(v, dict):
+            continue
+        ds = str(v.get("data_status", "") or "")
+        if ds in ("complete", "partial"):
+            prov.append((layer_labels.get(ln, ln), "完整·兜底" if ds == "complete" else "盘中未收盘"))
+        elif ds == "provisional":        # 旧产物兼容 → 视同兜底完整
+            prov.append((layer_labels.get(ln, ln), "完整·兜底"))
     if prov:
-        notices.append(f"上游数据为临时（provisional）：{'/'.join(prov)} —— 本建议基于临时事实，正式数据发布后重跑 run-day 更新")
+        labels = "、".join(f"{label}（{tag}）" for label, tag in prov)
+        notices.append(
+            f"上游 {labels} —— 申万 L1 主源未确认，正式数据发布后重跑 run-day 更新"
+        )
     if str((recommendation.get("action", {}) or {}).get("level", "")) == "BUY":
         notices.append("BUY 为配置 Universe（AI / 中国汽车 / 高现金流）内最优表达，非全市场最强机会；全市场最强方向以 ① ETF 轮动报告为准")
 

@@ -34,10 +34,36 @@ class TestEvaluateStatus:
         assert r["action"] == "WAIT"
         assert r["errors"] == []
 
+    def test_complete_fallback_sw_not_provisional(self):
+        """V0.1：兜底源但完整收盘（09-03）→ COMPLETE，不再降级 PROVISIONAL，
+        且输出 FALLBACK_SOURCE warning。"""
+        r = evaluate(trade_date="20260903", layers=self._layers(sw="complete"),
+                     alignment={}, action_level="BUY", warnings=[])
+        assert r["status"] == "COMPLETE"
+        assert r["ok"] is True
+        assert "PROVISIONAL" != r["status"]
+        assert any("Layer②: COMPLETE · FALLBACK_SOURCE" in w for w in r["warnings"])
+
+    def test_partial_intraday_sw_not_complete(self):
+        """V0.1：盘中未收盘（09-04）→ PARTIAL，不得标 COMPLETE。"""
+        r = evaluate(trade_date="20260904", layers=self._layers(sw="partial"),
+                     alignment={}, action_level="WAIT", warnings=[])
+        assert r["status"] == "PARTIAL"
+        assert r["ok"] is True
+        assert r["status"] != "COMPLETE"
+
+    def test_legacy_provisional_maps_complete(self):
+        """旧产物 provisional → 视同 complete（COMPLETE + warning，不产生 PROVISIONAL）。"""
+        r = evaluate(trade_date="20260903", layers=self._layers(sw="provisional"),
+                     alignment={}, action_level="BUY", warnings=[])
+        assert r["status"] == "COMPLETE"
+        assert "PROVISIONAL" != r["status"]
+        assert any("FALLBACK_SOURCE" in w for w in r["warnings"])
+
     def test_provisional_sw(self):
         r = evaluate(trade_date="20260803", layers=self._layers(sw="provisional"),
                      alignment={}, action_level="BUY", warnings=[])
-        assert r["status"] == "PROVISIONAL"
+        assert r["status"] == "COMPLETE"
         assert r["ok"] is True
 
     def test_missing_layers_unknown(self):

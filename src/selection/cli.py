@@ -124,15 +124,22 @@ def _compute_alignment(etf_td: str | None, sw_td: str | None) -> dict[str, Any]:
 
 
 def _layer_status(df: pd.DataFrame, default: str = "unknown") -> str:
-    """从产物 data_status 列收敛层证据等级。"""
+    """从产物 data_status 列收敛层证据等级（V0.1：confirmed/complete/partial）。
+
+    优先级（最保守者优先）：partial（盘中未收盘）> complete（兜底源完整收盘）
+    > confirmed（主源确认）；旧 provisional 视同 complete。
+    """
     if df.empty or "data_status" not in df.columns:
         return default
     vals = df["data_status"].dropna().astype(str)
     if len(vals) == 0:
         return default
-    if (vals == "provisional").any():
-        return "provisional"
-    if (vals == "confirmed").any():
+    norm = vals.map(lambda v: "complete" if v == "provisional" else v)
+    if (norm == "partial").any():
+        return "partial"
+    if (norm == "complete").any():
+        return "complete"
+    if (norm == "confirmed").any():
         return "confirmed"
     return default
 

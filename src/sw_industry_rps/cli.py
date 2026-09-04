@@ -1179,6 +1179,24 @@ def _evidence_source_label(sources: list[str], provisional: bool) -> str:
     return "+".join(sources) or "unknown"
 
 
+def _observation_falls_on_closed_day(target_date: pd.Timestamp) -> bool:
+    """目标交易日是否为「已完整收盘」的交易日。
+
+    兜底源观测是否完整，取决于 target 对应的交易日是否已经收盘：
+      - target < 今天         → 已收盘的过去交易日（兜底源用昨收盘）→ 完整
+      - target == 今天        → 需在收盘点名（15:10）之后才算完整；盘前/盘中 → partial
+      - target > 今天         → 未来日期，视作不完整（防御）
+    """
+    now = datetime.now()
+    today = now.date()
+    t = target_date.date()
+    if t < today:
+        return True
+    if t > today:
+        return False
+    return now.time() >= datetime.strptime("15:10", "%H:%M").time()
+
+
 def cmd_confirm(args: argparse.Namespace) -> None:
     """Layer ② 主题确认（Theme Confirmation）：主题行业证据 + 龙头/广度 + ETF—行业背离。
 
@@ -1307,20 +1325,22 @@ def cmd_confirm(args: argparse.Namespace) -> None:
     total_ind = int(metrics_df["industry_code"].nunique()) if not metrics_df.empty else 0
     covered_ind = int(ms["industry_code"].nunique()) if not ms.empty else 0
     coverage = round(covered_ind / total_ind, 4) if total_ind else 0.0
-    if not ms.empty and "data_status" in ms.columns:
-        provisional = bool((ms["data_status"].dropna().astype(str).str.strip() == "provisional").any())
-    else:
-        provisional = False
-    data_status = "provisional" if provisional else "confirmed"
     sources = [str(s) for s in ms["source"].dropna().unique()] if not ms.empty and "source" in ms.columns else []
-    source_label = _evidence_source_label(sources, provisional)
+    # V0.1 来源语义：source_status（primary/fallback）与 data_status（confirmed/complete/partial）分离，
+    # 不再用「provisional」把「兜底源」和「观测不完整」混为一谈。
+    from . import source_status as _ss
+    source_status = _ss.classify_source_status(sources)
+    is_complete = _observation_falls_on_closed_day(latest_date)
+    data_status = _ss.classify_data_status(source_status, is_complete)
+    source_label = _evidence_source_label(sources, provisional=(data_status != "confirmed"))
     final_df = final_df.copy()
     final_df["data_status"] = data_status
+    final_df["source_status"] = source_status
     final_df["source"] = source_label
     final_df["coverage"] = coverage
     final_df["generated_at"] = pd.Timestamp(datetime.now())
-    logger.info("confirmation evidence: trade_date=%s status=%s source=%s coverage=%.1f%%",
-                latest_date.date(), data_status, source_label, coverage * 100)
+    logger.info("confirmation evidence: trade_date=%s status=%s source_status=%s source=%s coverage=%.1f%%",
+                latest_date.date(), data_status, source_status, source_label, coverage * 100)
     processed_dir.mkdir(parents=True, exist_ok=True)
     out_path = processed_dir / f"confirmation_{date_str}.parquet"
     final_df.to_parquet(out_path, index=False)
