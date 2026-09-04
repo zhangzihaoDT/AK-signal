@@ -17,6 +17,7 @@
 | L2 | Lane 2 底部/修复 | `src/research/etf_bottom` | 全市场 reliable ETF | 价格位置 / 赔率如何（底部域 + Repair-Retest V1） | raw 缓存（离线） | Observation（研究 → Application） |
 | L3 | Lane 3 趋势转换 | `src/research/trend_transition` | 全市场 ETF | 处于什么生命周期阶段 | `v1_signal_daily` + raw | Observation（研究 → Application） |
 | D | ETF State Fusion / 三 Lane 归集 | `etf_signal/three_lane` | 全市场 ETF | ETF 逐只「Trend × Position × Lifecycle」状态视图 | watchlist × v1 × state（三份已落盘） | Fact Aggregation / 归集层，不做 Policy |
+| R | Opportunity Radar | `src/opportunity_radar` | 全市场 ETF（Theme 外） | 有 Theme Registry 未覆盖的强势方向吗（V1.1：→ Candidate Directions） | Layer① rotation × account × master × three_lane × `opportunity_directions_v1.yaml` | Observation（Discovery，非 Decision） |
 
 > 命名提示（两套「层」同名，勿混）：**Layer①②③** = 主链 Observation/Decision；**Lane1/2/3** = ETF 三维研究引擎。
 > Lane1 与 Layer① 同源不同产物：Layer①=横截面 RPS；Lane1=趋势状态池（`trend_state`）。
@@ -43,6 +44,8 @@
  ════ Lane 2（位置/赔率）· Lane 3（生命周期）═══════
         └──── three_lane join（L1×L2×L3）──► ETF 报告 ④ 路径视图
         ▼
+ Opportunity Radar（Theme 外机会，Observation，非 Decision）
+        ▼
  run-day-check（Final Validation）→ status/action/warnings
 ```
 
@@ -51,7 +54,7 @@
 ```
 etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline
   → stock-metrics-online → sw-rps-confirm → sw-rps-report → select
-  → etf-bottom-scan → etf-refresh-v1 → trend-transition-state → three-lane → run-day-check
+  → etf-bottom-scan → etf-refresh-v1 → trend-transition-state → three-lane → opportunity-radar → run-day-check
 ```
 
 | 步骤 | 主报告/产物 | 说明 |
@@ -65,6 +68,7 @@ etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipe
 | etf-refresh-v1 | `outputs/research/etf_bottom/backtest_v1/v1_signal_daily.parquet` | Lane2/3 历史态 |
 | trend-transition-state | `outputs/research/trend_transition/trend_transition_state_{date}.{parquet,json}` | Lane3 每日 Application（无 HTML） |
 | three-lane | `outputs/etf_signal/three_lane_{date}.{parquet,csv}` + 重渲染 ETF 报告 ④ | L1×L2×L3 join |
+| opportunity-radar | `outputs/opportunity_radar/opportunity_radar_{date}.{json,html}` | Theme 外机会 Radar（Observation，不联网；V1.1 candidate_themes/broad_beta + taxonomy provenance） |
 | run-day-check | 控制台 | status(CONFIRMED/PROVISIONAL) · action · warnings |
 
 ## 3. 报告输出清单（HTML/可读）
@@ -76,6 +80,7 @@ etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipe
 | ② 行业轮动 | `outputs/sw_industry_rps/sw_industry_rps_{date}.html`（CONFIRMED 同步 `_latest.html`；provisional 只落 `_{date}_provisional.html`） | ①产业方向Top ②行业/阶段表 ③每主题 Tier+判断+申万证据 |
 | ③ 今日投资建议 | `outputs/selection/tradable_candidates_{date}.html` | 01 今日结论→02 主题状态→03 为什么→04 怎么表达→05 风险与变化→06 决策审计 |
 | Lane2 全市场扫描 | `outputs/research/etf_bottom/scan_{date}.html` | Layer A Market Bottom Map · B Repair-Retest Scanner · C Historical Odds · 口径与限定 |
+| Opportunity Radar | `outputs/opportunity_radar/opportunity_radar_{date}.html` | 01 今日 Radar · 02 Candidate Directions（方向级+成员折叠）· 02b Market Beta 单列 · 03 Possible Mapping Gaps · 04 Audit/Rejected |
 | 三 Lane 合成 | `outputs/etf_signal/three_lane_{date}.{csv,parquet}` | ETF｜Lane2 底部/target｜Lane3 迁移｜离开底部天数｜Lane1 趋势 |
 
 ### 研究报告（一次性/累计，`outputs/research/`）
@@ -98,7 +103,7 @@ etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipe
 | `data/etf_signal/diagnostics/source_audit_{target}.json` | Data Acquisition 观测（per-source/circuit/cache_hits） |
 | `data/processed/sw_industry/{confirmation,tier_confirmation,ai_tier_confirmation,sw_industry_structure}_{trade_date}.parquet` | Layer② 事实 |
 | `outputs/stock_metrics/stock_metrics_{trade_date}.parquet` | 个股趋势 Observation（stock-metrics 构建） |
-| `config/` | 单一事实源（主题/资产池/策略/指标/执行/组合）；`market_data.yaml` 抓取参数不入 config_hash |
+| `config/` | 单一事实源（主题/资产池/策略/指标/执行/组合）；`market_data.yaml` 抓取参数不入 config_hash；`config/research/`（repair_retest_v1 / trend_transition_state_v1 / opportunity_directions_v1）为研究级 YAML，不进 config_hash |
 
 ## 5. 关键语义（跨模块约束，勿静默破坏）
 
@@ -138,7 +143,7 @@ etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipe
 
 ## 6. 命令面（`make` / `python src/main.py`）
 
-- 每日：`make run-day`（/ `run-day-offline` / `run-day-check`）；分步 `make etf-update|etf-calculate|etf-pipeline|sw-rps-*|stock-metrics(-online)|select|etf-bottom-scan|etf-refresh-v1|trend-transition-state|three-lane`
+- 每日：`make run-day`（/ `run-day-offline` / `run-day-check`）；分步 `make etf-update|etf-calculate|etf-pipeline|sw-rps-*|stock-metrics(-online)|select|etf-bottom-scan|etf-refresh-v1|trend-transition-state|three-lane|opportunity-radar`
 - 研究：`research replay single|parity|range` · `research event-study` · `research expression-regime` · `research etf-bottom --scan|--price-map|--state-odds|--drilldown|--episodes|--context-match|--context-replication|--repair|--current-eval|--refresh-v1` · `research trend-transition study3a|3b|3c|state`
 - 回测：`backtest trades|sensitivity|matrix|construction|portfolio`（数据补数：`data benchmark refresh`）
 - 验证：`make test`（865+ 用例）；`run-day-check`（产物完整性/状态聚合）

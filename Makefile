@@ -6,7 +6,7 @@ SRC_MAIN = src/main.py
 .PHONY: help run-day run-day-offline run-day-check \
 	etf-bootstrap etf-bootstrap-core etf-update etf-calculate \
 	etf-classify etf-layer1 etf-watchlist etf-account etf-account-blacklist etf-card etf-pipeline \
-	etf-refresh-v1 three-lane \
+	etf-refresh-v1 three-lane opportunity-radar \
 	etf-retry-uncovered \
 	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-confirm sw-rps-report \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown sw-rps-structure \
@@ -48,6 +48,7 @@ run-day: ## 每日全流程：Observation 自动联网构建（ETF/行业/个股
 	$(MAKE) etf-refresh-v1         # [Lane2] 轻量刷新 v1_signal_daily（Lane 3 状态机输入，全历史重算）
 	$(MAKE) trend-transition-state # [Lane3] 状态分类 Application（读冻结 YAML，自动取最新 trade_date）
 	$(MAKE) three-lane             # 三 Lane 合成表 + 重渲染 ETF 报告（④ 三 Lane 路径视图）
+	$(MAKE) opportunity-radar      # [Observation] Theme 外机会 Radar（消费 three_lane Lane2/Lane3 事实，不联网）
 	$(MAKE) run-day-check
 
 run-day-offline: ## 离线重放/CI：只读已落盘 Observation，不联网抓取（严格重放请用 research replay）
@@ -64,6 +65,7 @@ run-day-offline: ## 离线重放/CI：只读已落盘 Observation，不联网抓
 	$(MAKE) etf-refresh-v1
 	$(MAKE) trend-transition-state
 	$(MAKE) three-lane
+	$(MAKE) opportunity-radar      # [Observation] Theme 外机会 Radar（消费 three_lane，不联网）
 	$(MAKE) run-day-check
 
 run-day-check: ## [Final Validation] 校验 run-day 各层产物并输出最终结果
@@ -109,6 +111,9 @@ etf-refresh-v1: ## [Lane2] 轻量刷新 v1_signal_daily.parquet（每日全历�
 
 three-lane: ## 三 Lane 合成表（watchlist × v1_signal_daily × trend_transition_state）+ 重渲染 ETF 报告（④ 三 Lane 路径视图）
 	$(PYTHON) $(SRC_MAIN) etf three-lane $(if $(TL_DATE),--date $(TL_DATE),)
+
+opportunity-radar: ## [Observation/Discovery] Theme 外机会 Radar（消费 Layer① × Theme Mapping × Lane2/3 事实，不联网）。RADAR_DATE=YYYYMMDD 可选钉定目标日
+	$(PYTHON) $(SRC_MAIN) opportunity-radar run $(if $(RADAR_DATE),--date $(RADAR_DATE),)
 
 # ── SW-RPS 行业信号模块（ETF 子模块） ──────────────────────────
 # 结构：confirm 是 calculate 的下游，复用 calculate 产出的 RPS/指标，

@@ -65,7 +65,7 @@
 
 ## 每日运行（run-day）
 
-- **唯一入口**：`make run-day`（etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline → **stock-metrics-online** → sw-rps-confirm → sw-rps-report → **select** → **etf-bottom-scan** → **etf-refresh-v1** → **trend-transition-state** → **three-lane** → **run-day-check**）——v0.9.1 起个股行情构建提前到 sw-rps-confirm 之前（Tier 确认消费个股趋势产物）；2026-09-02 起三 Lane（Lane 1 ETF 趋势 / Lane 2 底部 / Lane 3 迁移）在 run-day 末端合成进 ETF 报告（④ 三 Lane 路径视图）
+- **唯一入口**：`make run-day`（etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline → **stock-metrics-online** → sw-rps-confirm → sw-rps-report → **select** → **etf-bottom-scan** → **etf-refresh-v1** → **trend-transition-state** → **three-lane** → **opportunity-radar** → **run-day-check**）——v0.9.1 起个股行情构建提前到 sw-rps-confirm 之前（Tier 确认消费个股趋势产物）；2026-09-02 起三 Lane（Lane 1 ETF 趋势 / Lane 2 底部 / Lane 3 迁移）在 run-day 末端合成进 ETF 报告（④ 三 Lane 路径视图）；Opportunity Radar（Theme 外机会发现，Observation）在 three-lane 之后消费 Lane 事实
 - **三 Lane 合成（run-day 末端，v0.9.2）**：顺序锁定 `etf-pipeline（Lane1 signals）→ etf-bottom-scan（Lane2 快照）→ etf-refresh-v1（轻量全历史重算 v1_signal_daily）→ trend-transition-state（Lane3 状态，读冻结 YAML）→ three-lane（join + 重渲染 ETF 报告）`。`three_lane_{date}.{parquet,csv}` 是纯归集层（`src/etf_signal/three_lane.py`），按 fund_code 左外 join 三份已落盘事实，**不制造新事实**：Lane 2 底部用 **raw long_term_bottom**（price_map 口径，不改 3C confirmed）；Lane 3 迁移=状态机原始枚举；Lane 1 趋势=watchlist trend_state。核心列 `ETF | Lane 2 底部 | Lane 2 target | Lane 3 迁移 | 离开底部天数 | Lane 1 趋势`，默认只展示活跃路径子集（底部 ∪ 迁移中 ∪ 趋势活跃），全量折叠审计。展示层翻译（底部→刚离底部→切换中→趋势建立→强势）只在 report renderer，机器枚举保留原样
 - **run-day 默认含 Layer ③**：selection 是 run-day 默认流程的固定环节；`make select` / `make select-offline` 保留为独立执行入口
 - **离线的是决策，不是每日数据生产**：run-day 的 Observation 构建（ETF/行业/**个股行情**）默认允许联网更新（`stock-metrics-online` 自动增量抓取，不依赖手工补数）；Selection（Decision）阶段禁止联网。`make run-day-offline` 用于 CI/重放（个股仅读缓存，stale 降级兜底）；严格历史重放用 `research replay`
@@ -171,6 +171,7 @@ make sw-rps-structure # [Layer ②] Enrichment 行业内部结构（offline 读�
 make stock-metrics     # 构建个股趋势指标产物（Observation 层，离线读缓存）
 make stock-metrics-online  # 个股行情在线补数（run-day 离线不抓个股）
 make select            # Layer ③ 交易候选（读预计算趋势，默认禁止联网）
+make opportunity-radar  # [Observation/Discovery] Theme 外机会 Radar（只读已落盘 Layer①/Lane2/3 事实；RADAR_DATE=YYYYMMDD 可选钉定目标日）
 make replay-single    # v0.5 单日期历史信号重放（DATE=YYYYMMDD）
 make replay-parity    # v0.5 重放 + 与正式产物一致性校验
 make replay-range     # v0.5 区间重放（START/END=YYYYMMDD, LAYERS=123|12）
@@ -323,6 +324,22 @@ make test             # 全部测试
 - **Event Study 前置**：rps1 / delta_rps15 随每日 `rotation_{trade_date}.parquet` 累积落盘；运行满 1 个月后可用 `research replay range` + `research event-study` 验证「RPS1>95 / ΔRPS>20 之后前向收益是否有统计优势」，**确认有优势才考虑进入 Layer③**（当前不进入）
 - **rule_version**：v0.7.1（报告消费/排版重写，算法与 parquet 不变）
 - 命令：`make etf-calculate` / `make etf-pipeline` 行为不变，产物自动含新列与新报告
+
+## Opportunity Radar V1.1（Theme 外机会发现，2026-09，Discovery / Observation）
+
+- **定位**：独立于 Selection V2 的 **Discovery/Observation** 模块——回答「当前全市场是否出现值得研究、但尚未被任何已注册 Theme 覆盖的 ETF / 方向」；**不是 Decision**，不直接输出 BUY/SELL，不改 Selection recommended/action。
+- **冻结边界**：不改 `src/selection/selection.py` / Report IA V2 / `report_spec.yaml` / `tradable_candidates_*.json` / 01-08 HTML / Theme Confirmation / Lane1-3 事实生成 / `selection_universe.yaml`。Radar 只消费已落盘事实，不联网、不重算指标。
+- **模块**：`src/opportunity_radar/`（`mapping.py` 复用 `common.themes.match_theme` 同源映射 + mapping-gap 证据；`spec.py` 研究级 YAML loader；`taxonomy.py` 候选方向分类器；`radar.py` 引擎纯函数 `build_radar`；`report.py` HTML renderer 纯消费；`cli.py`）。不放在 `src/selection/` 内。
+- **输入**：`rotation_{trade_date}.parquet`（Layer① RPS/流动性/数据质量）∩ `account_candidates_{trade_date}.parquet`（账户宇宙 trend_state）＋ `etf_master.parquet`（amount/exposure 分类）＋ `three_lane_{trade_date}.parquet`（Lane2 可靠性/位置、Lane3 生命周期；缺失 → lane-less）。
+- **核心 Universe**：全市场 ETF ∩ 账户宇宙 ∩ rps15 有效 ∩ data_quality 可用（corporate_action 剔除）。
+- **Opportunity Gate（V1，无综合评分）**：`no_theme_mapping ∧ lane2_reliable_360 != False ∧ trend_state ∈ {BUY_CANDIDATE, STRONG_WATCH}`（∧ amount ≥ min_amount，CLI 默认透传 Selection 既有 min_amount）。排序仅展示：trend_state 优先级 → RPS15 desc → amount desc，不代表推荐。
+- **两类输出严格区分**：
+  - **NEW_THEME_CANDIDATE**：strong + 无 Theme + 无结构化证据（不猜）。
+  - **POSSIBLE_MAPPING_GAP**（优先）：无 Theme 但已有结构化证据指向已注册 Theme —— ① `selection_universe.yaml` ETF 固定资产池（theme_etf/sub_industry_etf/watch_etf）注册到某 theme；② master exposure 分类命中 theme label。V1 不做 LLM/embedding/语义推理。
+- **候选方向聚合（V1.1）**：NEW_THEME_CANDIDATE 不再逐 ETF 当独立方向，而是聚合为 **Candidate Directions**——唯一规则真源 = `config/research/opportunity_directions_v1.yaml`（`rule_id: OPPORTUNITY_DIRECTION_TAXONOMY_V1 / status: RESEARCH_TAXONOMY / version / provenance{study, source_artifact, method}`，**版本化可编辑**，放 config/research/ 不进 config_hash）。聚合模型 = **语义方向 × market-scope 推断**：`market_scope`（a_share/hk/overseas）由 `scope_inference` 独立推断；`candidate_theme_key = direction_key + "." + market_scope`（A股红利 `dividend.a_share` ≠ 港股红利 `dividend.hk` 自动拆开）；`market_beta` 是独立布尔——命中 `broad_beta.keywords` 的宽基/区域 ETF（上证指数=**a_share+market_beta**、中证2000、亚太精选…）**单列不进候选方向**；未命中方向 → UNCLASSIFIED（不猜）。方向级代表 = 方向内 amount 最大（与 Layer① ②/Selection ③B 同口径）。**2026-09-02 快照断言**：81 NEW_THEME_CANDIDATE → 17 候选方向 + 9 Market Beta + 0 UNCLASSIFIED（逐只归属由 `tests/opportunity_radar/test_taxonomy.py` 冻结）。
+- **产物**：`outputs/opportunity_radar/opportunity_radar_{trade_date}.{json,html}`（JSON 事实源，含 `taxonomy` provenance，key 命名与 scanner 同款 `rule_id/rule_status/taxonomy_version/rule_spec_source`；V1.1 增 `candidate_themes[]`（candidate_theme_key/market_scope/n_etfs/median/代表/成员）+ `broad_beta[]` + summary `candidate_theme_count/broad_beta_count`。HTML renderer 5 段：01 今日 Radar / 02 Candidate Directions（方向级表+成员折叠）/ 02b Market Beta 单列 / 03 Possible Mapping Gaps / 04 Audit-Rejected）。
+- **闭环**：Radar（候选方向）→ 人工/研究验证 → 已有 Theme 修复 etf_keywords / 新 Theme 注册（`opportunity_directions_v1.yaml` 的方向表可直接作为 theme_registry 草案参考）→ Layer② Confirmation → Selection V2（③A→③B→③C）。**Radar 自身绝不跨过 Theme Confirmation 进入执行**。
+- 命令：`make opportunity-radar` / `python src/main.py opportunity-radar run --date YYYYMMDD`；已挂入 run-day 末端（three-lane 后、run-day-check 前），逻辑职责仍属 Observation。
 
 ## Lane 2 Research（ETF 底部 / 估值研究，独立于每日 pipeline）
 
