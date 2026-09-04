@@ -558,8 +558,8 @@ def test_context_success_fail_distinction():
     from src.research.etf_bottom.context_match import run_context_matching
     from src.research.etf_bottom.context import CONTINUOUS_FEATURES
     p = run_context_matching()
-    # current episode 数量是可漂移的应用态，只断言其为正、且 matches 一一对应
-    assert p["n_current"] >= 1
+    # current episode 数量是可漂移的应用态（市场推进后可能为 0）——不锁数量，
+    # 只锁结构性不变量：matches 与 current episode 一一对应
     assert p["n_current"] == len(p["matches"])
     # 每个 current episode 都有 Top3
     for eid, m in p["matches"].items():
