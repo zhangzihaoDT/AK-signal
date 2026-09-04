@@ -1,0 +1,106 @@
+# Opportunity Radar V1.1 — Candidate Direction Taxonomy（研究级 YAML，版本化可编辑）
+#
+# 唯一规则真源：Radar 把 passing 的 NEW_THEME_CANDIDATE ETF 聚合为「候选方向」时，
+# 语义归属只读本文件；修改方向/词表 = bump version，**不进入 config_hash**（非 Strategy Spec）。
+# 与 theme_registry 的关系：本表是「draft 方向」（已注册 Theme 之外的机会方向），
+# 供人工研究后注册进 theme_registry；不覆盖、不取代 match_theme 的已注册映射。
+#
+# 聚合模型（V1.1）：
+#   market_scope  由 scope_inference 独立推断（a_share / hk / overseas），与方向关键词解耦。
+#   market_beta   命中 broad_beta.keywords 的宽基/区域 ETF = True → 单列，非 Theme。
+#   direction_key = directions[].key（语义方向）。
+#   candidate_theme_key = direction_key + "." + market_scope
+#     → 同一语义在不同市场自动拆开（dividend.a_share ≠ dividend.hk），
+#       也能保留单市场方向（hk_tech.hk）。
+#   directions 有序，ETF 名称按顺序首命中；全部未命中 → UNCLASSIFIED（不猜）。
+rule_id: OPPORTUNITY_DIRECTION_TAXONOMY_V1
+status: RESEARCH_TAXONOMY
+version: 1
+updated_at: '2026-09-04'
+provenance:
+  study: Opportunity Radar V1.1 · Candidate Direction Aggregation
+  source_artifact: outputs/opportunity_radar/opportunity_radar_20260902.json
+  method: 语义方向 × market-scope 推断；词表按快照逐只归属断言定稿（81 → 17 候选方向 + 9 Market Beta + 0 UNCLASSIFIED）
+
+scope_inference:
+  hk: [港股, 恒生, 中概, h股, 香港]
+  overseas: [纳指, 纳斯达克, 标普, 道琼斯, 日经, 亚太, 海外, 全球, 美股, 美国, 沙特, 东盟, 欧洲, 德国, 法国]
+  # 未命中 → a_share
+
+broad_beta:
+  label: Market Beta（宽基/区域，非 Theme）
+  keywords: [上证指数, 中证2000, 中证500, 中证800, 沪深300, a500, a50, 上证50,
+             创业板, 科创50, MSCI, 亚太精选, 中证1000, 中证100]
+
+directions:
+  - key: hk_tech
+    label: 港股科技/互联网
+    bucket: Core · 成长（港股）
+    keywords: [港股通信息技术, 恒生科技, 港股互联网, 港股科技]
+    note: 与 ai_infrastructure 区分——AI 主题显式排除港股通/海外；本方向是港股互联网/科技 beta
+  - key: hk_fin
+    label: 港股金融/非银
+    bucket: 大金融（港股）
+    keywords: [港股通金融, 港股通非银, 港股非银, 香港证券]
+    note: 港股银行/保险/券商/交易所，跨市场拆分自 A股 bank/sec/cn_finance
+  - key: overseas_tech
+    label: 海外科技/成长
+    bucket: 海外权益
+    keywords: [纳指科技, 纳斯达克科技]
+    note: 美股科技方向；当前单只（纳指科技景顺），预留为独立方向
+  - key: pharma
+    label: 创新药/生物医药
+    bucket: Core · 成长
+    keywords: [创新药, 生物科技, 生物医药, 标普生物, 纳指生物, 恒生医药,
+               港股医药, 港股医疗, 港股通医疗, 港股通生物, 医药, 医疗, 生物]
+    note: 港股/海外生物医药为主（pharma.hk / pharma.overseas），A股创新药缺失时可能空方向
+  - key: gold
+    label: 黄金/贵金属
+    bucket: 商品
+    keywords: [黄金]
+    note: 黄金股 ETF 表达 A股贵金属 beta
+  - key: oilgas
+    label: 石油/油气上游
+    bucket: 资源周期
+    keywords: [标普油气, 油气, 石油, 原油]
+    note: 上游油气；overseas（标普油气）与 a_share（石油/油气）拆开
+  - key: energy_chem
+    label: 能源化工/能源
+    bucket: 资源周期
+    keywords: [能源化工, 能源]
+    note: 能源综合/化工资源
+  - key: coal_steel
+    label: 煤炭钢铁（资源）
+    bucket: 资源周期
+    keywords: [煤炭, 钢铁]
+    note: 对应 theme_registry Future Theme「Resource Cycle（有色/钢铁/煤炭）」的一部分
+  - key: agri
+    label: 农业/养殖
+    bucket: 消费/农业
+    keywords: [农业, 养殖, 粮食, 豆粕, 畜牧, 农牧]
+    note: 含农产品期货代理（豆粕ETF）
+  - key: defense
+    label: 军工/航空航天
+    bucket: 高端装备
+    keywords: [军工, 航天, 航空, 国防]
+    note: 对应 theme_registry Future Theme「Aerospace / Shipping（航空航天/船舶）」
+  - key: bank
+    label: 银行（A股）
+    bucket: 大金融
+    keywords: [银行]
+    note: 与 sec/cn_finance 拆开（银行 ≠ 券商 ≠ 综合金融）
+  - key: sec
+    label: 券商/证券保险（A股）
+    bucket: 大金融
+    keywords: [券商, 证券保险]
+    note: 券商/证券保险；「证券」避免过度泛化（仅券商/证券保险/券商保险）
+  - key: cn_finance
+    label: 大金融综合（A股）
+    bucket: 大金融
+    keywords: [金融]
+    note: 金融综合指数（银行+非银混编），bank/sec 之外的兜底
+  - key: dividend
+    label: 红利/高股息/价值
+    bucket: 风格 · 股息
+    keywords: [红利低波, 红利, 高股息, 红利国企, 央企红利, 中证红利, 300红利, 价值, 低波]
+    note: 横截面高股息因子，与 high_cashflow（公用事业/运营商行业）语义区分；A股/港股拆开

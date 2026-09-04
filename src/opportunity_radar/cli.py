@@ -139,12 +139,21 @@ def cmd_run(args: argparse.Namespace) -> None:
     if min_amount <= 0:
         min_amount = float(load_etf_selection_spec().min_amount)
 
+    # 候选方向 taxonomy（研究级 YAML，V1.1）：缺失/校验失败 → 不聚合（保持 V1 ETF 级输出）
+    from src.opportunity_radar.spec import load_direction_spec, taxonomy_provenance
+    direction_spec = None
+    try:
+        direction_spec = load_direction_spec()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("direction taxonomy not aggregated: %s（fallback: ETF 级输出）", e)
+
     payload = radar_engine.build_radar(
         rotation_df=rotation_df,
         account_df=account_df,
         master_df=master_df,
         lane_df=lane_df,
         min_amount=min_amount,
+        direction_spec=direction_spec,
     )
 
     # ── 落盘：JSON 事实源 + HTML renderer ─────────────────────────
@@ -157,10 +166,15 @@ def cmd_run(args: argparse.Namespace) -> None:
         "lane": lane_meta,
         "min_amount": min_amount,
         "rule_version": "v1",
+        "taxonomy": taxonomy_provenance(direction_spec) if direction_spec else None,
     }
     json_path = out_dir / f"opportunity_radar_{td}.json"
     payload_full = {"meta": meta, "summary": payload["summary"],
                     "opportunities": payload["opportunities"], "rejected": payload["rejected"]}
+    if "candidate_themes" in payload:
+        payload_full["candidate_themes"] = payload["candidate_themes"]
+    if "broad_beta" in payload:
+        payload_full["broad_beta"] = payload["broad_beta"]
     json_path.write_text(_json_dumps(payload_full), encoding="utf-8")
     logger.info("radar json: %s", json_path)
 
@@ -175,6 +189,10 @@ def cmd_run(args: argparse.Namespace) -> None:
                 s["full_market_count"], s["mapped_count"], s["unmapped_count"],
                 s["opportunity_count"], s["new_theme_count"], s["mapping_gap_count"],
                 s["rejected_count"])
+    if direction_spec and "candidate_theme_count" in s:
+        logger.info("direction: candidate_themes=%d broad_beta=%d unclassified=%d (taxonomy v%s)",
+                    s["candidate_theme_count"], s["broad_beta_count"], s["unclassified_count"],
+                    meta["taxonomy"].get("taxonomy_version"))
 
 
 def _json_dumps(obj: Any) -> str:

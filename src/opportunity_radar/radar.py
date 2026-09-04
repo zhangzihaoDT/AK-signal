@@ -239,6 +239,7 @@ def build_radar(
     lane_df: pd.DataFrame | None = None,
     min_amount: float | None = None,
     fixed_pool_map: dict[str, list[str]] | None = None,
+    direction_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """构建 Uncovered Opportunity Radar payload（纯函数，无副作用、不联网）。
 
@@ -249,6 +250,9 @@ def build_radar(
         lane_df:     three_lane parquet（Lane2/Lane3 事实；可选 → lane-less）
         min_amount:  可选流动性门槛；None = 不做流动性过滤（amount 仍透传）
         fixed_pool_map: selection_universe 的 fund_code→[theme keys]（POSSIBLE_MAPPING_GAP 证据）
+        direction_spec: 研究级 YAML taxonomy（config/research/opportunity_directions_v1.yaml）。
+            None → 不聚合候选方向（V1 ETF 级行为）；提供 → NEW_THEME_CANDIDATE 聚合为
+            candidate_themes[] + Market Beta 单列 broad_beta[]（V1.1）。
 
     Returns:
         payload dict（trade_date 由 CLI 补入 meta；此处不含日期以保证纯函数可测）
@@ -353,7 +357,8 @@ def build_radar(
 
     full_market = len(base)
     gap_count = sum(1 for o in opportunities if o["classification"] == CLASSIFICATION_GAP)
-    return {
+
+    payload: dict[str, Any] = {
         "role": "opportunity_radar",
         "rule_version": "v1",
         "summary": {
@@ -368,6 +373,43 @@ def build_radar(
         "opportunities": opportunities,
         "rejected": rejected,
     }
+
+    # ── V1.1：候选方向聚合（仅当提供 research taxonomy）──────────────
+    # NEW_THEME_CANDIDATE 是「未映射已注册 Theme」的候选 → 聚合为候选方向；
+    # POSSIBLE_MAPPING_GAP 指向已注册 Theme 的覆盖漏洞 → 不参与方向聚合。
+    if direction_spec:
+        from . import taxonomy as tx
+
+        candidate_themes: list[dict[str, Any]] = []
+        broad_beta: list[dict[str, Any]] = []
+        classified_rows: list[dict[str, Any]] = []
+        for o in opportunities:
+            if o["classification"] != CLASSIFICATION_NEW:
+                continue
+            cls = tx.classify_candidate(o.get("fund_name", ""), direction_spec)
+            o["market_scope"] = cls.get("market_scope")
+            o["direction_key"] = cls.get("direction_key")
+            o["candidate_theme_key"] = cls.get("candidate_theme_key")
+            o["candidate_label"] = cls.get("candidate_label")
+            o["market_beta"] = bool(cls.get("market_beta"))
+            if o["market_beta"]:
+                broad_beta.append(o)
+            elif cls.get("classified"):
+                classified_rows.append({**cls, **o})
+
+        agg = tx.aggregate_directions(classified_rows)
+        candidate_themes = agg["candidate_themes"]
+        payload["candidate_themes"] = candidate_themes
+        payload["broad_beta"] = broad_beta
+        payload["summary"]["candidate_theme_count"] = len(candidate_themes)
+        payload["summary"]["broad_beta_count"] = len(broad_beta)
+        payload["summary"]["unclassified_count"] = sum(
+            1 for o in opportunities
+            if o.get("classification") == CLASSIFICATION_NEW
+            and not o.get("market_beta") and not o.get("candidate_theme_key"))
+        from .spec import taxonomy_provenance
+        payload["taxonomy"] = taxonomy_provenance(direction_spec)
+    return payload
 
 
 def _empty_payload() -> dict[str, Any]:
