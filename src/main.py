@@ -92,6 +92,12 @@ def main() -> None:
             data_main()
             return
 
+        if cmd in ("opportunity-radar", "radar"):
+            from src.opportunity_radar.cli import main as radar_main
+            sys.argv = [sys.argv[0], *argv[1:]]
+            radar_main()
+            return
+
         if cmd == "replay":  # 兼容别名：research replay
             from src.research.cli import main as research_main
             sys.argv = [sys.argv[0], *["replay", *argv[1:]]]
