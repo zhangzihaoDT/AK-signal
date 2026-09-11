@@ -913,6 +913,14 @@ def cmd_report(args: argparse.Namespace) -> None:
     except Exception as e:
         logger.warning("tier confirmation load failed: %s", e)
 
+    # 报告侧「个股观察」两层视图（主代表 + 显著转强）：只读 stock_metrics，fail-soft。
+    stock_view: dict = {}
+    try:
+        from . import stock_emerging as _se
+        stock_view = _se.build_theme_stock_view(date_str)
+    except Exception as e:
+        logger.warning("stock view build failed (report degrades gracefully): %s", e)
+
     csv_path, html_path = report.build_html(
         snapshot=snapshot, metrics=report_metrics,
         validator_result=metrics_valid,
@@ -924,6 +932,7 @@ def cmd_report(args: argparse.Namespace) -> None:
         confirmation_df=confirmation_df,
         confirmation_available=confirmation_available,
         tier_df=tier_df,
+        stock_view=stock_view,
     )
 
     # Verify HTML was produced

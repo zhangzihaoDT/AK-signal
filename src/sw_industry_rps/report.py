@@ -643,6 +643,7 @@ def build_html(
     confirmation_df: pd.DataFrame | None = None,
     confirmation_available: bool = False,
     tier_df: pd.DataFrame | None = None,
+    stock_view: dict | None = None,
 ) -> tuple[Path, Path]:
     suffix = provisional_suffix
     csv_path = reports_dir / f"sw_industry_rps_{report_date}{suffix}.csv"
@@ -678,7 +679,7 @@ def build_html(
     parts.append('<div class="section"><h2>③ 我的主题获得哪些支撑？</h2>')
     if tier_df is not None or (confirmation_available and confirmation_df is not None):
         from . import confirmation_sections as _cs
-        parts.append(_cs.render_theme_support(tier_df, confirmation_df, structure_df))
+        parts.append(_cs.render_theme_support(tier_df, confirmation_df, structure_df, stock_view=stock_view))
     else:
         parts.append("<p>主题确认尚未生成——运行 <code>confirm</code> 后可见主题支撑详情。</p>")
     parts.append('</div>')

@@ -333,6 +333,7 @@ def render_theme_tier_block(
     tier_df: pd.DataFrame,
     theme_key: str,
     confirmation_df: pd.DataFrame | None = None,
+    stock_view: dict[str, Any] | None = None,
 ) -> str:
     """③ 某主题的 Tier basket 区块：头部状态 + Tier 表
     （Tier/状态/Strength/上涨比例/Trend中位/强趋势/驱动）+ 判断 + 申万交叉证据。
@@ -410,6 +411,15 @@ def render_theme_tier_block(
 
     # 判断：主题链结构的人话结论
     parts.append(f"<div class='verdict'><b>判断：</b>{_theme_tier_verdict(df.to_dict('records'), agg)}</div>")
+
+    # 个股观察（Observability，纯展示）：主代表 + 显著转强，不改任何 Gate
+    try:
+        from . import stock_emerging as _se
+        watch_html = _se.render_stock_watch(stock_view)
+    except Exception:  # noqa: BLE001 - 展示层失败不阻塞报告
+        watch_html = ""
+    if watch_html:
+        parts.append(watch_html)
 
     # 申万交叉证据（Evidence，非 Gate）
     parts.append(f"<p class='answer-note'><b>申万交叉证据：</b>{_sw_cross_evidence(confirmation_df, theme_key)}</p>")
@@ -532,19 +542,23 @@ def render_theme_support(
     tier_df: pd.DataFrame | None,
     confirmation_df: pd.DataFrame | None,
     structure_df: pd.DataFrame | None = None,
+    stock_view: dict[str, Any] | None = None,
 ) -> str:
     """③ 我的主题获得哪些支撑？— 统一入口（v0.9.1）。
 
     统一框架：所有配置了 tiers 的主题都走「Theme → Tier basket → 个股趋势 →
     Theme confirmation → 申万行业 Evidence」，逐主题渲染 Tier 区块。
     申万行业对全部主题都是 Evidence（非 Gate）。
+    stock_view：报告侧「个股观察」两层视图（主代表 + 显著转强），纯展示。
     """
     from src.common import themes as themes_cfg
     parts: list[str] = []
+    stock_view = stock_view or {}
 
     if tier_df is not None and not tier_df.empty and "theme" in tier_df.columns:
         for theme_key in sorted(tier_df["theme"].astype(str).unique()):
-            block = render_theme_tier_block(tier_df, theme_key, confirmation_df)
+            block = render_theme_tier_block(tier_df, theme_key, confirmation_df,
+                                            stock_view=stock_view.get(theme_key))
             if block:
                 parts.append(block)
     elif confirmation_df is not None and not confirmation_df.empty and "theme" in confirmation_df.columns:
