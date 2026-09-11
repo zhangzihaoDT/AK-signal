@@ -14,7 +14,7 @@ SRC_MAIN = src/main.py
 	stock-metrics stock-metrics-online \
 	replay-single replay-parity replay-range event-study \
 	backtest-trades backtest-sensitivity backtest-matrix backtest-portfolio backtest-construction \
-	etf-bottom etf-bottom-price-map etf-bottom-odds etf-bottom-drilldown etf-bottom-episodes etf-bottom-context etf-bottom-context-replication etf-bottom-repair etf-bottom-current-eval etf-bottom-scan etf-bottom-v1-backtest etf-mapping-feasibility trend-transition-3a trend-transition-3b trend-transition-3c trend-transition-state \
+	etf-bottom etf-bottom-price-map etf-bottom-odds etf-bottom-drilldown etf-bottom-episodes etf-bottom-context etf-bottom-context-replication etf-bottom-repair etf-bottom-current-eval etf-bottom-scan etf-bottom-v1-backtest etf-mapping-feasibility trend-transition-3a trend-transition-3b trend-transition-3c trend-transition-state leader-breakout \
 	test install clean
 
 help: ## 显示帮助信息
@@ -259,6 +259,9 @@ trend-transition-3c: ## [Lane3] Study 3C 状态分类研究（确定性 as-of �
 
 trend-transition-state: ## [Lane3] Application：读冻结 YAML，输出 date-stamped 状态表（--date 缺省=最新 v1_signal_daily；L3_DATE=YYYYMMDD 可显式钉定）
 	$(PYTHON) $(SRC_MAIN) research trend-transition state $(if $(L3_DATE),--date $(L3_DATE),)
+
+leader-breakout: ## [Research] 主题未确认时龙头个股单点突破的前瞻收益研究（只读缓存，不联网）
+	$(PYTHON) $(SRC_MAIN) research leader-breakout $(if $(START),--start-date $(START),) $(if $(END),--end-date $(END),)
 
 # ── 开发维护 ──────────────────────────────────────────────────
 

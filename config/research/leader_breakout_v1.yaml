@@ -1,0 +1,85 @@
+# Leader Breakout Event V1 — frozen research hypothesis.
+#
+# Question: when a theme is NOT yet confirmed, does a leading stock's single-name
+# breakout (trend_score crossing up) carry enough forward edge to justify an early,
+# smaller-than-full entry?
+#
+# This file is the canonical runtime rule source. The study may discover drift but
+# must never rewrite this spec. A changed hypothesis requires V2.
+#
+# Loose ends frozen here (decided 2026-09-11, defaults from plan):
+#   - theme_unconfirmed is reconstructed with the *industry gate* (historically
+#     reconstructable). Current production uses the Tier gate (2026-08+); this is
+#     an explicit semantic proxy, cross-checked against Tier when available.
+#   - cooldown = score must reset < threshold AND >= N trading days since last event.
+#   - MA60 / 20D-high are TAGS, never hard gates.
+#   - theme_breadth denominator = all theme stock assets with data (monitor_only excluded).
+#   - early sleeve exit = fixed_20; hold-to-confirmation reported as secondary.
+#   - survivorship: today's theme pool applied backwards is an accepted caveat.
+rule_id: LEADER_BREAKOUT_V1
+status: FROZEN_RESEARCH_HYPOTHESIS
+frozen_at: 2026-09-11
+
+event:
+  themes:
+    - ai_infrastructure
+    - china_auto_global
+    - high_cashflow
+  # 仅个股（按 STOCK_TIERS 判定），ETF 不进本事件
+  asset_type: stock
+  exclude_participation:
+    - monitor_only
+  rank_trend: 1              # 主题内 score_trend 排名第 1
+  require_rs20_positive: true
+  score_threshold: 70        # 对齐生产 stock_selection.trend.qualified_score
+  cooldown_reset_required: true
+  cooldown_trading_days: 20
+
+theme_state:
+  method: industry_gate_reconstruction
+  confirm_states: ["观察", "强势"]
+  confirm_lookahead_days: 120   # 事件后寻找首个主题确认日的上限（用于 Q2 等待比较）
+
+tags:
+  ma60_tag: above_ma60          # 事件日 close >= MA60
+  ma60_cross_window: 10         # 近 N 日内曾上穿 MA60
+  ma120_tag: above_ma120        # 事件日 close >= MA120
+  high_tag: new_high_20d        # 事件日 close 为近 20 日最高
+  drawdown_buckets: [0.10, 0.20, 0.30]
+  breadth_score_threshold: 70   # theme_breadth = 主题内 score>=该阈值占比
+
+returns:
+  entry: next_open             # T+1 开盘入场（对齐 v0.5.2 next_open 执行口径）
+  horizons: [5, 10, 20, 60]
+  primary_horizon: 20
+  benchmark: theme_stock_median  # 同主题个股中位前向收益（分层基准）
+
+portfolio:
+  sleeve_weights: [0.25, 0.33, 0.5]
+  primary_weight: 0.33
+  early_exit: fixed_20
+  wait_exit: fixed_20
+  cost_bps: 20                 # 单边成本（研究口径，fee+slippage 合并）
+
+gates:
+  L1_bootstrap:
+    n_boot: 2000
+    seed: 42
+    ci: 0.95
+  L2_years:
+    min_positive_years: 2
+  L3_risk:
+    max_median_mae: -0.20
+    min_win_rate: 0.45
+    max_single_stock_share: 0.40
+  L4_portfolio:
+    min_sharpe: 0.30
+  L5_sensitivity:
+    thresholds: [65, 70, 75]
+    cooldowns: [10, 20, 30]
+
+provenance:
+  study: Leader Breakout Event V1
+  drawn_from:
+    - docs/research_aug2026_risk_gate_review.md
+    - docs/research_aug2026_selection_gap.md

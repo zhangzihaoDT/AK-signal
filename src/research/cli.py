@@ -51,7 +51,13 @@ def main() -> None:
         tt_main()
         return
 
-    print("research subcommands: replay (single|parity|range), event-study, expression-regime, basket run, etf-bottom, trend-transition (study3a)")
+    if sub in ("leader-breakout", "leader_breakout"):
+        from src.research.leader_breakout.cli import main as lb_main
+        sys.argv = [sys.argv[0], *argv[1:]]
+        lb_main()
+        return
+
+    print("research subcommands: replay (single|parity|range), event-study, expression-regime, basket run, etf-bottom, trend-transition (study3a), leader-breakout")
     sys.exit(2)
 
 
