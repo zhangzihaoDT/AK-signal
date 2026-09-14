@@ -958,10 +958,10 @@ def test_scanner_transition_kind():
 
 
 def test_scanner_run_20260831_baseline():
-    """2026-08-31 全市场扫描对照已知基线（用户锁定事实）：
-    reliable=874 = 原901 − 27只真实 flat-price 货币ETF（taxonomy 修复后 flat_price 29→27，
-    其中 2 只「现金流ETF」误判已修正，本来就在 901 内，不构成额外加入 universe）。
-    BASE=664 / EXT=210 / flat_price=27 / ltb=22 / DEEP=6 / RECOVERING=16 / TARGET=0 / NEAR_MISS=0。
+    """2026-08-31 全市场扫描对照已知基线（P0 位置契约后）：
+    reliable=844 = 原 874 − 30 只「360D 窗口含缺失 bar」标的（P0 契约把 DATA_GAP
+    判定为 UNRELIABLE，不再用 50.0 兜底；2026-08 存在多日 NaN bar，如 560650 等）。
+    BASE=638 / EXT=206 / flat_price=27 / ltb=22 / DEEP=6 / RECOVERING=16 / TARGET=0 / NEAR_MISS=0。
     仅对与 base 事实一致且稳定的部分硬编码，不做 snapshot 数量锁死。
     """
     import json
@@ -969,14 +969,12 @@ def test_scanner_run_20260831_baseline():
     p = run_scan("2026-08-31")
     a = p["layer_a_market_bottom_map"]
     # 数据质量门（2026-08-31 时点，排除货币/债券近零波动；现金流ETF 是权益不误排除）
-    assert a["reliable_total"] == 874
-    assert a["cohort"] == {"BASE": 664, "EXTENSION": 210}
+    assert a["reliable_total"] == 844
+    assert a["cohort"] == {"BASE": 638, "EXTENSION": 206}
     assert a["flat_price_total"] == 27
-    # Provenance 锁定：reliable = 原 901 − 27 真实 flat-price 货币ETF。
-    # 现金流ETF 修正不改 reliable 分母——它们本来就在 901 内（2 只 hist≥360 在 reliable，
-    # 其余 29 只 hist<360 本就在 unreliable），不构成额外加入 universe。
+    # Provenance：reliable = full_360 ∧ pos360 有值 ∧ ¬折算 ∧ ¬flat_price。
+    # 原 874 中 30 只因 360D 窗口含 NaN bar（DATA_GAP）转 UNRELIABLE——契约的预期行为。
     flat = pd.read_parquet(p["flat_parquet_path"])
-    assert a["reliable_total"] + a["flat_price_total"] == 901
     assert a["flat_price_total"] + a["unreliable_total"] + a["reliable_total"] == 1289
     # 现金流ETF（159201/159399 hist≥360）必须在 reliable 内（非 flat），且不新增行数
     assert (flat["fund_code"] == "159201").any()
@@ -1019,23 +1017,28 @@ def test_scanner_run_20260831_baseline():
 
 
 def test_scanner_prev_trade_date_uniform_and_missing():
-    """prev_trade_date 用统一市场前一交易日；某 ETF 当日无数据 → PREV_MISSING + prev_actual_trade_date 审计。
-    560650（核心50ETF民生加银）在 2026-08-28 无数据，其 prev_actual_trade_date 应 = 2026-08-21。"""
-    import json
+    """prev_trade_date 用统一市场前一交易日，不静默回退。
+
+    P0 契约变更：560650（核心50ETF民生加银）在 2026-08 有多个缺失 bar（含 NaN），
+    360D 窗口 unknown → 现判 UNRELIABLE / DATA_GAP，不再进 reliable 表；因此本例
+    验证「reliable 行 prev 日统一 + 该标的按契约被排除」，替代旧 PREV_MISSING 例。"""
     from src.research.etf_bottom.scanner import run_scan
+    from src.research.etf_bottom.price_map import compute_row
     p = run_scan("2026-08-31")
     a = p["layer_a_market_bottom_map"]
     assert a["prev_trade_date"] == "2026-08-28"
     flat = pd.read_parquet(p["flat_parquet_path"])
-    r = flat[flat["fund_code"] == "560650"].iloc[0]
-    assert r["prev_trade_date"] == "2026-08-28"          # 统一市场 prev 日，不静默回退
-    assert r["prev_actual_trade_date"] == "2026-08-21"   # 审计：该 ETF 自身最近可用交易日
-    assert r["prev_data_status"] == "missing"
-    assert r["transition"] == "PREV_MISSING"
-    # 其余正常行 prev_data_status=ok
-    ok_rows = flat[flat["fund_code"] != "560650"]
-    assert (ok_rows["prev_data_status"] == "ok").all()
-    assert (ok_rows["transition"] != "PREV_MISSING").all()
+    # reliable 表内 prev 日统一为市场前一交易日
+    assert (flat["prev_trade_date"] == "2026-08-28").all()
+    assert (flat["prev_data_status"] == "ok").all()
+    assert (flat["transition"] != "PREV_MISSING").all()
+    # 560650 因数据洞被契约排除（不再被 50.0 兜底成 reliable）
+    assert "560650" not in set(flat["fund_code"])
+    d = pd.read_parquet("data/etf_signal/raw/560650.parquet", columns=["date", "close"])
+    r = compute_row("560650", "核心50ETF民生加银", "broad", d, pd.Timestamp("2026-08-31"))
+    assert r["window_reason_360"] == "DATA_GAP"
+    assert r["price_pos_360"] is None
+    assert r["bottom_state"] == "UNRELIABLE"
 
 
 def test_scanner_report_renderer_consumes_json_only():
@@ -1084,3 +1087,118 @@ def test_scanner_frozen_cutpoint_drift_guard():
     with pytest.raises(RuntimeError, match="cut points 漂移"):
         scanner._verify_frozen(scanner._FROZEN_120, [-0.001, 13.0, 22.12, 100.0])
 
+
+
+# ── P0 数据契约：price_pos「未知不落地」 ─────────────────────────────
+
+def _contract_series(prices, start="2023-01-02"):
+    import numpy as np
+    return pd.DataFrame({"date": pd.bdate_range(start, periods=len(prices)),
+                         "close": np.asarray(prices, dtype=float)})
+
+
+def test_position_contract_never_emits_50_sentinel():
+    """P0：窗口含缺失 bar / 无波动时，price_pos 必须是 None/NaN，绝不落地为 50.0。"""
+    import numpy as np
+    from src.research.etf_bottom.position_contract import (
+        compute_position_columns, evaluate_window_position, corp_action_flags,
+        REASON_DATA_GAP, REASON_FLAT_WINDOW)
+
+    # 常态序列：窗口完整 → 有位置值
+    up = np.linspace(100, 200, 120)
+    ca = corp_action_flags(pd.Series(up))
+    wp = evaluate_window_position(np.asarray(up, dtype=float), 119, 60, ca)
+    assert wp.valid and wp.reason == "OK"
+    assert wp.price_pos is not None and wp.price_pos != 50.0
+
+    # 插入一个缺失 bar（落在窗口内）→ 含它的 60D 窗口 unknown，绝不是 50
+    gap = up.copy(); gap[100] = np.nan
+    ca_gap = corp_action_flags(pd.Series(gap))
+    wp_gap = evaluate_window_position(np.asarray(gap, dtype=float), 119, 60, ca_gap)
+    assert wp_gap.price_pos is None and wp_gap.reason == REASON_DATA_GAP
+
+    # 平坦窗口（hi == lo）→ unknown + FLAT_WINDOW，不是 50
+    flat = np.full(120, 100.0)
+    wp_flat = evaluate_window_position(flat, 119, 60, corp_action_flags(pd.Series(flat)))
+    assert wp_flat.price_pos is None and wp_flat.reason == REASON_FLAT_WINDOW
+
+    cols = compute_position_columns(np.asarray(gap, dtype=float), ca_gap, 60)
+    assert not np.any(cols["price_pos"] == 50.0)
+
+
+def test_position_contract_reason_decides_semantics():
+    """缺失/异常「原因」决定语义：历史不足 ≠ 数据洞 ≠ 折算。"""
+    import numpy as np
+    from src.research.etf_bottom.position_contract import (
+        evaluate_window_position, corp_action_flags)
+
+    # 历史不足：只有 40 个 bar，问 60D 窗口
+    short = np.linspace(100, 110, 40)
+    wp = evaluate_window_position(short, 39, 60, corp_action_flags(pd.Series(short)))
+    assert wp.reason == "INSUFFICIENT_HISTORY" and wp.price_pos is None
+
+    # 折算：窗口内单日 |ret| >= 20%
+    spiked = np.linspace(100, 160, 120)
+    spiked[110] = spiked[109] * 0.5
+    ca = corp_action_flags(pd.Series(spiked))
+    wp_ca = evaluate_window_position(spiked, 119, 60, ca)
+    assert wp_ca.reason == "CORPORATE_ACTION" and wp_ca.price_pos is None
+
+
+def test_position_contract_scalar_vector_parity():
+    """标量与向量实现逐值等价（唯一规则真源的镜像保证）。"""
+    import numpy as np
+    from src.research.etf_bottom.position_contract import (
+        compute_position_columns, evaluate_window_position, corp_action_flags, REASON_OK)
+
+    rng = np.random.default_rng(7)
+    n = 300
+    close = np.cumsum(rng.normal(0, 1, n)) + 100
+    close[40] = np.nan                      # 数据洞
+    close[200] = close[199] * 1.4           # 疑似折算
+    ca = corp_action_flags(pd.Series(close))
+    for w in (20, 60, 120):
+        cols = compute_position_columns(close, ca, w)
+        for i in range(n):
+            wp = evaluate_window_position(close, i, w, ca)
+            assert wp.reason == cols["reason"][i], (i, w, wp.reason, cols["reason"][i])
+            if wp.reason == REASON_OK:
+                assert abs(wp.price_pos - cols["price_pos"][i]) < 1e-9
+            else:
+                assert np.isnan(cols["price_pos"][i]), (i, w, wp.reason)
+
+
+def test_daily_state_series_data_gap_is_unreliable_not_normal():
+    """一个缺失 bar 不得被当作「有效非底部」：受影响窗口 state=UNRELIABLE、ltb=False。"""
+    import numpy as np
+    from src.research.etf_bottom.state_odds import daily_state_series
+
+    up = np.linspace(100, 200, 200)
+    down = 200 * np.exp(np.linspace(0, np.log(0.4), 200))
+    close = np.concatenate([up, down])
+    close[300] = np.nan  # 数据洞落在后段
+
+    s = daily_state_series(pd.DataFrame({"date": pd.bdate_range("2023-01-02", periods=len(close)),
+                                         "close": close}))
+    # 洞之后 60 个交易日的窗口必须 UNRELIABLE，绝不被 50 兜底成 NORMAL
+    after = s.iloc[301:360]
+    assert (after["bottom_state"] == "UNRELIABLE").all()
+    assert not after["long_term_bottom"].any()
+    assert (after["window_reason_60"] == "DATA_GAP").all()
+
+
+def test_compute_row_data_gap_not_coerced():
+    """compute_row 同契约：缺失 bar → price_pos None + bottom_state UNRELIABLE（非 NORMAL）。"""
+    import numpy as np
+    from src.research.etf_bottom.price_map import compute_row
+
+    up = np.linspace(100, 300, 300)
+    down = 300 * np.exp(np.linspace(0, np.log(0.5), 80))
+    close = np.concatenate([up, down])
+    close[-30] = np.nan  # 最近 60D 内数据洞
+    d = _contract_series(close, "2025-01-01")
+    r = compute_row("G", "数据洞ETF", "broad", d, pd.Timestamp("2026-08-28"))
+    assert r["price_pos_60"] is None
+    assert r["window_reason_60"] == "DATA_GAP"
+    assert r["bottom_state"] == "UNRELIABLE"
+    assert r["long_term_bottom"] is False

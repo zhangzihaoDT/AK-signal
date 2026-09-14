@@ -216,10 +216,12 @@ def run_scan(as_of: str | pd.Timestamp | None = None, study_dir: Path | None = N
 
         hist_days = int(cur.get("history_days", 0))
         flat_price = str(cur.get("data_quality_flag", "")) == "flat_price_noise"
-        # 货币/债券近零波动：价格无底部信号，排除出 reliable（不进 cohort、不进主表，单独 audit）
-        reliable = bool(cur.get("full_360_sample")) and not bool(cur.get("unreliable_360")) and not flat_price
-        cohort = _cohort(hist_days, reliable)
         p60, p120, p360 = cur.get("price_pos_60"), cur.get("price_pos_120"), cur.get("price_pos_360")
+        # 货币/债券近零波动：价格无底部信号，排除出 reliable（不进 cohort、不进主表，单独 audit）。
+        # P0 契约：360 窗口 unknown（数据洞/折算/无波动）→ price_pos_360=None，不算 reliable。
+        reliable = (bool(cur.get("full_360_sample")) and p360 is not None
+                    and not bool(cur.get("unreliable_360")) and not flat_price)
+        cohort = _cohort(hist_days, reliable)
 
         # long_term_bottom = 市场状态事实（Observation，price_map 口径）；in_domain = V1 research domain
         ltb = bool(cur.get("long_term_bottom"))
@@ -237,6 +239,7 @@ def run_scan(as_of: str | pd.Timestamp | None = None, study_dir: Path | None = N
             "in_domain": in_domain,
             "industry_cluster": CLUSTER_NAME_BY_CODE.get(code, "OTHER"),
             "p60": p60, "p120": p120, "p360": p360,
+            "window_reason_360": cur.get("window_reason_360"),
             "data_quality_flag": cur.get("data_quality_flag", ""),
         }
 

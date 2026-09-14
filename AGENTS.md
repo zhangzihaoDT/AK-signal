@@ -348,6 +348,7 @@ make test             # 全部测试
 
 ## Lane 2 Research（ETF 底部 / 估值研究，独立于每日 pipeline）
 
+- **P0 数据契约 · price_pos「未知不落地」（2026-09-14，FROZEN）**：唯一真源 `src/research/etf_bottom/position_contract.py`——位置值只在「窗口 N 个 bar 齐全 ∧ hi>lo ∧ 无折算」时定义，**unknown 一律 `None`，绝不落地为数值（尤其禁止旧的 `50.0` 兜底）**；缺失「原因」决定语义（`OK / INSUFFICIENT_HISTORY / DATA_GAP / CORPORATE_ACTION / FLAT_WINDOW / FLAT_PRICE_ASSET`，`DATA_GAP`=数据管线事故需修数，`INSUFFICIENT_HISTORY`=正常生命周期）。`price_map.compute_row` 与 `state_odds.daily_state_series` 共用规则（标量/向量 parity 测试锁定），产物新增 `window_reason_N`，price_map JSON 增 `window_reason_counts`。背景：2026-09-03 全市场 1598/1609 缺 bar 经 `50.0` 兜底毒化 Lane2 全历史与 Lane3 状态机数周。详见 `docs/DATA_CONTRACT_PRICE_POSITION.md`
 - **定位**：检验「长期底部是否有赔率」「确认是否太晚」两大假设；**不依赖 tracking_index mapping**（纯价格状态），不进入 Layer ①/②/③ 生产链路，纯研究产物
 - **Stage 1a（2026-08-31 已完成）**：ETF 跟踪指数 mapping 可行性抽样（50 只 × 4 源）——结论：**mapping-first 路线不作为 Lane 2 关键路径**。SSE 官方 898 只无指数列、中证 2357 指数不可反查 ETF、东财 HTML 无跟踪字段；所有官方/第三方 reliable_rate=0、无 recommended_for_bulk。**HEURISTIC 仅 discovery hint**，不进入 valuation join / Double LOW sample / production（子串规则会产生「看起来像真的错误 mapping」，如创业板新能源→创业板指数）。报告：`outputs/research/etf_mapping/mapping_feasibility_report.json`；命令 `make etf-mapping-feasibility`（`python -m src.research.etf_mapping.cli`）
 - **Study 1 Price Bottom（2026-08-31）**：729 只 FULL ETF（raw 历史 ≥756 交易日）价格底部赔率研究。模块 `src/research/etf_bottom/`（`research etf-bottom` / `make etf-bottom`）：

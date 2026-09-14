@@ -35,13 +35,19 @@ import pandas as pd
 from src.common.paths import etf_signal_master_dir, etf_signal_raw_dir
 
 from .universe import calibrate_etf_type, is_flat_price
+from .position_contract import (
+    CA_RET_THRESHOLD,
+    POS_LOW_THRESHOLD,
+    REASON_CORPORATE_ACTION,
+    REASON_FLAT_PRICE_ASSET,
+    corp_action_flags,
+    evaluate_window_position,
+)
 from . import STUDY_DIR
 
 logger = logging.getLogger(__name__)
 
 WINDOWS = (60, 120, 360)
-POS_LOW_THRESHOLD = 20.0        # price_pos <= 20 视为 LOW
-CA_RET_THRESHOLD = 0.20         # 单日 |ret| >= 20% 疑似份额折算/公司行为
 
 
 def detect_corp_action(d: pd.DataFrame) -> pd.Series:
@@ -64,9 +70,7 @@ def compute_row(code: str, name: str, etf_type: str, d: pd.DataFrame, as_of: pd.
     close = df["close"]
     last_trade_date = df["date"].max()
     stale_days = int((as_of - last_trade_date).days) if last_trade_date < as_of else 0
-    ca = detect_corp_action(df)
-    # 折算相对窗口起点偏移：窗口取最近 N 行，折算落在其中则污染
-    ca_flags = ca.to_numpy(bool)  # index: 0..n-1
+    ca_flags = corp_action_flags(close)  # index: 0..n-1（与窗口内部变化对齐）
 
     row: dict[str, Any] = {
         "fund_code": code, "fund_name": name, "etf_type": etf_type,
@@ -74,6 +78,7 @@ def compute_row(code: str, name: str, etf_type: str, d: pd.DataFrame, as_of: pd.
         "history_days": int(n_hist),
         "close_as_of": float(close.iloc[-1]),
     }
+    close_arr = close.to_numpy(dtype=float)
     # 货币/债券近零波动，P 分位无意义（与 Study 1 口径一致）→ 不参与底部状态。
     # 防御 guardrail：即使 taxonomy 漏判（如场内货币名不带动「货币」关键词），
     # is_flat_price 波动率信号也将其判为近零波动，排除出底部状态（flat_price_noise）。
@@ -85,34 +90,22 @@ def compute_row(code: str, name: str, etf_type: str, d: pd.DataFrame, as_of: pd.
             row[f"price_pos_{w}"] = None
             row[f"distance_to_low_{w}"] = None
             row[f"unreliable_{w}"] = False
+            row[f"window_reason_{w}"] = REASON_FLAT_PRICE_ASSET
         row["bottom_state"] = "NORMAL"
         row["long_term_bottom"] = False
         row["data_quality_flag"] = "flat_price_noise"
         return row
-    full_flags: dict[int, bool] = {}
+
+    # P0 数据契约：窗口位置只由 position_contract 判定；unknown → None（绝不 50）。
     for w in WINDOWS:
-        full = n_hist >= w
-        full_flags[w] = full
-        row[f"full_{w}_sample"] = full
-        if not full:
-            row[f"low_{w}"] = None
-            row[f"high_{w}"] = None
-            row[f"price_pos_{w}"] = None
-            row[f"distance_to_low_{w}"] = None
-            row[f"unreliable_{w}"] = True
-            continue
-        tail = close.iloc[-w:]
-        lo, hi = float(tail.min()), float(tail.max())
-        cur = float(close.iloc[-1])
-        pos = (cur - lo) / (hi - lo) * 100.0 if hi > lo else 50.0
-        # 折算污染：窗口内（最近 w 行，含首行 pct_change）是否有疑似公司行为
-        # ca_flags[k] 标记第 k 日相对 k-1 的跳变；窗口 [n_hist-w, n_hist) 含 k>n_hist-w
-        window_ca = bool(ca_flags[n_hist - w:].any()) if w > 1 else False
-        row[f"low_{w}"] = lo
-        row[f"high_{w}"] = hi
-        row[f"price_pos_{w}"] = None if window_ca else round(pos, 2)
-        row[f"distance_to_low_{w}"] = None if window_ca else round(cur / lo - 1.0, 4)
-        row[f"unreliable_{w}"] = bool(window_ca)
+        row[f"full_{w}_sample"] = n_hist >= w
+        wp = evaluate_window_position(close_arr, n_hist - 1, w, ca_flags)
+        row[f"low_{w}"] = wp.low
+        row[f"high_{w}"] = wp.high
+        row[f"price_pos_{w}"] = round(wp.price_pos, 2) if wp.price_pos is not None else None
+        row[f"distance_to_low_{w}"] = round(wp.distance_to_low, 4) if wp.distance_to_low is not None else None
+        row[f"unreliable_{w}"] = wp.reason == REASON_CORPORATE_ACTION
+        row[f"window_reason_{w}"] = wp.reason
 
     bottom_state, long_term_bottom = classify_state(row)
     row["bottom_state"] = bottom_state
@@ -127,17 +120,17 @@ def classify_state(row: dict[str, Any]) -> tuple[str, bool]:
     u60, u120, u360 = row.get("unreliable_60"), row.get("unreliable_120"), row.get("unreliable_360")
     f360 = row.get("full_360_sample")
 
-    # 360D 不可用：历史不足或折算污染 → 整体 UNRELIABLE
-    if not f360 or u360 or p360 is None:
+    def _defined(v: Any) -> bool:
+        return v is not None and not pd.isna(v)
+
+    # 360D 不可用：历史不足 / 数据洞 / 折算污染 → 整体 UNRELIABLE（unknown 绝不降格为 NORMAL）
+    if not f360 or u360 or not _defined(p360):
         return "UNRELIABLE", False
 
-    lo60 = p60 <= POS_LOW_THRESHOLD
-    lo120 = p120 <= POS_LOW_THRESHOLD
     lo360 = p360 <= POS_LOW_THRESHOLD
-
-    # 60/120 窗口如被污染，无法参与判定 → 视为不满足（保守，不造假低位）
-    lo60 = lo60 and not u60
-    lo120 = lo120 and not u120
+    # 60/120 未知或被污染 → 不参与低位判定（保守，不造假低位）
+    lo60 = _defined(p60) and (not u60) and (p60 <= POS_LOW_THRESHOLD)
+    lo120 = _defined(p120) and (not u120) and (p120 <= POS_LOW_THRESHOLD)
 
     if lo60 and lo120 and lo360:
         state = "DEEP_BOTTOM"
@@ -148,7 +141,7 @@ def classify_state(row: dict[str, Any]) -> tuple[str, bool]:
     else:
         state = "NORMAL"
 
-    long_term = (not u120) and (not u360) and (p120 is not None) and (p360 is not None) \
+    long_term = (not u120) and (not u360) and _defined(p120) and _defined(p360) \
         and p120 <= POS_LOW_THRESHOLD and p360 <= POS_LOW_THRESHOLD
     return state, bool(long_term)
 
@@ -211,6 +204,11 @@ def write_products(df: pd.DataFrame, as_of: str, study_dir: Path | None = None) 
             "n_120_unreliable": int(df["unreliable_120"].sum()),
             "n_360_unreliable": int(df["unreliable_360"].sum()),
             "n_overall_unreliable": int((df["bottom_state"] == "UNRELIABLE").sum()),
+        },
+        # P0 数据契约可观测：位置为何为 unknown（DATA_GAP = 数据管线事故，需修数）
+        "window_reason_counts": {
+            f"reason_{w}": df[f"window_reason_{w}"].value_counts(dropna=False).to_dict()
+            for w in WINDOWS if f"window_reason_{w}" in df.columns
         },
         "csv": str(csv_path), "parquet": str(pq_path),
     }

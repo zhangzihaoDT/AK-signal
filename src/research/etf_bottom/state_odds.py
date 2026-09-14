@@ -33,6 +33,11 @@ from src.common.paths import etf_signal_raw_dir
 
 from . import STUDY_DIR, HORIZONS
 from .price_map import POS_LOW_THRESHOLD, CA_RET_THRESHOLD, WINDOWS
+from .position_contract import (
+    REASON_CORPORATE_ACTION,
+    compute_position_columns,
+    window_ca_flags,
+)
 from .returns import ClosePanel, augment_events
 from .study import count_non_overlap
 from .universe import calibrate_etf_type, load_full_etf_universe
@@ -48,36 +53,32 @@ def _corp_action_flags(close: pd.Series) -> pd.Series:
 
 
 def _window_ca_flags(ca: np.ndarray, w: int) -> np.ndarray:
-    """窗口 i 的折算污染 = 该窗口 [i-w+1, i] 内部跳变（pct_change 从 i-w+2 起算）是否含 >=20%。
-
-    与 price_map 语义一致：折算点后短窗口先恢复、长窗口后恢复。
-    """
-    n = len(ca)
-    out = np.zeros(n, dtype=bool)
-    for i in range(n):
-        lo = max(i - w + 2, 1)  # 窗口内第一个 pct_change index
-        out[i] = bool(ca[lo:i + 1].any())
-    return out
+    """窗口 i 的折算污染（兼容别名，实现见 position_contract.window_ca_flags）。"""
+    return window_ca_flags(ca, w)
 
 
 def daily_state_series(d: pd.DataFrame) -> pd.DataFrame:
     """逐日计算 price_pos_N / unreliable_N / bottom_state / long_term_bottom。
 
-    返回 df 含 date/close/price_pos_{60,120,360}/unreliable_{60,120,360}/
-    bottom_state/long_term_bottom/corp_action。
+    P0 数据契约：窗口位置只由 position_contract 判定；unknown（历史不足 /
+    数据洞 / 折算 / 无波动）一律为 NaN，绝不落地为 50.0。
+
+    返回 df 含 date/close/price_pos_{60,120,360}/low_*/high_*/distance_to_low_*/
+    window_reason_{60,120,360}/unreliable_{60,120,360}/bottom_state/
+    long_term_bottom/corp_action。
     """
     df = d.sort_values("date").reset_index(drop=True).copy()
-    close = df["close"]
-    ca = _corp_action_flags(close).to_numpy(bool)
+    close = df["close"].to_numpy(dtype=float)
+    ca = _corp_action_flags(df["close"]).to_numpy(bool)
 
     for w in WINDOWS:
-        # rolling min/max 需要 min_periods=w（窗口完整才定义位置）
-        lo = close.rolling(w, min_periods=w).min()
-        hi = close.rolling(w, min_periods=w).max()
-        pos = (close - lo) / (hi - lo) * 100.0
-        df[f"price_pos_{w}"] = pos.where((hi > lo), 50.0)
-        # 折算污染：窗口内（[i-w+1, i]）是否有疑似公司行为
-        df[f"unreliable_{w}"] = _window_ca_flags(ca, w)
+        cols = compute_position_columns(close, ca, w)
+        df[f"low_{w}"] = cols["low"]
+        df[f"high_{w}"] = cols["high"]
+        df[f"price_pos_{w}"] = cols["price_pos"]
+        df[f"distance_to_low_{w}"] = cols["distance_to_low"]
+        df[f"window_reason_{w}"] = cols["reason"].astype(object)
+        df[f"unreliable_{w}"] = cols["reason"] == REASON_CORPORATE_ACTION
 
     df["corp_action"] = ca
     states = df.apply(lambda r: classify_from_row(r), axis=1)
@@ -87,14 +88,21 @@ def daily_state_series(d: pd.DataFrame) -> pd.DataFrame:
 
 
 def classify_from_row(r: pd.Series) -> tuple[str, bool]:
-    """由单行窗口指标推出 bottom_state + long_term_bottom（复用 price_map 语义）。"""
+    """由单行窗口指标推出 bottom_state + long_term_bottom（复用 price_map 语义）。
+
+    unknown（price_pos 为 NaN）绝不降格为 NORMAL / long_term_bottom=False 的「有效非底部」。
+    """
+
+    def _defined(v) -> bool:
+        return v is not None and not pd.isna(v)
+
     p60, p120, p360 = r.get("price_pos_60"), r.get("price_pos_120"), r.get("price_pos_360")
     u60, u120, u360 = r.get("unreliable_60"), r.get("unreliable_120"), r.get("unreliable_360")
-    if pd.isna(p360) or u360:
+    if not _defined(p360) or bool(u360):
         return "UNRELIABLE", False
-    lo60 = (p60 <= POS_LOW_THRESHOLD) if not u60 else False
-    lo120 = (p120 <= POS_LOW_THRESHOLD) if not u120 else False
     lo360 = p360 <= POS_LOW_THRESHOLD
+    lo60 = _defined(p60) and (not bool(u60)) and (p60 <= POS_LOW_THRESHOLD)
+    lo120 = _defined(p120) and (not bool(u120)) and (p120 <= POS_LOW_THRESHOLD)
     if lo60 and lo120 and lo360:
         state = "DEEP_BOTTOM"
     elif (not lo60) and lo120 and lo360:
@@ -103,7 +111,8 @@ def classify_from_row(r: pd.Series) -> tuple[str, bool]:
         state = "RECENT_BOTTOM"
     else:
         state = "NORMAL"
-    long_term = (not u120) and (not u360) and p120 <= POS_LOW_THRESHOLD and p360 <= POS_LOW_THRESHOLD
+    long_term = (not bool(u120)) and (not bool(u360)) and _defined(p120) and _defined(p360) \
+        and p120 <= POS_LOW_THRESHOLD and p360 <= POS_LOW_THRESHOLD
     return state, bool(long_term)
 
 

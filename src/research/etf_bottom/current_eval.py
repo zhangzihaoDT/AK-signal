@@ -109,30 +109,42 @@ def eval_one(code: str, name: str, theme: str, cut120: list[float], cut60: list[
 
     base = {"fund_code": code, "fund_name": name, "theme": theme, "tier": tier, "participation": participation}
 
-    # 1) reliable
+    # 1) reliable（P0 契约：360D 窗口 unknown，如数据洞/折算/无波动，price_pos_360=None）
     full_360 = r.get("full_360_sample", False)
     unreliable_360 = r.get("unreliable_360", False)
-    if not full_360 or unreliable_360:
+    p360_raw = r.get("price_pos_360")
+    if (not full_360) or unreliable_360 or (p360_raw is None):
+        reason_360 = r.get("window_reason_360", "CORPORATE_ACTION" if unreliable_360 else "INSUFFICIENT_HISTORY")
         return {
             **base,
             "reliable": False, "stage": "UNRELIABLE",
-            "reason": "360D 历史不足或折算污染",
+            "reason": f"360D 窗口不可用（{reason_360}）",
             "corp_action_dates": _corp_action_dates(d),
             "p60": None, "p120": None, "p360": None,
         }
 
     p60, p120, p360 = r.get("price_pos_60"), r.get("price_pos_120"), r.get("price_pos_360")
 
+    def _fmt(v) -> str:
+        return "unknown" if v is None else f"{v:.1f}"
+
     # 2) domain：long_term_bottom（pos120<=20 且 pos360<=20）
     if not (p120 is not None and p360 is not None and p120 <= 20.0 and p360 <= 20.0):
         return {
             **base,
             "reliable": True, "stage": "OUT_OF_DOMAIN",
-            "reason": f"已离开 2E discovery domain（p120={p120:.1f}, p360={p360:.1f}，需 p120<=20 且 p360<=20）",
+            "reason": f"已离开 2E discovery domain（p120={_fmt(p120)}, p360={_fmt(p360)}，需 p120<=20 且 p360<=20）",
             "p60": p60, "p120": p120, "p360": p360,
         }
 
-    # 3) target：应用 2E 冻结 cut points（pos60 Q1 × pos120 Q3）
+    # 3) target：应用 2E 冻结 cut points（pos60 Q1 × pos120 Q3）；p60 未知（如 60D 窗口无波动）→ 不判 TARGET
+    if p60 is None:
+        return {
+            **base,
+            "reliable": True, "stage": "IN_DOMAIN_NON_TARGET",
+            "reason": "p60 unknown（60D 窗口不可用），不判 TARGET",
+            "p60": None, "p120": p120, "p360": p360,
+        }
     q60 = tertile(p60, cut60)
     q120 = tertile(p120, cut120)
     is_target = (q60 == "Q1") and (q120 == "Q3")
