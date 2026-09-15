@@ -343,17 +343,26 @@ def _load_etf_raw(raw_dir: Path, code: str) -> pd.DataFrame:
 
 
 def _has_request_bar(df: pd.DataFrame, request_date: date_type) -> bool:
-    """判断 raw 中是否真实存在 target 交易日的 K 线。
+    """判断 raw 中是否真实存在 target 交易日的**完整** K 线。
 
     不能仅比较 max(date) >= target：盘中 spot 会提前合并当日（> target）的
     未收盘 K 线，导致 max(date) 已越过 target，但 target 当日完整 K 线仍缺失
     （如盘中运行 target=上一完整交易日，而该日 bar 从未从历史源补回）。
+
+    也不能只看日期行是否存在：2026-09-03 事故中全市场 raw 里该日**行存在但
+    close 为 NaN**（占位空 bar），旧逻辑把它当成已覆盖，导致 backfill 永远发现
+    不了缺口。这里把「该日 close 全为空」一并视为缺失，让 backfill 能回补。
     """
     if df.empty or "date" not in df.columns:
         return False
     try:
         dates = pd.to_datetime(df["date"]).dt.date
-        return bool((dates == request_date).any())
+        mask = (dates == request_date)
+        if not bool(mask.any()):
+            return False
+        if "close" in df.columns:
+            return bool(df.loc[mask, "close"].notna().any())
+        return True
     except Exception:
         return False
 

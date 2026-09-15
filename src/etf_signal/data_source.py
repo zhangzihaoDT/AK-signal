@@ -609,6 +609,7 @@ def fetch_ohlcv_from_spot() -> pd.DataFrame:
         return pd.DataFrame()
 
     rows = []
+    skipped_no_close = 0
     for _, row in spot.iterrows():
         code = str(row.get(code_c, ""))
         if not code:
@@ -616,16 +617,28 @@ def fetch_ohlcv_from_spot() -> pd.DataFrame:
         d = row.get(date_c)
         if d is None or pd.isna(d):
             continue
+        close = _safe_float(row, close_c)
+        # 盘前/盘中 spot 会把当日所有 ETF 以 "-"（NaN）占位返回。若原样合并，会把
+        # 「行存在但 close 为 NaN」的占位空 bar 写进 raw，形成数据洞（2026-09-03 /
+        # 09-15 事故：全市场 1598 只当日 close 为 NaN，毒化 Lane2/3）。只有 close
+        # 有效的行才是真实 bar，其余跳过。
+        if pd.isna(close):
+            skipped_no_close += 1
+            continue
         rows.append({
             "date": pd.Timestamp(d),
             "open": _safe_float(row, open_c),
             "high": _safe_float(row, high_c),
             "low": _safe_float(row, low_c),
-            "close": _safe_float(row, close_c),
+            "close": close,
             "volume": _safe_float(row, volume_c),
             "amount": _safe_float(row, amount_c),
             "fund_code": code,
         })
+
+    if skipped_no_close:
+        logger.info("spot: skipped %d rows with no close (pre-market placeholder)",
+                    skipped_no_close)
 
     result = pd.DataFrame(rows)
     logger.info("spot OHLCV: %d ETFs, date=%s", len(result),

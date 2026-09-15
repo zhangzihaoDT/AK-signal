@@ -958,10 +958,17 @@ def test_scanner_transition_kind():
 
 
 def test_scanner_run_20260831_baseline():
-    """2026-08-31 全市场扫描对照已知基线（P0 位置契约后）：
-    reliable=844 = 原 874 − 30 只「360D 窗口含缺失 bar」标的（P0 契约把 DATA_GAP
-    判定为 UNRELIABLE，不再用 50.0 兜底；2026-08 存在多日 NaN bar，如 560650 等）。
-    BASE=638 / EXT=206 / flat_price=27 / ltb=22 / DEEP=6 / RECOVERING=16 / TARGET=0 / NEAR_MISS=0。
+    """2026-08-31 全市场扫描对照已知基线（源数据修复后）：
+    reliable=874 / BASE=664 / EXT=210 / flat_price=27 / ltb=22 / DEEP=6 / RECOVERING=16 /
+    TARGET=0 / NEAR_MISS=0。
+
+    历史背景：P0 位置契约（commit e70c9e7）上线时，raw 中 2026-09-03/2026-08 存在
+    全市场或零散的「行存在但 close 为 NaN」占位 bar（EM 盘前 spot 把当日 "-" 占位
+    合并入库），使 30 只标的 360D 窗口恒为 DATA_GAP → reliable 一度为 844。根因修复
+    （spot 跳过无效 bar + 历史占位 bar 源端补数/清理）后，raw 不再含 NaN bar，reliable
+    恢复为数据本身应有的 874。DATA_GAP 契约本身由合成用例覆盖（见 test_compute_row_
+    data_gap_not_coerced / test_daily_state_series_data_gap_is_unreliable_not_normal）。
+
     仅对与 base 事实一致且稳定的部分硬编码，不做 snapshot 数量锁死。
     """
     import json
@@ -969,11 +976,11 @@ def test_scanner_run_20260831_baseline():
     p = run_scan("2026-08-31")
     a = p["layer_a_market_bottom_map"]
     # 数据质量门（2026-08-31 时点，排除货币/债券近零波动；现金流ETF 是权益不误排除）
-    assert a["reliable_total"] == 844
-    assert a["cohort"] == {"BASE": 638, "EXTENSION": 206}
+    assert a["reliable_total"] == 874
+    assert a["cohort"] == {"BASE": 664, "EXTENSION": 210}
     assert a["flat_price_total"] == 27
     # Provenance：reliable = full_360 ∧ pos360 有值 ∧ ¬折算 ∧ ¬flat_price。
-    # 原 874 中 30 只因 360D 窗口含 NaN bar（DATA_GAP）转 UNRELIABLE——契约的预期行为。
+    # raw 已无 NaN bar，故 874 = 数据本身应有的可靠池（不再有 30 只 DATA_GAP 折减）。
     flat = pd.read_parquet(p["flat_parquet_path"])
     assert a["flat_price_total"] + a["unreliable_total"] + a["reliable_total"] == 1289
     # 现金流ETF（159201/159399 hist≥360）必须在 reliable 内（非 flat），且不新增行数
@@ -1019,26 +1026,25 @@ def test_scanner_run_20260831_baseline():
 def test_scanner_prev_trade_date_uniform_and_missing():
     """prev_trade_date 用统一市场前一交易日，不静默回退。
 
-    P0 契约变更：560650（核心50ETF民生加银）在 2026-08 有多个缺失 bar（含 NaN），
-    360D 窗口 unknown → 现判 UNRELIABLE / DATA_GAP，不再进 reliable 表；因此本例
-    验证「reliable 行 prev 日统一 + 该标的按契约被排除」，替代旧 PREV_MISSING 例。"""
+    源数据修复后 raw 已无 NaN 占位 bar，560650（核心50ETF民生加银）不再被数据洞
+    排除，而是以「数据停在 08-21、统一 prev 日 08-28 无 bar」的形态留在 reliable 表，
+    正好覆盖 PREV_MISSING 语义。DATA_GAP 的语义（未知不降格、不落 50.0）由合成用例
+    test_compute_row_data_gap_not_coerced / test_daily_state_series_data_gap_is_
+    unreliable_not_normal 覆盖。"""
     from src.research.etf_bottom.scanner import run_scan
-    from src.research.etf_bottom.price_map import compute_row
     p = run_scan("2026-08-31")
     a = p["layer_a_market_bottom_map"]
     assert a["prev_trade_date"] == "2026-08-28"
     flat = pd.read_parquet(p["flat_parquet_path"])
-    # reliable 表内 prev 日统一为市场前一交易日
+    # reliable 表内 prev 日统一为市场前一交易日（不是各 ETF 自己的最近可用日）
     assert (flat["prev_trade_date"] == "2026-08-28").all()
-    assert (flat["prev_data_status"] == "ok").all()
-    assert (flat["transition"] != "PREV_MISSING").all()
-    # 560650 因数据洞被契约排除（不再被 50.0 兜底成 reliable）
-    assert "560650" not in set(flat["fund_code"])
-    d = pd.read_parquet("data/etf_signal/raw/560650.parquet", columns=["date", "close"])
-    r = compute_row("560650", "核心50ETF民生加银", "broad", d, pd.Timestamp("2026-08-31"))
-    assert r["window_reason_360"] == "DATA_GAP"
-    assert r["price_pos_360"] is None
-    assert r["bottom_state"] == "UNRELIABLE"
+    # 在统一 prev 日无 bar 的标的 → PREV_MISSING + 保留自身上一实际交易日审计
+    missing = flat[flat["prev_data_status"] == "missing"]
+    assert set(missing["fund_code"]) == {"560650"}
+    assert (missing["transition"] == "PREV_MISSING").all()
+    assert set(missing["prev_actual_trade_date"]) == {"2026-08-21"}
+    ok = flat[flat["prev_data_status"] == "ok"]
+    assert (ok["transition"] != "PREV_MISSING").all()
 
 
 def test_scanner_report_renderer_consumes_json_only():

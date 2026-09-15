@@ -70,13 +70,30 @@ class GapClassification:
 
 
 def discover_gaps(raw_dir: Path, codes, target: date) -> list[str]:
-    """返回缺少 target 日 K 线的代码（升序）。"""
+    """返回缺少 target 日完整 K 线的代码（升序）。
+
+    「缺少」包含两种情况：① 该日行不存在；② 该日行存在但 close 为空（占位空
+    bar，如 2026-09-03 事故）。判定统一走 `_has_request_bar`。
+    """
     missing: list[str] = []
     for code in codes:
         df = _load_etf_raw(raw_dir, str(code))
         if not _has_request_bar(df, target):
             missing.append(str(code))
     return sorted(missing)
+
+
+def _last_valid_bar_date(df: pd.DataFrame, target: date) -> date | None:
+    """<= target 的最后一个「有效 bar」日期（close 非空）；无有效 bar → None。"""
+    if df.empty or "date" not in df.columns:
+        return None
+    dts = pd.to_datetime(df["date"]).dt.date
+    if "close" in df.columns:
+        valid = df["close"].notna().to_numpy()
+    else:
+        valid = pd.Series(True, index=df.index).to_numpy()
+    prior = [d for d, ok in zip(dts.to_numpy(), valid) if ok and d <= target]
+    return max(prior) if prior else None
 
 
 def _fetch_was_rate_limited(fetch_errors: list[Exception], fetch_info: dict[str, Any] | None) -> bool:
@@ -287,8 +304,10 @@ def run_backfill(
 
     for i, code in enumerate(remaining, 1):
         df = _load_etf_raw(raw_dir, code)
-        prior = [d for d in pd.to_datetime(df["date"]).dt.date.values if d <= target_date] if not df.empty and "date" in df.columns else []
-        last_prior = max(prior) if prior else None
+        # last_prior 只用「有效 bar」（close 非空）推导：目标日若存在占位空 bar
+        # （2026-09-03 事故：行存在但 close 为 NaN），不能把它当作已覆盖的上一交易日，
+        # 否则 inc_start 会越过目标日导致拉不到修复窗口。空历史 → 全量起点。
+        last_prior = _last_valid_bar_date(df, target_date)
         inc_start = (last_prior + timedelta(days=1)).strftime("%Y%m%d") if last_prior else "20200101"
 
         fetch_errors: list[Exception] = []

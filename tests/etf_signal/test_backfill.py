@@ -3,6 +3,7 @@
 import json
 from datetime import date
 
+import pandas as pd
 import pytest
 
 from src.etf_signal.backfill import (
@@ -13,7 +14,9 @@ from src.etf_signal.backfill import (
     CATEGORY_SOURCE_STALE,
     CATEGORY_TERMINATED,
     CATEGORY_TRUE_MISSING,
+    _last_valid_bar_date,
     classify_gap,
+    discover_gaps,
     format_elapsed,
 )
 
@@ -70,6 +73,52 @@ class TestClassifyGap:
         cls = classify_gap("560650", TARGET, in_master=True, raw_latest=date(2026, 7, 1),
                            fetch_errors=[], nav_latest=date(2026, 7, 2))
         assert cls.category == CATEGORY_TERMINATED
+
+
+class TestGapDiscovery:
+    """2026-09-03 事故回归：行存在但 close 为空的占位 bar 必须算缺口，可被回补。"""
+
+    TARGET_0303 = date(2026, 9, 3)
+
+    def _write_raw(self, raw_dir, code: str, close_0303) -> None:
+        df = pd.DataFrame({
+            "date": pd.to_datetime([
+                "2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04",
+            ]),
+            "close": [1.12, 1.10, close_0303, 1.11],
+            "volume": [700.0, 750.0, 0.0, 560.0],
+        })
+        df.to_parquet(raw_dir / f"{code}.parquet", index=False)
+
+    def test_nan_close_is_a_gap(self, tmp_path) -> None:
+        self._write_raw(tmp_path, "159601", float("nan"))
+        assert discover_gaps(tmp_path, ["159601"], self.TARGET_0303) == ["159601"]
+
+    def test_valid_close_is_not_a_gap(self, tmp_path) -> None:
+        self._write_raw(tmp_path, "159601", 1.108)
+        assert discover_gaps(tmp_path, ["159601"], self.TARGET_0303) == []
+
+    def test_absent_row_is_a_gap(self, tmp_path) -> None:
+        df = pd.DataFrame({
+            "date": pd.to_datetime(["2026-09-01", "2026-09-02", "2026-09-04"]),
+            "close": [1.12, 1.10, 1.11],
+            "volume": [700.0, 750.0, 560.0],
+        })
+        df.to_parquet(tmp_path / "159601.parquet", index=False)
+        assert discover_gaps(tmp_path, ["159601"], self.TARGET_0303) == ["159601"]
+
+    def test_last_valid_bar_skips_nan_placeholder(self, tmp_path) -> None:
+        # 占位空 bar 不能当作「已覆盖的上一交易日」，否则回补窗口会越过目标日
+        self._write_raw(tmp_path, "159601", float("nan"))
+        df = pd.read_parquet(tmp_path / "159601.parquet")
+        assert _last_valid_bar_date(df, self.TARGET_0303) == date(2026, 9, 2)
+
+    def test_last_valid_bar_none_when_no_valid_history(self) -> None:
+        df = pd.DataFrame({
+            "date": pd.to_datetime(["2026-09-03"]),
+            "close": [float("nan")],
+        })
+        assert _last_valid_bar_date(df, self.TARGET_0303) is None
 
 
 class TestBackfillCheckpoint:
