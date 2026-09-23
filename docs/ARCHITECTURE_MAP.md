@@ -53,8 +53,9 @@
 
 ```
 etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline
-  → stock-metrics-online → sw-rps-confirm → sw-rps-report → select
-  → etf-bottom-scan → etf-refresh-v1 → trend-transition-state → three-lane → opportunity-radar → run-day-check
+  → stock-metrics-online → sw-rps-confirm → sw-rps-report
+  → etf-bottom-scan → etf-refresh-v1 → trend-transition-state → three-lane
+  → select → opportunity-radar → run-day-check
 ```
 
 | 步骤 | 主报告/产物 | 说明 |
@@ -63,11 +64,11 @@ etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipe
 | sw-rps-* | `data/processed/sw_industry/confirmation|tier_confirmation|structure_{date}.parquet` | Layer② 事实 |
 | etf-calculate/pipeline | `data/etf_signal/daily/rotation_{date}.parquet` · `signals/account_candidates_{date}.parquet` · `outputs/etf_signal/{etf_rotation_{date}.html, watchlist_active_{date}.csv, candidate_cards_{date}.json}` | Layer①/Lane1 |
 | stock-metrics-online | `outputs/stock_metrics/stock_metrics_{date}.parquet` | 个股趋势（Layer② Tier 与 ③ 共用） |
-| select | `outputs/selection/tradable_candidates_{date}.{json,html}`（meta.scope=etf_only） | Layer③（ETF-only 发布；Lane Validation 硬 gate） |
 | etf-bottom-scan | `outputs/research/etf_bottom/scan_{date}.{html,json,csv,parquet}` | Lane2 每日 Application |
 | etf-refresh-v1 | `outputs/research/etf_bottom/backtest_v1/v1_signal_daily.parquet` | Lane2/3 历史态 |
 | trend-transition-state | `outputs/research/trend_transition/trend_transition_state_{date}.{parquet,json}` | Lane3 每日 Application（无 HTML） |
 | three-lane | `outputs/etf_signal/three_lane_{date}.{parquet,csv}` + 重渲染 ETF 报告 ④ | L1×L2×L3 join |
+| select | `outputs/selection/tradable_candidates_{date}.{json,html}`（meta.scope=etf_only） | Layer③（ETF-only 发布；消费当日三 Lane，Lane Validation 硬 gate） |
 | opportunity-radar | `outputs/opportunity_radar/opportunity_radar_{date}.{json,html}` | Theme 外机会 Radar（Observation，不联网；V1.1 candidate_themes/broad_beta + taxonomy provenance） |
 | run-day-check | 控制台 | status(CONFIRMED/PROVISIONAL) · action · warnings |
 
