@@ -34,6 +34,7 @@ STOCK_TIERS = {
     "computing_chip", "optical_interconnect", "server_network",
     "semiconductor_equipment", "semiconductor_components",
     "liquid_cooling", "auto_thermal_ai_cooling", "high_speed_interconnect", "server_power",
+    "memory_and_storage",
     "oem_global", "battery_global", "global_ev_components", "global_auto_components",
     "adas_lidar",
     "hydro_nuclear", "telecom_operator", "toll_road", "port_operator",
