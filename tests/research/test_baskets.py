@@ -25,6 +25,22 @@ def test_group_equal_is_not_asset_count_weighted():
     assert nav.loc[pd.Timestamp("2025-01-02"), "basket"] == 100
 
 
+def test_nav_benchmark_anchored_at_common_start():
+    """基准若含更早历史，也必须与篮子一起从共同首个交易日起等于 100（不能从 2002 归一化）。"""
+    prices = pd.DataFrame([
+        {"date": "2025-01-02", "group": "a", "symbol": "A", "close": 100},
+        {"date": "2025-01-03", "group": "a", "symbol": "A", "close": 110},
+    ])
+    benchmark = pd.DataFrame({
+        "date": ["2002-01-01", "2025-01-02", "2025-01-03"],
+        "close": [50.0, 4000.0, 4400.0],
+    })
+    nav = build_nav(prices, benchmark, group_order=["a"])
+    assert nav["basket"].iloc[0] == 100.0
+    assert nav["benchmark"].iloc[0] == 100.0
+    assert round(nav["benchmark"].iloc[-1], 4) == 110.0
+
+
 def test_metrics_has_excess_and_drawdown():
     nav = pd.DataFrame(
         {"basket": [100.0, 110.0, 90.0], "benchmark": [100.0, 105.0, 105.0]},

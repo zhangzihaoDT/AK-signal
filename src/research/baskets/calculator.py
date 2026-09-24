@@ -42,6 +42,11 @@ def calculate_basket(
         benchmark = benchmark[benchmark["date"] >= pd.Timestamp(start_date)]
     if end_date:
         benchmark = benchmark[benchmark["date"] <= pd.Timestamp(end_date)]
+    # 基准窗口对齐到篮子实际价格区间，避免未指定 --start 时基准从全历史（2002）归一化，
+    # 导致对比图里 HS300 起点远高于初始净值 100（且季度净值出现长期平段）。
+    if not prices.empty:
+        lo, hi = prices["date"].min(), prices["date"].max()
+        benchmark = benchmark[(benchmark["date"] >= lo) & (benchmark["date"] <= hi)]
     group_order = list(dict.fromkeys(x["group"] for x in constituents))
     nav = build_nav(prices, benchmark, group_order=group_order,
                     weighting_method=basket.get("weighting", {}).get("method", "group_equal"))
@@ -121,6 +126,10 @@ def build_nav(
     result["benchmark"] = bench / bench.dropna().iloc[0] * 100
     result["basket"] = result["basket"].ffill()
     result = result.dropna(subset=["basket", "benchmark"])
+    # 篮子与基准都以共同首个有效交易日为 100：基准若含更早历史（未指定 --start），
+    # 仅按自身首值归一化会让其起点远高于 100，与篮子不可比。
+    result["basket"] = result["basket"] / result["basket"].iloc[0] * 100
+    result["benchmark"] = result["benchmark"] / result["benchmark"].iloc[0] * 100
     result.index.name = "date"
     return result
 
@@ -262,5 +271,7 @@ def quarterly_rebalanced_nav(
     bench_close = bench.set_index("date")["close"].reindex(dates).ffill()
     result = pd.DataFrame({"basket": basket, "benchmark": bench_close / bench_close.dropna().iloc[0] * 100}, index=dates)
     result = result.dropna()
+    result["basket"] = result["basket"] / result["basket"].iloc[0] * 100
+    result["benchmark"] = result["benchmark"] / result["benchmark"].iloc[0] * 100
     result.index.name = "date"
     return result
