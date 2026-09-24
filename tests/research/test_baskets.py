@@ -81,13 +81,9 @@ def test_compare_report_rich_panels(tmp_path):
     results = [_mk("alpha"), _mk("beta")]
     html = compare_report(results, tmp_path).read_text(encoding="utf-8")
     for token in ["指标汇总", "最大回撤%", "Sharpe", "每篮子明细", "滚动超额%", "个股贡献", "子组收益",
-                  "Cross-Basket 共同成分"]:
+                  "季度收益%", "季度超额%", "Cross-Basket 共同成分"]:
         assert token in html, token
-
-    q = compare_report(results, tmp_path, filename="basket_quarterly_compare.html",
-                       nav_field="quarterly_nav", panels=()).read_text(encoding="utf-8")
-    assert "指标汇总" in q and "季度收益%" in q
-    assert "个股贡献" not in q and "子组收益" not in q and "滚动超额%" not in q
+    assert "季度调仓" not in html  # 不再单独出季度页面/标题
 
 
 def test_last_complete_trading_day_cutoff():
@@ -148,8 +144,8 @@ baskets:
     assert result["quarterly_nav"].index.max() == pd.Timestamp("2026-09-23")
 
 
-def test_quarterly_window_independent_of_main(tmp_path, monkeypatch):
-    """quarterly_start_date 独立于买入持有窗口：nav 用 --start，季度净值可取更早起点。"""
+def test_nav_and_quarterly_share_window(tmp_path, monkeypatch):
+    """买入持有与季度再平衡共用同一窗口（起点一致、均 = 100）。"""
     import src.research.baskets.calculator as calc
     from src.research.baskets.calculator import calculate_basket
 
@@ -186,13 +182,11 @@ baskets:
     monkeypatch.setattr(calc, "_price_path", lambda basket: price_path)
     monkeypatch.setattr(calc, "raw_dir", lambda: tmp_path)
 
-    result = calculate_basket(
-        "demo", start_date="2024-10-01", quarterly_start_date="2024-08-01",
-        basket_config=baskets, universe_path=universe)
+    result = calculate_basket("demo", start_date="2024-10-01",
+                              basket_config=baskets, universe_path=universe)
     assert result["nav"].index.min() >= pd.Timestamp("2024-10-01")
-    assert result["quarterly_nav"].index.min() == dates[0]
+    assert result["quarterly_nav"].index.min() == result["nav"].index.min()
     assert result["quarterly_nav"]["basket"].iloc[0] == 100.0
-    assert result["quarterly_nav"]["benchmark"].iloc[0] == 100.0
 
 
 def test_metrics_has_excess_and_drawdown():

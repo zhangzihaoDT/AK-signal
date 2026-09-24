@@ -81,23 +81,18 @@ Physical AI 篮子的子组按**机器人价值链位置**划分（非信心程�
 make basket-refresh                 # 联网：刷 HS300 基准 + 抓所有篮子来源行情 + 重算
 make basket                         # 离线：只读已落盘价格重算（快）
 make basket BASKETS=ai_capex        # 只跑指定篮子
-make basket START=2025-09-23 END=2026-09-23   # 指定买入持有窗口
-make basket QSTART=2024-09-10       # 指定季度净值窗口起点（默认 2024-09-10）
-make basket-refresh DAYS=800        # 抓取近 800 自然日（默认，覆盖季度窗口）
+make basket START=2025-09-23 END=2026-09-23   # 指定窗口
+make basket-refresh DAYS=800        # 抓取近 800 自然日（默认）
 ```
 
-**两个窗口是独立的**：买入持有净值（`basket_compare.html`）用 `START`/`END`；
-季度调仓净值（`basket_quarterly_compare.html`）用 `QSTART`/`QEND`（留空则回退到
-`START`/`END`）。`QSTART` 默认 `2024-09-10`（924 行情前的稳定基准），因此
-`make basket-refresh` 的 `DAYS` 默认取 800 以覆盖该窗口；若把 `DAYS` 调小到窗口之外，
-季度净值会从实际可用首日落起。
+买入持有净值与季度再平衡净值**共用同一窗口**（`START`/`END`）；季度再平衡只作为主报告
+指标表里的两列（季度收益/季度超额），不再单独出页面。
 
 等价的底层命令：
 
 ```bash
 python src/main.py research basket fetch --days 800 --baskets all --refresh-benchmark
-python src/main.py research basket run --baskets all \
-  --quarterly-start 2024-09-10
+python src/main.py research basket run --baskets all
 ```
 
 `fetch` 从 `config/research_baskets.yaml` 声明的来源出发，按 `(type, key)` 去重后抓取
@@ -113,11 +108,10 @@ python src/main.py research basket run --baskets all \
 - `{basket}_groups.csv`：子组收益与标的数量
 - `{basket}_constituents.csv`：展开后的研究成分
 - `{basket}_manifest.json`：来源、权重、配置 hash 和覆盖元数据
-- `basket_compare.html`（主产物）：净值对比图 + **指标汇总表**（收益/超额/年化/最大回撤/Sharpe/波动/胜率/Top1-Top3 贡献）+ **每篮子明细**（滚动 20/60/120D 超额·Sharpe·回撤 / 个股贡献 Top-N+尾部负贡献 / 子组收益）+ Cross-Basket 共同成分
-- `basket_quarterly_compare.html`：季度调仓净值图 + 季度收益/超额指标表 + Cross-Basket 共同成分（不含买入窗口口径的贡献/子组/滚动面板，避免混淆）
+- `basket_compare.html`（主产物）：净值对比图 + **指标汇总表**（收益/超额/年化/最大回撤/Sharpe/波动/胜率/Top1-Top3 贡献/季度收益·季度超额）+ **每篮子明细**（滚动 20/60/120D 超额·Sharpe·回撤 / 个股贡献 Top-N+尾部负贡献 / 子组收益）+ Cross-Basket 共同成分
 - `{basket}_rolling.csv`：20/60/120 日滚动超额、Sharpe、回撤
 - `{basket}_contributions.csv`：个股收益贡献及 Top1/Top3 标记
-- `{basket}_quarterly_nav.csv`：季度首个交易日重置权重后的净值（窗口由 `--quarterly-start/--quarterly-end` 控制）
+- `{basket}_quarterly_nav.csv`：季度首个交易日重置权重后的净值（供指标表的季度收益/超额列）
 
 ## 研究边界
 

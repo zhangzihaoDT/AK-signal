@@ -1,10 +1,9 @@
 """主题篮子研究报告（zihao raccoon 视觉体系）。
 
 `compare_report` 把 `calculate_basket` 已算好的事实（净值/指标/滚动/贡献/子组）渲染成
-单文件 HTML；本模块**不制造新事实**，只排版。`panels` 控制面板集合：
+单文件 HTML；本模块**不制造新事实**，只排版：
 
-  - nav 报告（买入持有）：图 + 指标表 + 滚动 + 贡献 + 子组 + 重叠
-  - quarterly 报告（季度调仓）：图 + 季度指标表 + 重叠（贡献/子组/滚动是买入窗口口径，不混入）
+  图 + 指标汇总表（含季度再平衡两列）+ 每篮子明细（滚动/贡献/子组）+ Cross-Basket 重叠
 """
 
 from __future__ import annotations
@@ -16,8 +15,6 @@ from typing import Any
 
 import pandas as pd
 import plotly.graph_objects as go
-
-ALL_PANELS = ("rolling", "contributions", "groups")
 
 _BENCHMARK_LABEL = "沪深300"
 _COLORS = ["#174A7C", "#D79A36", "#7ECDEB", "#7A4A24", "#6B7C8F", "#06213D", "#B45309"]
@@ -158,16 +155,14 @@ def _overlap_html(overlap: pd.DataFrame) -> str:
     )
 
 
-def _metrics_table(results: list[dict[str, Any]], nav_field: str) -> str:
-    if nav_field == "quarterly_nav":
-        cols = [("季度收益%", "quarterly_rebalance_return_pct"), ("季度超额%", "quarterly_rebalance_excess_pct")]
-    else:
-        cols = [
-            ("收益%", "return_pct"), ("超额%", "excess_pct"), ("年化%", "annualized_return_pct"),
-            ("最大回撤%", "max_drawdown_pct"), ("Sharpe", "sharpe"), ("波动%", "annualized_volatility_pct"),
-            ("胜率%", "win_rate_pct"), ("Top1贡献", "top1_contribution_pct_points"),
-            ("Top3贡献", "top3_contribution_pct_points"),
-        ]
+def _metrics_table(results: list[dict[str, Any]]) -> str:
+    cols = [
+        ("收益%", "return_pct"), ("超额%", "excess_pct"), ("年化%", "annualized_return_pct"),
+        ("最大回撤%", "max_drawdown_pct"), ("Sharpe", "sharpe"), ("波动%", "annualized_volatility_pct"),
+        ("胜率%", "win_rate_pct"), ("Top1贡献", "top1_contribution_pct_points"),
+        ("Top3贡献", "top3_contribution_pct_points"),
+        ("季度收益%", "quarterly_rebalance_return_pct"), ("季度超额%", "quarterly_rebalance_excess_pct"),
+    ]
     head = ["篮子"] + [c[0] for c in cols]
     rows = []
     for r in results:
@@ -243,23 +238,16 @@ def _groups_table(group_metrics: pd.DataFrame) -> str:
             + "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
 
 
-def _basket_cards(results: list[dict[str, Any]], panels: set[str]) -> str:
+def _basket_cards(results: list[dict[str, Any]]) -> str:
     blocks = []
     for r in results:
         key = r["basket"]["key"]
         label = r["basket"].get("label", key)
-        inner = []
-        if "rolling" in panels:
-            inner.append('<p class="mini">滚动指标（最新一日）</p>' + _rolling_table(r["rolling"]))
-        if "contributions" in panels:
-            inner.append('<p class="mini">个股贡献（按贡献排序，含尾部负贡献）</p>'
-                         + _contributions_table(r["contributions"]))
-        if "groups" in panels:
-            g = _groups_table(r["group_metrics"])
-            if g:
-                inner.append('<p class="mini">子组收益</p>' + g)
-        if not inner:
-            continue
+        inner = ['<p class="mini">滚动指标（最新一日）</p>' + _rolling_table(r["rolling"]),
+                 '<p class="mini">个股贡献（按贡献排序，含尾部负贡献）</p>' + _contributions_table(r["contributions"])]
+        g = _groups_table(r["group_metrics"])
+        if g:
+            inner.append('<p class="mini">子组收益</p>' + g)
         blocks.append(
             f'<details class="card"><summary>{html.escape(str(label))}（{key}）</summary>'
             + "".join(inner) + "</details>")
@@ -269,11 +257,8 @@ def _basket_cards(results: list[dict[str, Any]], panels: set[str]) -> str:
 def compare_report(
     results: list[dict[str, Any]], out_dir: Path,
     filename: str = "basket_compare.html",
-    nav_field: str = "nav",
-    panels: tuple[str, ...] | None = None,
 ) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
-    panels_set = set(ALL_PANELS if panels is None else panels)
     overlap = cross_basket_overlap(results)
     if not overlap.empty:
         overlap.to_csv(out_dir / "basket_overlap.csv", index=False)
@@ -282,20 +267,20 @@ def compare_report(
     for i, result in enumerate(results):
         key = result["basket"]["key"]
         label = result["basket"].get("label", key)
-        nav = result[nav_field]
+        nav = result["nav"]
         fig.add_trace(go.Scatter(
             x=nav.index, y=nav["basket"], mode="lines", name=label,
             line={"color": _COLORS[i % len(_COLORS)], "width": 2.8},
         ))
     benchmark_name = _BENCHMARK_LABEL
     if results:
-        nav = results[0][nav_field]
+        nav = results[0]["nav"]
         fig.add_trace(go.Scatter(
             x=nav.index, y=nav["benchmark"], mode="lines", name=benchmark_name,
             line={"color": "#9AA8B5", "width": 2, "dash": "dash"},
         ))
     fig.update_layout(
-        title=("Research Basket（季度调仓）" if nav_field == "quarterly_nav" else "Research Basket") + f" vs {benchmark_name}",
+        title=f"Research Basket vs {benchmark_name}",
         xaxis_title="交易日", yaxis_title="净值（起点 = 100）", template="plotly_white",
         hovermode="x unified", font={"color": "#1F2D3D"},
         legend={"orientation": "h", "y": 1.08, "x": 0}, margin={"t": 60},
@@ -303,7 +288,7 @@ def compare_report(
     chart_html = fig.to_html(include_plotlyjs="cdn", full_html=False)
 
     metrics = results[0]["metrics"] if results else {}
-    title = ("Research Basket（季度调仓）" if nav_field == "quarterly_nav" else "Research Basket") + f" vs {benchmark_name}"
+    title = f"Research Basket vs {benchmark_name}"
     sub = (f"窗口 {metrics.get('start_date', '—')} .. {metrics.get('end_date', '—')}"
            f" ｜ {len(results)} 个篮子 ｜ 基准 {benchmark_name}")
 
@@ -313,9 +298,9 @@ def compare_report(
         '<div class="note">净值均以共同首个有效交易日 = 100；窗口已截到「最近完整交易日」（盘中排除当日未收盘 bar）。'
         "HTML 仅为 renderer，事实源为各篮子 <code>_nav/_metrics/_rolling/_contributions</code> 文件。</div>",
         '<div class="card">' + chart_html + "</div>",
-        _metrics_table(results, nav_field),
+        _metrics_table(results),
     ]
-    cards = _basket_cards(results, panels_set)
+    cards = _basket_cards(results)
     if cards:
         sections.append("<h2>每篮子明细</h2>" + cards)
     overlap_section = _overlap_html(overlap)

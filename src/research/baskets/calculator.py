@@ -70,16 +70,13 @@ def calculate_basket(
     *,
     start_date: str = "",
     end_date: str = "",
-    quarterly_start_date: str = "",
-    quarterly_end_date: str = "",
     basket_config=None,
     universe_path=None,
     as_of_now: datetime | None = None,
 ) -> dict[str, Any]:
     """读取已抓取的篮子价格并计算净值、指标、子组表现。
 
-    季度净值（quarterly_nav）窗口可独立于买入持有净值（nav）：
-    `quarterly_start_date` / `quarterly_end_date` 为空时回退到 `start_date` / `end_date`。
+    买入持有（nav）与季度再平衡（quarterly_nav）共用同一窗口。
     所有窗口统一截断到「最近完整交易日」（`as_of_now` 可注入，供测试复现）。
     """
     basket = load_basket(key, basket_config)
@@ -100,12 +97,7 @@ def calculate_basket(
         benchmark_all = benchmark_all[benchmark_all["date"] <= cap]
 
     prices = _slice_window(prices_all, start_date, end_date)
-    q_start = quarterly_start_date or start_date
-    q_end = quarterly_end_date or end_date
-    q_prices = _slice_window(prices_all, q_start, q_end)
-
     benchmark = _align_benchmark(_slice_window(benchmark_all, start_date, end_date), prices)
-    q_benchmark = _align_benchmark(_slice_window(benchmark_all, q_start, q_end), q_prices)
 
     group_order = list(dict.fromkeys(x["group"] for x in constituents))
     weighting_method = basket.get("weighting", {}).get("method", "group_equal")
@@ -113,7 +105,7 @@ def calculate_basket(
     rolling = rolling_analysis(nav)
     contributions = contribution_analysis(prices, group_order, weighting_method)
     quarterly_nav = quarterly_rebalanced_nav(
-        q_prices, q_benchmark, group_order=group_order, weighting_method=weighting_method)
+        prices, benchmark, group_order=group_order, weighting_method=weighting_method)
     base_metrics = metrics(nav)
     base_metrics.update({
         "top1_contribution_pct_points": round(float(contributions.head(1)["contribution_pct_points"].sum()), 4),
