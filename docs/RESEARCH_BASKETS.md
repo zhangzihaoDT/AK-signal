@@ -122,6 +122,7 @@ python src/main.py research basket run --baskets all \
 ## 研究边界
 
 - 数据刷新走 `research basket fetch`（`make basket-refresh` 会自动先跑基准刷新再 fetch 再 run），篮子计算本身纯离线。
+- **窗口统一截到「最近完整交易日」**：盘中运行（15:10 前）当日未收盘 bar 一并排除，篮子与基准末日一致，避免最后一点混入盘中行情。规则见 `calculator.last_complete_trading_day`。
 - 港股和 A 股交易日不完全一致，统一到 HS300 交易日并对已开始交易的标的前值填充。
 - 首个有效交易日前不填充。
 - 当前结果存在静态资产池和幸存者偏差，不能直接视为可交易策略回测。

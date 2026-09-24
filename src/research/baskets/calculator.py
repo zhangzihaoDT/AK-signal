@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, time
 from typing import Any
 
 import numpy as np
@@ -9,6 +10,37 @@ import pandas as pd
 
 from src.common.paths import raw_dir
 from .config import basket_config_hash, expand_constituents, load_basket
+
+# A 股收盘点名（与 Layer② SW 口径一致）：此刻前当日 bar 视为未完成。
+A_SHARE_CLOSE_CUTOFF = time(15, 10)
+
+
+def last_complete_trading_day(
+    dates,
+    *,
+    now: datetime | None = None,
+    cutoff: time = A_SHARE_CLOSE_CUTOFF,
+) -> pd.Timestamp | None:
+    """从给定交易日序列中取「最近完整交易日」。
+
+    - max < 今天：过去交易日，已收盘 → max 本身
+    - max == 今天 且 now >= cutoff：今日已收盘 → max 本身
+    - max == 今天 且 now <  cutoff：今日 bar 未完成 → 退回上一交易日
+    - 无更早日期时返回 None（调用方应保留原数据）
+    """
+    series = pd.to_datetime(pd.Series(list(dates)), errors="coerce").dropna().dt.normalize()
+    unique = sorted(series.unique())
+    if not unique:
+        return None
+    now = now or datetime.now()
+    last = pd.Timestamp(unique[-1])
+    if last.date() < now.date():
+        return last
+    if last.date() > now.date():
+        return last  # 防御：未来日期不裁剪
+    if now.time() >= cutoff:
+        return last
+    return pd.Timestamp(unique[-2]) if len(unique) >= 2 else None
 
 
 def _price_path(basket: dict[str, Any]) -> str:
@@ -42,11 +74,13 @@ def calculate_basket(
     quarterly_end_date: str = "",
     basket_config=None,
     universe_path=None,
+    as_of_now: datetime | None = None,
 ) -> dict[str, Any]:
     """读取已抓取的篮子价格并计算净值、指标、子组表现。
 
     季度净值（quarterly_nav）窗口可独立于买入持有净值（nav）：
     `quarterly_start_date` / `quarterly_end_date` 为空时回退到 `start_date` / `end_date`。
+    所有窗口统一截断到「最近完整交易日」（`as_of_now` 可注入，供测试复现）。
     """
     basket = load_basket(key, basket_config)
     constituents = expand_constituents(basket, universe_path)
@@ -56,13 +90,20 @@ def calculate_basket(
     prices_all = prices_all[
         prices_all.apply(lambda r: (str(r["group"]), str(r["symbol"])) in wanted, axis=1)].copy()
 
+    benchmark_all = pd.read_csv(raw_dir() / "_benchmark_sh000300.csv", parse_dates=["date"])
+    benchmark_all["date"] = pd.to_datetime(benchmark_all["date"]).dt.normalize()
+
+    # 统一截到最近完整交易日：盘中运行时排除当日未收盘 bar，避免各标的/基准末日不一致。
+    cap = last_complete_trading_day(benchmark_all["date"], now=as_of_now)
+    if cap is not None:
+        prices_all = prices_all[prices_all["date"] <= cap]
+        benchmark_all = benchmark_all[benchmark_all["date"] <= cap]
+
     prices = _slice_window(prices_all, start_date, end_date)
     q_start = quarterly_start_date or start_date
     q_end = quarterly_end_date or end_date
     q_prices = _slice_window(prices_all, q_start, q_end)
 
-    benchmark_all = pd.read_csv(raw_dir() / "_benchmark_sh000300.csv", parse_dates=["date"])
-    benchmark_all["date"] = pd.to_datetime(benchmark_all["date"]).dt.normalize()
     benchmark = _align_benchmark(_slice_window(benchmark_all, start_date, end_date), prices)
     q_benchmark = _align_benchmark(_slice_window(benchmark_all, q_start, q_end), q_prices)
 

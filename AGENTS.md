@@ -212,7 +212,7 @@ make test             # 全部测试
 
 - **定位**：配置驱动的主题篮子研究（**不阻塞 run-day，手动按需**）——回答「按明确资产/子组/权重持有某主题篮子，历史表现如何、超额来自哪里」。入口 = `config/research_baskets.yaml`（篮子 → 来源 type/key + include/exclude groups + 权重），成分复用 `selection_universe.yaml`（theme）/ `research_observations.yaml`（observation_group），不重复维护清单。
 - **两个入口**：`make basket-refresh`（联网：`data benchmark refresh` → `research basket fetch`（按来源 (type,key) 去重抓取，默认跳过 ETF tier `theme_etf/sub_industry_etf/watch_etf`）→ `research basket run`）；`make basket`（离线只读已落盘 `*_prices.parquet` 重算）。参数 `BASKETS=all` / `START` / `END`（买入持有窗口）/ `QSTART`/`QEND`（季度净值窗口，默认 `QSTART=2024-09-10`）/ `DAYS=800`（抓取天数，默认覆盖季度窗口）。
-- **两个窗口独立**：`nav`（`basket_compare.html`）用 `START/END`；`quarterly_nav`（`basket_quarterly_compare.html`）用 `QSTART/QEND`，留空回退到 `START/END`。两图净值均以共同首个有效交易日 = 100。
+- **两个窗口独立**：`nav`（`basket_compare.html`）用 `START/END`；`quarterly_nav`（`basket_quarterly_compare.html`）用 `QSTART/QEND`，留空回退到 `START/END`。两图净值均以共同首个有效交易日 = 100。**所有窗口统一截到「最近完整交易日」**（15:10 前排除当日未收盘 bar，篮子与基准末日一致）。
 - **产物**：`outputs/research/baskets/`——`basket_compare.html`（主产物，含净值对比图）+ `basket_quarterly_compare.html`（季度调仓）+ 每篮子 `{basket}_nav/metrics/groups/constituents/manifest/rolling/contributions/quarterly_nav` + `basket_overlap.csv`（跨篮子共同成分，防「单一成分拉动被误读为双主题成立」）。
 - **当前篮子**：scania_china_watch / china_auto_global（含 OEM）/ china_auto_global_ex_oem / ai_capex（AI 基建 6 组）/ memory_and_storage（5 只）/ auto_tier1_ai_infra / auto_tier1_embodied。新增篮子改 YAML 即自动纳入 fetch。
 - **口径**：`group_equal + buy_and_hold`（组间等权、组内等权、前复权、期间不调仓）；`--start` 锚定权重起点（与已退役旧看板 `watchlist_vs_hs300` 的「先建仓后 rebasing」口径不同，属预期）。详见 `docs/RESEARCH_BASKETS.md`。

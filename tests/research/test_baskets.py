@@ -41,6 +41,64 @@ def test_nav_benchmark_anchored_at_common_start():
     assert round(nav["benchmark"].iloc[-1], 4) == 110.0
 
 
+def test_last_complete_trading_day_cutoff():
+    from datetime import datetime
+
+    from src.research.baskets.calculator import last_complete_trading_day
+
+    dates = ["2026-09-23", "2026-09-24"]
+    # 盘中：当日未收盘 → 退回上一交易日
+    assert last_complete_trading_day(dates, now=datetime(2026, 9, 24, 11, 0)) == pd.Timestamp("2026-09-23")
+    # 收盘后：当日完整
+    assert last_complete_trading_day(dates, now=datetime(2026, 9, 24, 16, 0)) == pd.Timestamp("2026-09-24")
+    # 次日：max < today → 完整
+    assert last_complete_trading_day(dates, now=datetime(2026, 9, 25, 9, 0)) == pd.Timestamp("2026-09-24")
+    # 只有当日一根、且未收盘 → 无更早日期
+    assert last_complete_trading_day(["2026-09-24"], now=datetime(2026, 9, 24, 11, 0)) is None
+
+
+def test_window_truncated_to_last_complete_day(tmp_path, monkeypatch):
+    """盘中运行：当日未收盘 bar 被排除，nav 结束于上一完整交易日。"""
+    import src.research.baskets.calculator as calc
+    from src.research.baskets.calculator import calculate_basket
+
+    dates = pd.to_datetime(["2026-09-23", "2026-09-24"])
+    prices = pd.DataFrame({"group": "a", "symbol": "A", "name": "A公司",
+                           "date": dates, "close": [100.0, 120.0]})
+    price_path = tmp_path / "demo_prices.parquet"
+    prices.to_parquet(price_path, index=False)
+    pd.DataFrame({"date": dates, "close": [100.0, 110.0]}).to_csv(
+        tmp_path / "_benchmark_sh000300.csv", index=False)
+    universe = tmp_path / "universe.yaml"
+    universe.write_text("""
+themes:
+  demo:
+    tiers:
+      - key: a
+        label: "A组"
+        assets: [{symbol: "A", name: "A公司", market: CN}]
+""", encoding="utf-8")
+    baskets = tmp_path / "baskets.yaml"
+    baskets.write_text("""
+baskets:
+  demo:
+    label: "Demo"
+    source: {type: theme, key: demo, include_groups: [a]}
+    weighting: {method: group_equal, rebalance: buy_and_hold}
+    benchmark: sh000300
+""", encoding="utf-8")
+
+    monkeypatch.setattr(calc, "_price_path", lambda basket: price_path)
+    monkeypatch.setattr(calc, "raw_dir", lambda: tmp_path)
+
+    from datetime import datetime
+    result = calculate_basket(
+        "demo", basket_config=baskets, universe_path=universe,
+        as_of_now=datetime(2026, 9, 24, 11, 0))
+    assert result["nav"].index.max() == pd.Timestamp("2026-09-23")
+    assert result["quarterly_nav"].index.max() == pd.Timestamp("2026-09-23")
+
+
 def test_quarterly_window_independent_of_main(tmp_path, monkeypatch):
     """quarterly_start_date 独立于买入持有窗口：nav 用 --start，季度净值可取更早起点。"""
     import src.research.baskets.calculator as calc
