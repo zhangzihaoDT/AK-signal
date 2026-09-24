@@ -41,6 +41,53 @@ def test_nav_benchmark_anchored_at_common_start():
     assert round(nav["benchmark"].iloc[-1], 4) == 110.0
 
 
+def test_quarterly_window_independent_of_main(tmp_path, monkeypatch):
+    """quarterly_start_date 独立于买入持有窗口：nav 用 --start，季度净值可取更早起点。"""
+    import src.research.baskets.calculator as calc
+    from src.research.baskets.calculator import calculate_basket
+
+    dates = pd.bdate_range("2024-08-01", "2024-12-31")
+    prices = pd.DataFrame({
+        "group": "a", "symbol": "A", "name": "A公司",
+        "date": dates, "close": [100.0 + i for i in range(len(dates))],
+    })
+    price_path = tmp_path / "demo_prices.parquet"
+    prices.to_parquet(price_path, index=False)
+
+    bench = pd.DataFrame({"date": dates, "close": [100.0 + 0.5 * i for i in range(len(dates))]})
+    bench.to_csv(tmp_path / "_benchmark_sh000300.csv", index=False)
+
+    universe = tmp_path / "universe.yaml"
+    universe.write_text("""
+themes:
+  demo:
+    tiers:
+      - key: a
+        label: "A组"
+        assets: [{symbol: "A", name: "A公司", market: CN}]
+""", encoding="utf-8")
+    baskets = tmp_path / "baskets.yaml"
+    baskets.write_text("""
+baskets:
+  demo:
+    label: "Demo"
+    source: {type: theme, key: demo, include_groups: [a]}
+    weighting: {method: group_equal, rebalance: buy_and_hold}
+    benchmark: sh000300
+""", encoding="utf-8")
+
+    monkeypatch.setattr(calc, "_price_path", lambda basket: price_path)
+    monkeypatch.setattr(calc, "raw_dir", lambda: tmp_path)
+
+    result = calculate_basket(
+        "demo", start_date="2024-10-01", quarterly_start_date="2024-08-01",
+        basket_config=baskets, universe_path=universe)
+    assert result["nav"].index.min() >= pd.Timestamp("2024-10-01")
+    assert result["quarterly_nav"].index.min() == dates[0]
+    assert result["quarterly_nav"]["basket"].iloc[0] == 100.0
+    assert result["quarterly_nav"]["benchmark"].iloc[0] == 100.0
+
+
 def test_metrics_has_excess_and_drawdown():
     nav = pd.DataFrame(
         {"basket": [100.0, 110.0, 90.0], "benchmark": [100.0, 105.0, 105.0]},

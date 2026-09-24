@@ -198,15 +198,21 @@ event-study: ## [v0.5.1] 事件研究（SIGNALS=信号parquet, START/END可选, 
 # ── Research Basket（主题篮子对比，手动按需） ─────────────────────
 
 BASKETS ?= all
-DAYS ?= 400
+DAYS ?= 800
+QSTART ?= 2024-09-10
+QEND ?= 
 
-basket: ## [Research] 主题篮子离线重算 + 富报告（读已落盘价格；BASKETS=all START/END 可选）
-	$(PYTHON) $(SRC_MAIN) research basket run --baskets $(BASKETS) $(if $(START),--start $(START),) $(if $(END),--end $(END),)
+BASKET_RUN = $(PYTHON) $(SRC_MAIN) research basket run --baskets $(BASKETS) \
+	$(if $(START),--start $(START),) $(if $(END),--end $(END),) \
+	$(if $(QSTART),--quarterly-start $(QSTART),) $(if $(QEND),--quarterly-end $(QEND),)
 
-basket-refresh: ## [Research] 刷 benchmark + 抓篮子来源行情 + 重算（联网；DAYS=400）
+basket: ## [Research] 主题篮子离线重算 + 富报告（读已落盘价格；BASKETS=all QSTART=2024-09-10 START/END/QEND 可选）
+	$(BASKET_RUN)
+
+basket-refresh: ## [Research] 刷 benchmark + 抓篮子来源行情 + 重算（联网；DAYS=800 QSTART=2024-09-10）
 	$(PYTHON) $(SRC_MAIN) data benchmark refresh --symbol sh000300
 	$(PYTHON) $(SRC_MAIN) research basket fetch --days $(DAYS) --baskets $(BASKETS)
-	$(PYTHON) $(SRC_MAIN) research basket run --baskets $(BASKETS) $(if $(START),--start $(START),) $(if $(END),--end $(END),)
+	$(BASKET_RUN)
 
 backtest-trades: ## [v0.5.2] 交易层逐笔模拟（THEME=主题, EXIT=退出策略, SIGNALS=信号）
 	$(PYTHON) $(SRC_MAIN) backtest trades --signals $(SIGNALS) --theme $(THEME) --entity-type etf --exit-policy $(EXIT)

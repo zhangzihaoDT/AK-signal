@@ -48,7 +48,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     results = []
     for key in _keys(args.baskets):
         try:
-            result = calculate_basket(key, start_date=args.start, end_date=args.end)
+            result = calculate_basket(
+                key, start_date=args.start, end_date=args.end,
+                quarterly_start_date=args.quarterly_start, quarterly_end_date=args.quarterly_end)
             save_result(result, _out_dir())
             results.append(result)
             print(json.dumps({"basket": key, **result["metrics"]}, ensure_ascii=False))
@@ -81,6 +83,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     run.add_argument("--baskets", default="all", help="篮子 key，逗号分隔，默认 all")
     run.add_argument("--start", default="", help="起始日期 YYYY-MM-DD")
     run.add_argument("--end", default="", help="结束日期 YYYY-MM-DD")
+    run.add_argument("--quarterly-start", default="", help="季度净值起始日期（默认同 --start）")
+    run.add_argument("--quarterly-end", default="", help="季度净值结束日期（默认同 --end）")
 
     fetch = sub.add_parser("fetch", help="按篮子来源抓取行情（在线）")
     fetch.add_argument("--baskets", default="all", help="篮子 key，逗号分隔，默认 all")

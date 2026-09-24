@@ -81,16 +81,23 @@ Physical AI 篮子的子组按**机器人价值链位置**划分（非信心程�
 make basket-refresh                 # 联网：刷 HS300 基准 + 抓所有篮子来源行情 + 重算
 make basket                         # 离线：只读已落盘价格重算（快）
 make basket BASKETS=ai_capex        # 只跑指定篮子
-make basket START=2025-09-23 END=2026-09-23   # 指定窗口
-make basket-refresh DAYS=400        # 抓取近 400 自然日
+make basket START=2025-09-23 END=2026-09-23   # 指定买入持有窗口
+make basket QSTART=2024-09-10       # 指定季度净值窗口起点（默认 2024-09-10）
+make basket-refresh DAYS=800        # 抓取近 800 自然日（默认，覆盖季度窗口）
 ```
+
+**两个窗口是独立的**：买入持有净值（`basket_compare.html`）用 `START`/`END`；
+季度调仓净值（`basket_quarterly_compare.html`）用 `QSTART`/`QEND`（留空则回退到
+`START`/`END`）。`QSTART` 默认 `2024-09-10`（924 行情前的稳定基准），因此
+`make basket-refresh` 的 `DAYS` 默认取 800 以覆盖该窗口；若把 `DAYS` 调小到窗口之外，
+季度净值会从实际可用首日落起。
 
 等价的底层命令：
 
 ```bash
-python src/main.py research basket fetch --days 400 --baskets all --refresh-benchmark
+python src/main.py research basket fetch --days 800 --baskets all --refresh-benchmark
 python src/main.py research basket run --baskets all \
-  --start 2025-08-20 --end 2026-08-19
+  --quarterly-start 2024-09-10
 ```
 
 `fetch` 从 `config/research_baskets.yaml` 声明的来源出发，按 `(type, key)` 去重后抓取
@@ -110,7 +117,7 @@ python src/main.py research basket run --baskets all \
 - `basket_quarterly_compare.html`：季度调仓后的多篮子对比图
 - `{basket}_rolling.csv`：20/60/120 日滚动超额、Sharpe、回撤
 - `{basket}_contributions.csv`：个股收益贡献及 Top1/Top3 标记
-- `{basket}_quarterly_nav.csv`：季度首个交易日重置权重后的净值
+- `{basket}_quarterly_nav.csv`：季度首个交易日重置权重后的净值（窗口由 `--quarterly-start/--quarterly-end` 控制）
 
 ## 研究边界
 

@@ -17,44 +17,62 @@ def _price_path(basket: dict[str, Any]) -> str:
     return str(raw_dir() / root / source["key"] / f"{source['key']}_prices.parquet")
 
 
+def _slice_window(df: pd.DataFrame, start: str = "", end: str = "") -> pd.DataFrame:
+    if start:
+        df = df[df["date"] >= pd.Timestamp(start)]
+    if end:
+        df = df[df["date"] <= pd.Timestamp(end)]
+    return df
+
+
+def _align_benchmark(benchmark: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
+    """基准窗口对齐到价格区间，避免从全历史（2002）归一化。"""
+    if prices.empty:
+        return benchmark
+    lo, hi = prices["date"].min(), prices["date"].max()
+    return benchmark[(benchmark["date"] >= lo) & (benchmark["date"] <= hi)]
+
+
 def calculate_basket(
     key: str,
     *,
     start_date: str = "",
     end_date: str = "",
+    quarterly_start_date: str = "",
+    quarterly_end_date: str = "",
     basket_config=None,
     universe_path=None,
 ) -> dict[str, Any]:
-    """读取已抓取的篮子价格并计算净值、指标、子组表现。"""
+    """读取已抓取的篮子价格并计算净值、指标、子组表现。
+
+    季度净值（quarterly_nav）窗口可独立于买入持有净值（nav）：
+    `quarterly_start_date` / `quarterly_end_date` 为空时回退到 `start_date` / `end_date`。
+    """
     basket = load_basket(key, basket_config)
     constituents = expand_constituents(basket, universe_path)
-    prices = pd.read_parquet(_price_path(basket))
-    prices["date"] = pd.to_datetime(prices["date"]).dt.normalize()
+    prices_all = pd.read_parquet(_price_path(basket))
+    prices_all["date"] = pd.to_datetime(prices_all["date"]).dt.normalize()
     wanted = {(x["group"], x["symbol"]) for x in constituents}
-    prices = prices[prices.apply(lambda r: (str(r["group"]), str(r["symbol"])) in wanted, axis=1)].copy()
-    if start_date:
-        prices = prices[prices["date"] >= pd.Timestamp(start_date)]
-    if end_date:
-        prices = prices[prices["date"] <= pd.Timestamp(end_date)]
-    benchmark = pd.read_csv(raw_dir() / "_benchmark_sh000300.csv", parse_dates=["date"])
-    benchmark["date"] = pd.to_datetime(benchmark["date"]).dt.normalize()
-    if start_date:
-        benchmark = benchmark[benchmark["date"] >= pd.Timestamp(start_date)]
-    if end_date:
-        benchmark = benchmark[benchmark["date"] <= pd.Timestamp(end_date)]
-    # 基准窗口对齐到篮子实际价格区间，避免未指定 --start 时基准从全历史（2002）归一化，
-    # 导致对比图里 HS300 起点远高于初始净值 100（且季度净值出现长期平段）。
-    if not prices.empty:
-        lo, hi = prices["date"].min(), prices["date"].max()
-        benchmark = benchmark[(benchmark["date"] >= lo) & (benchmark["date"] <= hi)]
+    prices_all = prices_all[
+        prices_all.apply(lambda r: (str(r["group"]), str(r["symbol"])) in wanted, axis=1)].copy()
+
+    prices = _slice_window(prices_all, start_date, end_date)
+    q_start = quarterly_start_date or start_date
+    q_end = quarterly_end_date or end_date
+    q_prices = _slice_window(prices_all, q_start, q_end)
+
+    benchmark_all = pd.read_csv(raw_dir() / "_benchmark_sh000300.csv", parse_dates=["date"])
+    benchmark_all["date"] = pd.to_datetime(benchmark_all["date"]).dt.normalize()
+    benchmark = _align_benchmark(_slice_window(benchmark_all, start_date, end_date), prices)
+    q_benchmark = _align_benchmark(_slice_window(benchmark_all, q_start, q_end), q_prices)
+
     group_order = list(dict.fromkeys(x["group"] for x in constituents))
-    nav = build_nav(prices, benchmark, group_order=group_order,
-                    weighting_method=basket.get("weighting", {}).get("method", "group_equal"))
     weighting_method = basket.get("weighting", {}).get("method", "group_equal")
+    nav = build_nav(prices, benchmark, group_order=group_order, weighting_method=weighting_method)
     rolling = rolling_analysis(nav)
     contributions = contribution_analysis(prices, group_order, weighting_method)
     quarterly_nav = quarterly_rebalanced_nav(
-        prices, benchmark, group_order=group_order, weighting_method=weighting_method)
+        q_prices, q_benchmark, group_order=group_order, weighting_method=weighting_method)
     base_metrics = metrics(nav)
     base_metrics.update({
         "top1_contribution_pct_points": round(float(contributions.head(1)["contribution_pct_points"].sum()), 4),
