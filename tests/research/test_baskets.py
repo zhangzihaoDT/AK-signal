@@ -41,6 +41,55 @@ def test_nav_benchmark_anchored_at_common_start():
     assert round(nav["benchmark"].iloc[-1], 4) == 110.0
 
 
+def test_compare_report_rich_panels(tmp_path):
+    """富报告渲染：nav 含指标/滚动/贡献/子组；quarterly 不带买入窗口口径面板。"""
+    from src.research.baskets.report import compare_report
+
+    idx = pd.to_datetime(["2025-01-01", "2025-01-02", "2025-01-03"])
+    nav = pd.DataFrame({"basket": [100.0, 101.0, 102.0], "benchmark": [100.0, 100.5, 101.0]}, index=idx)
+
+    def _mk(key: str) -> dict:
+        return {
+            "basket": {"key": key, "label": key.upper()},
+            "metrics": {
+                "start_date": "2025-01-01", "end_date": "2025-01-03", "return_pct": 2.0, "excess_pct": 1.0,
+                "annualized_return_pct": 10.0, "max_drawdown_pct": -3.0, "sharpe": 1.2,
+                "annualized_volatility_pct": 8.0, "win_rate_pct": 66.0,
+                "top1_contribution_pct_points": 1.5, "top3_contribution_pct_points": 2.0,
+                "quarterly_rebalance_return_pct": 3.0, "quarterly_rebalance_excess_pct": 2.0,
+            },
+            "nav": nav, "quarterly_nav": nav,
+            "group_metrics": pd.DataFrame([{"group": "g1", "n_assets": 2, "return_pct": 5.0}]),
+            "rolling": pd.DataFrame([{
+                "date": "2025-01-03",
+                "excess_return_20d_pct": 1.0, "sharpe_20d": 0.5, "drawdown_20d_pct": -2.0,
+                "excess_return_60d_pct": 2.0, "sharpe_60d": 0.6, "drawdown_60d_pct": -3.0,
+                "excess_return_120d_pct": 3.0, "sharpe_120d": 0.7, "drawdown_120d_pct": -4.0,
+            }]),
+            "contributions": pd.DataFrame([
+                {"symbol": "A", "name": "A公司", "group": "g1", "weight_pct": 50.0,
+                 "return_pct": 5.0, "contribution_pct_points": 2.5},
+                {"symbol": "B", "name": "B公司", "group": "g1", "weight_pct": 50.0,
+                 "return_pct": -1.0, "contribution_pct_points": -0.5},
+            ]),
+            "constituents": pd.DataFrame([
+                {"group": "g1", "symbol": "A", "name": "A公司", "evidence_stage": ""},
+                {"group": "g1", "symbol": "B", "name": "B公司", "evidence_stage": ""},
+            ]),
+        }
+
+    results = [_mk("alpha"), _mk("beta")]
+    html = compare_report(results, tmp_path).read_text(encoding="utf-8")
+    for token in ["指标汇总", "最大回撤%", "Sharpe", "每篮子明细", "滚动超额%", "个股贡献", "子组收益",
+                  "Cross-Basket 共同成分"]:
+        assert token in html, token
+
+    q = compare_report(results, tmp_path, filename="basket_quarterly_compare.html",
+                       nav_field="quarterly_nav", panels=()).read_text(encoding="utf-8")
+    assert "指标汇总" in q and "季度收益%" in q
+    assert "个股贡献" not in q and "子组收益" not in q and "滚动超额%" not in q
+
+
 def test_last_complete_trading_day_cutoff():
     from datetime import datetime
 

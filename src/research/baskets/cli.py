@@ -61,7 +61,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         path = compare_report(results, _out_dir())
         print(f"report: {path}")
         quarterly_path = compare_report(
-            results, _out_dir(), filename="basket_quarterly_compare.html", nav_field="quarterly_nav")
+            results, _out_dir(), filename="basket_quarterly_compare.html",
+            nav_field="quarterly_nav", panels=())
         print(f"quarterly report: {quarterly_path}")
         overlap = cross_basket_overlap(results)
         if not overlap.empty:

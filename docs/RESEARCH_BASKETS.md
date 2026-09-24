@@ -113,8 +113,8 @@ python src/main.py research basket run --baskets all \
 - `{basket}_groups.csv`：子组收益与标的数量
 - `{basket}_constituents.csv`：展开后的研究成分
 - `{basket}_manifest.json`：来源、权重、配置 hash 和覆盖元数据
-- `basket_compare.html`：多篮子交互式对比图
-- `basket_quarterly_compare.html`：季度调仓后的多篮子对比图
+- `basket_compare.html`（主产物）：净值对比图 + **指标汇总表**（收益/超额/年化/最大回撤/Sharpe/波动/胜率/Top1-Top3 贡献）+ **每篮子明细**（滚动 20/60/120D 超额·Sharpe·回撤 / 个股贡献 Top-N+尾部负贡献 / 子组收益）+ Cross-Basket 共同成分
+- `basket_quarterly_compare.html`：季度调仓净值图 + 季度收益/超额指标表 + Cross-Basket 共同成分（不含买入窗口口径的贡献/子组/滚动面板，避免混淆）
 - `{basket}_rolling.csv`：20/60/120 日滚动超额、Sharpe、回撤
 - `{basket}_contributions.csv`：个股收益贡献及 Top1/Top3 标记
 - `{basket}_quarterly_nav.csv`：季度首个交易日重置权重后的净值（窗口由 `--quarterly-start/--quarterly-end` 控制）
