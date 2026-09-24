@@ -2,12 +2,12 @@
 
 ## 里程碑 · A 股观察池扩展至 59 只 ✅（2026-09-24）
 
-观察池 51 → 59：新增 8 只存储/记忆主题（`memory_and_storage`）候选，`monitor_only`；原有 51 只行情与技术指标原样保留。
+观察池 51 → 59：新增 8 只存储/记忆主题（`memory_and_storage`）候选，其中 5 只已注册 `monitor_only`；原有 51 只行情与技术指标原样保留。
 
 - **行情核验已完成**：8 只候选已于 2026-09-24 经 Engine 一次性补齐 2026-09-23 日线行情与技术指标（online fetch，as_of=20260923），`data_status=current`；51 只继承行逐字段校验 **0 差异**。
-- **首批注册 3 只 monitor_only**：兆易创新（存储芯片）/ 联芸科技（SSD 主控）/ 江波龙（存储产品）→ `selection_universe.yaml` `ai_infrastructure.memory_and_storage`（monitor_only + `STOCK_TIERS` 放行）；进入 stock-metrics 核心资产监控（已验证 58/58 current），不参与主题排名/四段信号/候选资格，不改 `theme_registry.yaml`。其余 5 只（佰维/德明利/普冉/聚辰/香农芯创）留候选池待评估。
-- **观察池口径（participation 是 stock×tier 层属性，三个正交语义层）**：观察池 59 只中 universe 认识 54 只——**54 = 多少只股票** · **48 = 多少只有主题确认权**（confirmation-capable） · **8 = 多少只至少有一个监控身份**（monitor-involved：auto_thermal 5 中鼎银轮飞龙拓普三花 + memory 3 兆易联芸江波龙，其中拓普/三花为 overlap 双身份也计入 48）。三个层次不互相推导、不做加减；详见 AGENTS.md 与 milestone §10。
-- **结果**：兆易 55/B、联芸 80/A、江波龙 20/C（0923 快照）。均为技术评分快照，非买入信号。
+- **注册 5 只 monitor_only（分两批）**：首批 3 只 兆易创新（存储芯片）/ 联芸科技（SSD 主控）/ 江波龙（存储产品），二批 2 只 佰维存储（方案+封测）/ 普冉股份（非易失存储）→ `selection_universe.yaml` `ai_infrastructure.memory_and_storage`（monitor_only + `STOCK_TIERS` 放行）；进入 stock-metrics 核心资产监控（已验证 **60/60 current**），不参与主题排名/四段信号/候选资格，不改 `theme_registry.yaml`。德明利/聚辰股份/香农芯创 3 只暂留观察池待评估。
+- **观察池口径（participation 是 stock×tier 层属性，三个正交语义层）**：观察池 59 只中 universe 认识 56 只——**56 = 多少只股票** · **48 = 多少只有主题确认权**（confirmation-capable） · **10 = 多少只至少有一个监控身份**（monitor-involved：auto_thermal 5 中鼎银轮飞龙拓普三花 + memory 5 兆易联芸江波龙佰维普冉，其中拓普/三花为 overlap 双身份也计入 48）。三个层次不互相推导、不做加减；详见 AGENTS.md 与 milestone §10。
+- **结果**：兆易 55/B、联芸 80/A、江波龙 20/C、佰维 35/B、普冉 65/B（0923 快照）。均为技术评分快照，非买入信号。
 - **不进生产候选链路**：`theme_registry.yaml` 不改、不进入 Layer② 确认与 Layer③ 候选。
 - **产物**：`data/reference/ashare_stock_observation_pool_20260924.csv`（合并池，59 行）；原始变更 `data/reference/ashare_stock_list_20260924_candidate_update.csv`。
 - **详情**：`docs/milestone_20260924_observation_pool.md`

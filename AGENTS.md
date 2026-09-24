@@ -61,11 +61,11 @@
   - 动态 ETF 候选按 `theme_registry.yaml` 关键词**首个命中**归属单一主题（bucket 顺序优先，不做跨主题复制）；
   - 固定池资产跨主题注册时，`recommended_actions` 按 (asset_type, code) **去重**，保留首个 bucket 的 primary 归属；
   - Position 权重归属属于 Layer 4（v0.4.3 不做），跨主题清单由 `select run` 输出 `config_issues.cross_theme_assets` 暴露。
-- **participation 是 stock×tier 层属性，不是 stock 层单标签（v0.12.1 口径固化）**：`monitor_only` 只对**某个 tier 的注册**成立；同一股票可同时在另一 tier 是 `tradeable`。**计数时禁止把 participation 压成 stock 级单一标签**。观察池 59 只中 universe 认识 54 只，按**三个正交语义层次**记忆（不互相推导、不做加减）：
-  - **54 = 多少只股票**（unique stocks，观察池 ∩ `selection_universe.yaml`）
+- **participation 是 stock×tier 层属性，不是 stock 层单标签（v0.12.1 口径固化）**：`monitor_only` 只对**某个 tier 的注册**成立；同一股票可同时在另一 tier 是 `tradeable`。**计数时禁止把 participation 压成 stock 级单一标签**。观察池 59 只中 universe 认识 56 只，按**三个正交语义层次**记忆（不互相推导、不做加减）：
+  - **56 = 多少只股票**（unique stocks，观察池 ∩ `selection_universe.yaml`）
   - **48 = 多少只有主题确认权**（confirmation-capable：存在 ≥1 个 tier 注册 tradeable 且该 tier 进入 Theme→Tier 确认）
-  - **8 = 多少只至少有一个监控身份**（monitor-involved：存在 ≥1 个 tier 注册 monitor_only；auto_thermal 5 = 中鼎/银轮/飞龙/拓普/三花，memory 3 = 兆易/联芸/江波龙）
-  - 8 只 monitor-involved 中 **拓普/三花**同时有 `china_auto_global.global_ev_components(tradeable)` 确认身份（overlap 双身份，也计入 48），其余 6 只仅有监控身份。需要「全体 monitor 相关股票」时写 **8 monitor-involved**。`select run` 的 `config_issues.cross_theme_assets` 是跨主题事实清单，语义与此一致。
+  - **10 = 多少只至少有一个监控身份**（monitor-involved：存在 ≥1 个 tier 注册 monitor_only；auto_thermal 5 = 中鼎/银轮/飞龙/拓普/三花，memory 5 = 兆易/联芸/江波龙/佰维/普冉）
+  - 10 只 monitor-involved 中 **拓普/三花**同时有 `china_auto_global.global_ev_components(tradeable)` 确认身份（overlap 双身份，也计入 48），其余 8 只仅有监控身份。需要「全体 monitor 相关股票」时写 **10 monitor-involved**。`select run` 的 `config_issues.cross_theme_assets` 是跨主题事实清单，语义与此一致。
 - **配置降级**：asset pool 存在未注册 theme（不在 theme_registry.yaml）时，其资产不进入任何候选。默认告警并标记 `degraded` 继续发布（报告顶部显示配置降级提示）；`select run --strict` 可中止发布。
 - **Future Themes（Not Enabled）**：Resource Cycle（有色/钢铁/煤炭）、High-end Equipment（高端装备）、Aerospace/Shipping（航空航天/船舶）等不在当前两方向，仅是「未启用」而非被否定，可在 `theme_registry.yaml` 重新打开；若启用商品类 theme，表达的是「权益/ETF 代理」（ETF + 申万有色行业 + 资源股），非商品期货趋势系统，须标 `maturity: PARTIAL`，不输出增配信号。
 

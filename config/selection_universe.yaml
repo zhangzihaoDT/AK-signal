@@ -26,8 +26,8 @@
 #   high_speed_interconnect 高速互连/铜缆（立讯/沃尔核材/兆龙/鼎通）
 #   server_power        服务器电源（麦格米特/欧陆通）
 #   liquid_cooling      液冷/散热（英维克）
-#   memory_and_storage  存储/记忆（兆易创新/联芸科技/江波龙；2026-09 由存储候选纳入，
-#                        participation=monitor_only，只监控不交易，覆盖存储芯片/SSD主控/存储产品三环节）
+#   memory_and_storage  存储/记忆（兆易创新/联芸科技/江波龙/佰维存储/普冉股份；2026-09 由存储候选纳入，
+#                        participation=monitor_only，只监控不交易，覆盖存储设计/主控/产品/方案/非易失存储多环节）
 #   auto_thermal_ai_cooling 汽车热管理 → AI 液冷（中鼎/银轮/飞龙 + 跨主题注册的拓普/三花；
 #                        2026-08 由观察组 auto_tier1_ai_infra 纳入，participation=monitor_only：
 #                        只监控不交易，evidence_source 指向 research_observations.yaml 阶段事实源。
@@ -111,13 +111,16 @@ themes:
         label: "存储 / 记忆（monitor_only 研究迁移）"
         # 研究迁移 Tier（monitor-only）：进入 stock-metrics / 核心资产监控，
         # 不参与主题内排名与四段信号，不因主题确认获得交易候选资格。
-        # 覆盖存储链三个环节：存储芯片（兆易创新）/ SSD 主控（联芸科技）/ 存储产品（江波龙）。
-        # 其余 5 只存储候选暂留参考观察池 data/reference，未注册。
+        # 覆盖存储链多个环节：存储芯片（兆易创新）/ SSD 主控（联芸科技）/ 存储产品（江波龙）
+        # / 存储方案+封测（佰维存储）/ 非易失存储（普冉股份）。
+        # 其余 3 只存储候选（德明利/聚辰股份/香农芯创）暂留参考观察池 data/reference，未注册。
         participation: monitor_only
         assets:
           - {symbol: "603986", name: "兆易创新", market: CN, sw_industry: "801081.SI", note: "存储芯片：NOR/NAND/利基型DRAM 设计（flash_memory_design）"}
           - {symbol: "688449", name: "联芸科技", market: CN, sw_industry: "801081.SI", note: "SSD 主控：SATA/PCIe·NVMe 控制芯片（ssd_controller）"}
           - {symbol: "301308", name: "江波龙", market: CN, sw_industry: "801081.SI", note: "存储产品：嵌入式存储/SSD/移动存储/内存条（memory_modules_and_solutions）"}
+          - {symbol: "688525", name: "佰维存储", market: CN, sw_industry: "801081.SI", note: "存储方案+主控+封测/先进封测（memory_modules_and_solutions）"}
+          - {symbol: "688766", name: "普冉股份", market: CN, sw_industry: "801081.SI", note: "非易失存储：NOR Flash / EEPROM（nonvolatile_memory_design）"}
       - key: auto_thermal_ai_cooling
         label: "汽车热管理 → AI 液冷"
         # 研究迁移 Tier（monitor-only）：进入 stock-metrics / 核心资产监控，
