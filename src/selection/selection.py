@@ -230,6 +230,7 @@ TIER_ROLE_MAP = {
     "semiconductor_components": "LEADER",
     "liquid_cooling": "UPSTREAM",
     "auto_thermal_ai_cooling": "UPSTREAM",
+    "memory_and_storage": "LEADER",
     "high_speed_interconnect": "LEADER",
     "server_power": "UPSTREAM",
     "oem_global": "LEADER",

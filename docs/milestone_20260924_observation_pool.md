@@ -82,3 +82,4 @@
 - `selection_universe.yaml` 加载 76 assets / 3 themes；`detect_unregistered_themes=[]`；`cross_theme_assets` 仅原有拓普/三花。
 - `memory_and_storage` tier 3 只：theme=ai_infrastructure、participation=monitor_only、STOCK_TIERS 放行（stock items 58/76）。
 - `make stock-metrics`（离线）重建 `stock_metrics_20260923.parquet` **58 行 / 58 current**，3 只与新池数值一致（兆易 398.72/55/B、联芸 64.36/80/A、江波龙 346.00/20/C）。
+- **角色映射修复**：`src/selection/selection.py` `TIER_ROLE_MAP` 补 `memory_and_storage → LEADER`（注册时遗漏，导致 Layer③ 观察池按 `role=None` 静默跳过）。修复后 engine（`include_stocks=True`，research/parity 路径）监控组 monitor_only 8 只 = 5 先例（auto_thermal：中鼎/银轮/飞龙/拓普/三花）+ 3 只（兆易/联芸/江波龙），全部 state=WATCH / recommended=False / reason_codes=`['monitor_only']`；每日 ETF-only 发布（`include_stocks=False`）个股容器为空，行为不受影响。`tests/selection` 196 + `tests/trend_engine` 131 全绿。
