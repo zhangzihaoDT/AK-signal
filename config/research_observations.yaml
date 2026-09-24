@@ -3,8 +3,8 @@
 # 职责边界：
 #   本文件只维护「研究观察清单」——不进入 Layer ③ 主题确认、推荐或交易候选，
 #   也不进入 stock-metrics / Selection「核心资产监控」。
-#   消费方：config/research_baskets.yaml（Research Basket 回测）、
-#           tools/fetch_observation_group_prices.py（观察组行情抓取）。
+#   消费方：config/research_baskets.yaml（Research Basket 回测 / 行情抓取入口
+#           `make basket` / `make basket-refresh`）。
 #   Selection 固定资产池在 config/selection_universe.yaml。
 #   例外（2026-08-28）：auto_tier1_ai_infra 已纳入 selection_universe.yaml
 #   （ai_infrastructure.auto_thermal_ai_cooling tier）参与监控与交易候选；

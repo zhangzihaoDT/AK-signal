@@ -38,10 +38,46 @@ def test_metrics_has_excess_and_drawdown():
 
 def test_basket_config_and_constituents_are_explicit():
     baskets = load_baskets()
-    assert {"scania_china_watch", "china_auto_global_ex_oem", "ai_capex"} <= set(baskets)
+    assert {"scania_china_watch", "china_auto_global", "china_auto_global_ex_oem",
+            "ai_capex", "memory_and_storage"} <= set(baskets)
     assets = expand_constituents(baskets["china_auto_global_ex_oem"])
     assert all(a["group"] != "oem_global" for a in assets)
+    assert any(a["group"] == "oem_global" for a in expand_constituents(baskets["china_auto_global"]))
+    mem = expand_constituents(baskets["memory_and_storage"])
+    assert {a["group"] for a in mem} == {"memory_and_storage"}
+    assert {"603986", "688449", "301308", "688525", "688766"} <= {a["symbol"] for a in mem}
     assert basket_config_hash(baskets["ai_capex"])
+
+
+def test_theme_baskets_exclude_etf_tiers():
+    """主题篮子只含股票 tier，不应混入 ETF 产品层（否则 fetch 跳过 ETF 后 run 会缺组）。"""
+    etf_tiers = {"theme_etf", "sub_industry_etf", "watch_etf"}
+    for key in ("ai_capex", "memory_and_storage", "china_auto_global", "china_auto_global_ex_oem"):
+        groups = {a["group"] for a in expand_constituents(load_baskets()[key])}
+        assert groups and not (groups & etf_tiers), (key, groups)
+
+
+def test_fetch_source_keys_dedup():
+    """按 (type, key) 去重：多篮子共享同一来源只抓一次。"""
+    from src.research.baskets.fetch import source_keys
+
+    keys = source_keys()
+    assert len(keys) == len(set(keys))
+    assert sum(1 for k in keys if k == ("theme", "ai_infrastructure")) == 1
+    assert ("theme", "ai_infrastructure") in keys
+    assert ("theme", "china_auto_global") in keys
+    assert ("observation_group", "scania_china_watch") in keys
+
+
+def test_fetch_collect_skips_etf_tiers():
+    """collect_assets 默认跳过 ETF tier（纯配置读取，不联网）。"""
+    from src.research.baskets.fetch import DEFAULT_SKIP_TIERS, _collect_assets, _load_section
+
+    for key in ("ai_infrastructure", "china_auto_global"):
+        section = _load_section("theme", key)
+        assets = _collect_assets(section, "theme", DEFAULT_SKIP_TIERS)
+        assert assets
+        assert all(a["group"] not in DEFAULT_SKIP_TIERS for a in assets)
 
 
 def test_expand_constituents_propagates_evidence_stage(tmp_path):

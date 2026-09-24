@@ -186,6 +186,8 @@ make replay-single    # v0.5 单日期历史信号重放（DATE=YYYYMMDD）
 make replay-parity    # v0.5 重放 + 与正式产物一致性校验
 make replay-range     # v0.5 区间重放（START/END=YYYYMMDD, LAYERS=123|12）
 make event-study      # v0.5.1 事件研究（SIGNALS=信号parquet）
+make basket           # [Research] 主题篮子离线重算 + 富报告（BASKETS=all START/END 可选）
+make basket-refresh   # [Research] 刷 benchmark + 抓篮子来源行情 + 重算（联网；DAYS=400）
 make backtest-trades  # v0.5.2 交易层逐笔模拟（THEME=主题, EXIT=退出策略）
 make backtest-sensitivity  # v0.5.2 退出规则稳健性扫描
 make backtest-matrix  # v0.5.2 四组对比矩阵
@@ -205,6 +207,14 @@ make test             # 全部测试
 - Layer ② 行业内部结构产物（Enrichment）：`data/processed/sw_industry/sw_industry_structure_{trade_date}.parquet`（范围 = 趋势行业 ∪ 主题焦点行业，每行含 participation_rate/hhi/top1_share/top3_share/driver_mode/结构字段 + `structure_status` = available/insufficient/failed/not_in_scope 可审计，不静默空值）——独立于 confirmation，避免把非焦点行业混入「主题确认事实」；第二问驱动模式只消费此产物。run-day offline soft-fail 生成，联网补数走 `industry structure --allow-online-fetch`
 - Layer ③ 个股趋势指标：`outputs/stock_metrics/stock_metrics_{trade_date}.parquet`（预计算趋势指标，Observation 层产物，Layer② Tier 确认 与 Layer③ Selection 共同消费）
 - Layer ③ 交易候选：`outputs/selection/tradable_candidates_{date}.json`（结构化推荐对象，`role: recommendation`，`layer3.buckets[].themes[]` —— 每主题 today/why/recommendation/rationale/watchlist 已降级为**底层数据 contract**，报告不再镜像）+ `.html`（标题「③ 今日投资建议」，**v0.12.1 决策漏斗 8 段**：01 今日结论 → 02 Theme Confirmation → 03 ③A Eligibility → 04 ③B 表达载体 → 05 ③C Timing → 06 Why Now → 07 Next Trigger → 08 决策审计；**③B 载体 ≠ ③C 可买**）。**报告结构真源 = `src/selection/report_spec.yaml`（声明式 Spec），HTML 由 Report Engine 解释 Spec + ReportViewModel 生成**；改报告内容改 Spec，不拼 HTML。逐模块/逐指标约定见 `docs/SELECTION_REPORT.md`（Spec 的人类镜像，YAML 为准）。跨日对比归 01（今日关键变化），读上一份 Layer③ JSON（按 date 取最近、fail-soft、版本不兼容跳过）；派生字段（classification/panel/why/next_trigger/display_state）全部在 ReportViewModel，绝不写回核心 JSON
+
+## Research Basket（主题篮子对比，src/research/baskets/）
+
+- **定位**：配置驱动的主题篮子研究（**不阻塞 run-day，手动按需**）——回答「按明确资产/子组/权重持有某主题篮子，历史表现如何、超额来自哪里」。入口 = `config/research_baskets.yaml`（篮子 → 来源 type/key + include/exclude groups + 权重），成分复用 `selection_universe.yaml`（theme）/ `research_observations.yaml`（observation_group），不重复维护清单。
+- **两个入口**：`make basket-refresh`（联网：`data benchmark refresh` → `research basket fetch`（按来源 (type,key) 去重抓取，默认跳过 ETF tier `theme_etf/sub_industry_etf/watch_etf`）→ `research basket run`）；`make basket`（离线只读已落盘 `*_prices.parquet` 重算）。参数 `BASKETS=all` / `START` / `END` / `DAYS=400`。
+- **产物**：`outputs/research/baskets/`——`basket_compare.html`（主产物，含净值对比图）+ `basket_quarterly_compare.html`（季度调仓）+ 每篮子 `{basket}_nav/metrics/groups/constituents/manifest/rolling/contributions/quarterly_nav` + `basket_overlap.csv`（跨篮子共同成分，防「单一成分拉动被误读为双主题成立」）。
+- **当前篮子**：scania_china_watch / china_auto_global（含 OEM）/ china_auto_global_ex_oem / ai_capex（AI 基建 6 组）/ memory_and_storage（5 只）/ auto_tier1_ai_infra / auto_tier1_embodied。新增篮子改 YAML 即自动纳入 fetch。
+- **口径**：`group_equal + buy_and_hold`（组间等权、组内等权、前复权、期间不调仓）；`--start` 锚定权重起点（与已退役旧看板 `watchlist_vs_hs300` 的「先建仓后 rebasing」口径不同，属预期）。详见 `docs/RESEARCH_BASKETS.md`。
 
 ## v0.5 Research（src/research/）
 

@@ -21,8 +21,10 @@ Research Basket 是独立于 Layer ①/②/③ 和 Portfolio Execution 的主题
 当前默认篮子：
 
 - `scania_china_watch`
-- `china_auto_global_ex_oem`
-- `ai_capex`
+- `china_auto_global`（含 OEM）
+- `china_auto_global_ex_oem`（剔除 OEM）
+- `ai_capex`（AI 基础设施 6 组股票代理）
+- `memory_and_storage`（存储 / 记忆 5 只，monitor_only 研究迁移）
 - `auto_tier1_ai_infra`（汽车热管理供应链 → AI 数据中心液冷 / Capex）
 - `auto_tier1_embodied`（汽车供应链 → Physical AI 执行器 / 丝杠 / 轴承 / 控制器）
 
@@ -73,16 +75,27 @@ Physical AI 篮子的子组按**机器人价值链位置**划分（非信心程�
 
 ## 命令
 
+日常推荐用 `make`（手动按需）：
+
 ```bash
+make basket-refresh                 # 联网：刷 HS300 基准 + 抓所有篮子来源行情 + 重算
+make basket                         # 离线：只读已落盘价格重算（快）
+make basket BASKETS=ai_capex        # 只跑指定篮子
+make basket START=2025-09-23 END=2026-09-23   # 指定窗口
+make basket-refresh DAYS=400        # 抓取近 400 自然日
+```
+
+等价的底层命令：
+
+```bash
+python src/main.py research basket fetch --days 400 --baskets all --refresh-benchmark
 python src/main.py research basket run --baskets all \
   --start 2025-08-20 --end 2026-08-19
 ```
 
-只运行一个篮子：
-
-```bash
-python src/main.py research basket run --baskets ai_capex
-```
+`fetch` 从 `config/research_baskets.yaml` 声明的来源出发，按 `(type, key)` 去重后抓取
+（新增篮子自动纳入抓取），默认跳过主题 ETF 层（`theme_etf` / `sub_industry_etf` / `watch_etf`）。
+`run` 纯离线，只读已抓取的 `*_prices.parquet`。
 
 ## 产物
 
@@ -101,11 +114,11 @@ python src/main.py research basket run --baskets ai_capex
 
 ## 研究边界
 
-- 当前数据刷新仍使用观察组价格获取工具，篮子计算本身纯离线。
+- 数据刷新走 `research basket fetch`（`make basket-refresh` 会自动先跑基准刷新再 fetch 再 run），篮子计算本身纯离线。
 - 港股和 A 股交易日不完全一致，统一到 HS300 交易日并对已开始交易的标的前值填充。
 - 首个有效交易日前不填充。
 - 当前结果存在静态资产池和幸存者偏差，不能直接视为可交易策略回测。
 - 当前季度调仓采用季度首个交易日重置组间/组内权重，边界日不计入新季度收益。
 - 当前滚动指标窗口为 20D / 60D / 120D：超额收益以百分点计，Sharpe 按 252 交易日年化，回撤为窗口内最大回撤。
 - 个股贡献按篮子初始权重乘区间收益计算，`top1` / `top3` 标记贡献排名，不把负贡献从分母中静默剔除。
-- 当前尚未加入市值权重和正式 `basket fetch` CLI。
+- 当前尚未加入市值权重（`basket fetch` CLI 已提供）。

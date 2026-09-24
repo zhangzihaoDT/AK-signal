@@ -12,7 +12,7 @@ SRC_MAIN = src/main.py
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown sw-rps-structure \
 	select select-offline \
 	stock-metrics stock-metrics-online \
-	replay-single replay-parity replay-range event-study \
+	replay-single replay-parity replay-range event-study basket basket-refresh \
 	backtest-trades backtest-sensitivity backtest-matrix backtest-portfolio backtest-construction \
 	etf-bottom etf-bottom-price-map etf-bottom-odds etf-bottom-drilldown etf-bottom-episodes etf-bottom-context etf-bottom-context-replication etf-bottom-repair etf-bottom-current-eval etf-bottom-scan etf-bottom-v1-backtest etf-mapping-feasibility trend-transition-3a trend-transition-3b trend-transition-3c trend-transition-state leader-breakout \
 	test install clean
@@ -194,6 +194,19 @@ replay-range: ## [v0.5] 区间历史信号重放（START/END=YYYYMMDD, LAYERS=12
 
 event-study: ## [v0.5.1] 事件研究（SIGNALS=信号parquet, START/END可选, LAYERS=123）
 	$(PYTHON) $(SRC_MAIN) research event-study --signals $(SIGNALS) --layers $(LAYERS)
+
+# ── Research Basket（主题篮子对比，手动按需） ─────────────────────
+
+BASKETS ?= all
+DAYS ?= 400
+
+basket: ## [Research] 主题篮子离线重算 + 富报告（读已落盘价格；BASKETS=all START/END 可选）
+	$(PYTHON) $(SRC_MAIN) research basket run --baskets $(BASKETS) $(if $(START),--start $(START),) $(if $(END),--end $(END),)
+
+basket-refresh: ## [Research] 刷 benchmark + 抓篮子来源行情 + 重算（联网；DAYS=400）
+	$(PYTHON) $(SRC_MAIN) data benchmark refresh --symbol sh000300
+	$(PYTHON) $(SRC_MAIN) research basket fetch --days $(DAYS) --baskets $(BASKETS)
+	$(PYTHON) $(SRC_MAIN) research basket run --baskets $(BASKETS) $(if $(START),--start $(START),) $(if $(END),--end $(END),)
 
 backtest-trades: ## [v0.5.2] 交易层逐笔模拟（THEME=主题, EXIT=退出策略, SIGNALS=信号）
 	$(PYTHON) $(SRC_MAIN) backtest trades --signals $(SIGNALS) --theme $(THEME) --entity-type etf --exit-policy $(EXIT)
