@@ -6,7 +6,7 @@
 
 - **行情核验已完成**：8 只候选已于 2026-09-24 经 Engine 一次性补齐 2026-09-23 日线行情与技术指标（online fetch，as_of=20260923），`data_status=current`；51 只继承行逐字段校验 **0 差异**。
 - **首批注册 3 只 monitor_only**：兆易创新（存储芯片）/ 联芸科技（SSD 主控）/ 江波龙（存储产品）→ `selection_universe.yaml` `ai_infrastructure.memory_and_storage`（monitor_only + `STOCK_TIERS` 放行）；进入 stock-metrics 核心资产监控（已验证 58/58 current），不参与主题排名/四段信号/候选资格，不改 `theme_registry.yaml`。其余 5 只（佰维/德明利/普冉/聚辰/香农芯创）留候选池待评估。
-- **观察池口径（participation 是 stock×tier 层属性，统一分层表述）**：54 unique（观察池∩universe）/ 48 confirmation-capable（含 overlap）/ 8 monitor-involved（条目数：auto_thermal 5 中鼎银轮飞龙拓普三花 + memory 3 兆易联芸江波龙）/ overlap 双身份 2（拓普/三花：ai_infra monitor_only + auto tradeable）→ **pure monitor-only = 6**（中鼎银轮飞龙 + 兆易联芸江波龙）。避免「48+6」/「46+8」歧义（48 含 overlap、6 不含，维度不同不可相加）；详见 AGENTS.md 与 milestone §10。
+- **观察池口径（participation 是 stock×tier 层属性，三个正交语义层）**：观察池 59 只中 universe 认识 54 只——**54 = 多少只股票** · **48 = 多少只有主题确认权**（confirmation-capable） · **8 = 多少只至少有一个监控身份**（monitor-involved：auto_thermal 5 中鼎银轮飞龙拓普三花 + memory 3 兆易联芸江波龙，其中拓普/三花为 overlap 双身份也计入 48）。三个层次不互相推导、不做加减；详见 AGENTS.md 与 milestone §10。
 - **结果**：兆易 55/B、联芸 80/A、江波龙 20/C（0923 快照）。均为技术评分快照，非买入信号。
 - **不进生产候选链路**：`theme_registry.yaml` 不改、不进入 Layer② 确认与 Layer③ 候选。
 - **产物**：`data/reference/ashare_stock_observation_pool_20260924.csv`（合并池，59 行）；原始变更 `data/reference/ashare_stock_list_20260924_candidate_update.csv`。

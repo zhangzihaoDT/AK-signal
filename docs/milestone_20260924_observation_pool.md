@@ -86,14 +86,12 @@
 
 ## 10. 观察池口径（2026-09-24 固化，participation 是 stock×tier 层属性）
 
-**避免「48+6」|「46+8」歧义**：以「unique stocks / confirmation-capable / monitor-involved / overlap / pure monitor-only」分层表述（与 AGENTS.md「participation 是 stock×tier 层属性」段一致，见本文件 §2+§9 联动）：
+观察池 59 只中 universe 认识 54 只，按**三个正交语义层次**记（不互相推导、不做加减，与 AGENTS.md「participation 是 stock×tier 层属性」段一致）：
 
-| 口径 | 数量 | 定义 | 明细 |
-|---|---|---|---|
-| unique stocks | 54 | 观察池 ∩ `selection_universe.yaml`（59−5 未注册候选） | 51 原池 + 3 新注册 |
-| confirmation-capable | 48 | 存在 ≥1 个 tier 注册 tradeable 且该 tier 进入 Theme→Tier 确认 | 20 ai（AI 基建 tier 正式）+ 11 auto + 15 hc + **2 overlap（拓普/三花）** |
-| monitor-involved | 8（tier 注册条目数） | 存在 ≥1 个 tier 注册 monitor_only | auto_thermal 5（中鼎/银轮/飞龙/**拓普/三花**）+ memory 3（兆易/联芸/江波龙） |
-| overlap 双身份 | 2 | 同时进 confirmation-capable 与 monitor-involved | 拓普/三花：ai_infra.auto_thermal(monitor_only) + auto.global_ev(tradeable) |
-| pure monitor-only | 6 | 只有 monitor_only 注册、无 tradeable 注册 | 中鼎/银轮/飞龙 + 兆易/联芸/江波龙 |
+| 层次 | 数量 | 问题 | 定义 | 明细 |
+|---|---|---|---|---|
+| unique stocks | 54 | 有多少只股票 | 观察池 ∩ `selection_universe.yaml` | 51 原池 + 3 新注册 |
+| confirmation-capable | 48 | 多少只有主题确认权 | 存在 ≥1 个 tier 注册 tradeable 且该 tier 进入 Theme→Tier 确认 | 20 ai + 11 auto + 15 hc + 2 overlap |
+| monitor-involved | 8 | 多少只至少有一个监控身份 | 存在 ≥1 个 tier 注册 monitor_only | auto_thermal 5（中鼎/银轮/飞龙/拓普/三花）+ memory 3（兆易/联芸/江波龙） |
 
-口径要点：**confirmation-capable(48) 含 overlap**；**pure monitor-only(6) 不含 overlap**；**monitor-involved(8) = pure 6 + overlap 2**。禁止写「48+6」（把两层相加）与「46+8」（把 overlap 排除出 confirmation-capable 的隐含假设）。观察池 CSV 中 002050/601689 行 participation 列保留 `tradeable`（表示 china_auto 身份），screen_note 注明 stock×tier 双身份，不压成股票级单一标签。
+补充（不参与推导）：8 只 monitor-involved 中 **拓普/三花**同时有 `china_auto_global.global_ev_components(tradeable)` 确认身份（overlap 双身份，也计入 48），其余 6 只仅有监控身份。需要「全体 monitor 相关股票」时写 **8 monitor-involved**。`select run` 的 `config_issues.cross_theme_assets` 是跨主题事实清单（`601689`→[ai_infrastructure, china_auto_global]、`002050` 同），与上述语义一致。观察池 CSV 中 002050/601689 行 participation 列保留 `tradeable`（表示 china_auto 身份），screen_note 注明 stock×tier 双身份，不压成股票级单一标签。
