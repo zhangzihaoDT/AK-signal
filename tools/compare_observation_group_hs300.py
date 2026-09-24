@@ -33,6 +33,14 @@ COMBO = [
                         "high_speed_interconnect", "server_power", "liquid_cooling"],
     },
     {
+        "key": "memory_and_storage",
+        "source": "theme",
+        "price_key": "ai_infrastructure",
+        "label": "存储 / 记忆（memory_and_storage）",
+        "color": "#06213D",
+        "group_order": ["memory_and_storage"],
+    },
+    {
         "key": "auto_tier1_ai_infra",
         "source": "group",
         "label": "汽车热管理供应链 → AI 数据中心（液冷/Capex）",
@@ -51,7 +59,8 @@ COMBO = [
 
 def load_prices(root: Path, combo: dict) -> pd.DataFrame:
     sub = "observation_groups" if combo["source"] == "group" else "themes"
-    price_path = root / "data" / "raw" / sub / combo["key"] / f"{combo['key']}_prices.parquet"
+    key = combo.get("price_key", combo["key"])
+    price_path = root / "data" / "raw" / sub / key / f"{key}_prices.parquet"
     prices = pd.read_parquet(price_path)
     prices["date"] = pd.to_datetime(prices["date"]).dt.normalize()
     return prices
