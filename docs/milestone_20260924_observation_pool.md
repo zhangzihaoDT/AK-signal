@@ -13,10 +13,10 @@
 
 ## 2. 边界（明确不做什么）
 
-- 不修改 `config/theme_registry.yaml` / `config/selection_universe.yaml`。
-- 8 只候选**不进入** Layer② 主题确认、Layer③ 交易候选、stock-metrics 主链路（仍未注册主题）。
-- 不产生任何买入信号：`participation=monitor_only`、未注册主题（确认需 Layer②/③ 链路支撑）。
-- 行情的补齐是一次性核验（Engine 直跑，8 只不在主 universe）；注册主题后才进入日常 stock-metrics 流程。
+- 不修改 `config/theme_registry.yaml`（主题与确认 Gate 不变）；`config/selection_universe.yaml` 仅新增 1 个 monitor_only tier（§8）。
+- 其余 5 只候选（佰维/德明利/普冉/聚辰/香农芯创）**未注册**，不进入 Layer② 主题确认、Layer③ 交易候选、stock-metrics 主链路。
+- 所有 8 只候选不产生任何买入信号：已注册 3 只为 `participation=monitor_only`（仅监控），未注册 5 只此时点仅存在于参考文件。
+- 行情的补齐是一次性核验（Engine 直跑，未注册 5 只不在主 universe）；已注册 3 只进入日常 stock-metrics 流程（§8/§9）。
 
 ## 3. 新增 8 只候选
 
@@ -79,7 +79,21 @@
 
 ## 9. 校验（注册后）
 
-- `selection_universe.yaml` 加载 76 assets / 3 themes；`detect_unregistered_themes=[]`；`cross_theme_assets` 仅原有拓普/三花。
+- `selection_universe.yaml` 加载 76 assets / 3 themes；`detect_unregistered_themes=[]`；`cross_theme_assets` 仅原有 拓普/三花（`601689`/`002050`）。
 - `memory_and_storage` tier 3 只：theme=ai_infrastructure、participation=monitor_only、STOCK_TIERS 放行（stock items 58/76）。
 - `make stock-metrics`（离线）重建 `stock_metrics_20260923.parquet` **58 行 / 58 current**，3 只与新池数值一致（兆易 398.72/55/B、联芸 64.36/80/A、江波龙 346.00/20/C）。
 - **角色映射修复**：`src/selection/selection.py` `TIER_ROLE_MAP` 补 `memory_and_storage → LEADER`（注册时遗漏，导致 Layer③ 观察池按 `role=None` 静默跳过）。修复后 engine（`include_stocks=True`，research/parity 路径）监控组 monitor_only 8 只 = 5 先例（auto_thermal：中鼎/银轮/飞龙/拓普/三花）+ 3 只（兆易/联芸/江波龙），全部 state=WATCH / recommended=False / reason_codes=`['monitor_only']`；每日 ETF-only 发布（`include_stocks=False`）个股容器为空，行为不受影响。`tests/selection` 196 + `tests/trend_engine` 131 全绿。
+
+## 10. 观察池口径（2026-09-24 固化，participation 是 stock×tier 层属性）
+
+**避免「48+6」|「46+8」歧义**：以「unique stocks / confirmation-capable / monitor-involved / overlap / pure monitor-only」分层表述（与 AGENTS.md「participation 是 stock×tier 层属性」段一致，见本文件 §2+§9 联动）：
+
+| 口径 | 数量 | 定义 | 明细 |
+|---|---|---|---|
+| unique stocks | 54 | 观察池 ∩ `selection_universe.yaml`（59−5 未注册候选） | 51 原池 + 3 新注册 |
+| confirmation-capable | 48 | 存在 ≥1 个 tier 注册 tradeable 且该 tier 进入 Theme→Tier 确认 | 20 ai（AI 基建 tier 正式）+ 11 auto + 15 hc + **2 overlap（拓普/三花）** |
+| monitor-involved | 8（tier 注册条目数） | 存在 ≥1 个 tier 注册 monitor_only | auto_thermal 5（中鼎/银轮/飞龙/**拓普/三花**）+ memory 3（兆易/联芸/江波龙） |
+| overlap 双身份 | 2 | 同时进 confirmation-capable 与 monitor-involved | 拓普/三花：ai_infra.auto_thermal(monitor_only) + auto.global_ev(tradeable) |
+| pure monitor-only | 6 | 只有 monitor_only 注册、无 tradeable 注册 | 中鼎/银轮/飞龙 + 兆易/联芸/江波龙 |
+
+口径要点：**confirmation-capable(48) 含 overlap**；**pure monitor-only(6) 不含 overlap**；**monitor-involved(8) = pure 6 + overlap 2**。禁止写「48+6」（把两层相加）与「46+8」（把 overlap 排除出 confirmation-capable 的隐含假设）。观察池 CSV 中 002050/601689 行 participation 列保留 `tradeable`（表示 china_auto 身份），screen_note 注明 stock×tier 双身份，不压成股票级单一标签。

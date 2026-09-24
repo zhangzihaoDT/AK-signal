@@ -61,6 +61,13 @@
   - 动态 ETF 候选按 `theme_registry.yaml` 关键词**首个命中**归属单一主题（bucket 顺序优先，不做跨主题复制）；
   - 固定池资产跨主题注册时，`recommended_actions` 按 (asset_type, code) **去重**，保留首个 bucket 的 primary 归属；
   - Position 权重归属属于 Layer 4（v0.4.3 不做），跨主题清单由 `select run` 输出 `config_issues.cross_theme_assets` 暴露。
+- **participation 是 stock×tier 层属性，不是 stock 层单标签（v0.12.1 口径固化）**：`monitor_only` 只对**某个 tier 的注册**成立；同一股票可同时在另一 tier 是 `tradeable`。**计数时禁止把 participation 压成 stock 级单一标签**。以当前 54 只观察池（59 只中 universe 认识的部分）为例，正确口径统一为：
+  - **54 unique stocks**（观察池 ∩ `selection_universe.yaml`）
+  - **48 confirmation-capable**：存在 ≥1 个 tier 注册为 tradeable 且该 tier 进入 Theme→Tier 确认（theme_registry universe_tiers）→ 具备 Tier Gate 资格
+  - **8 monitor-involved**（tier 注册条目数）：auto_thermal_ai_cooling 5（中鼎/银轮/飞龙/**拓普/三花**）+ memory_and_storage 3（兆易/联芸/江波龙）
+  - **拓普/三花 = overlap 双身份**：同时 `ai_infrastructure.auto_thermal_ai_cooling(monitor_only)` + `china_auto_global.global_ev_components(tradeable)` → 计数既进 48 confirmation-capable 又进 8 monitor-involved
+  - **pure monitor-only = 6**（只有 monitor_only 注册、无任何 tradeable 注册）：中鼎/银轮/飞龙 + 兆易/联芸/江波龙
+  - 因此 **monitor-involved(8) ≠ pure monitor-only(6)**，**confirmation-capable(48) ≠ 54−pure(48) 的巧合不代表语义等价**。**避免使用歧义的「48+6」或「46+8」**：48 是 confirmation-capable（含 overlap），6 是 pure monitor-only（不含 overlap），两者维度不同不可相加；46 是「非 monitor-involved」（54−8），连 overlap 一起排除，不直接回答任何问题。若要表达「全体 monitor 相关股票」，应写 **8 monitor-involved（含 2 overlap）**。文档/报告按此口径书写；`select run` 输出的 `config_issues.cross_theme_assets` 是跨主题事实清单，与上述计数一致。
 - **配置降级**：asset pool 存在未注册 theme（不在 theme_registry.yaml）时，其资产不进入任何候选。默认告警并标记 `degraded` 继续发布（报告顶部显示配置降级提示）；`select run --strict` 可中止发布。
 - **Future Themes（Not Enabled）**：Resource Cycle（有色/钢铁/煤炭）、High-end Equipment（高端装备）、Aerospace/Shipping（航空航天/船舶）等不在当前两方向，仅是「未启用」而非被否定，可在 `theme_registry.yaml` 重新打开；若启用商品类 theme，表达的是「权益/ETF 代理」（ETF + 申万有色行业 + 资源股），非商品期货趋势系统，须标 `maturity: PARTIAL`，不输出增配信号。
 
