@@ -95,7 +95,7 @@ report:
     - {key: name,              header: 载体}
     - {key: __exec__,          header: 今日执行, fmt: timing_exec}
     - {key: trend_status,      header: Lane1 趋势,  fmt: etf_trend_status}
-    - {key: position,          header: 位置,        fmt: etf_position}
+    - {key: position,          header: 位置,        fmt: etf_position, header_fmt: position_level_header}
     - {key: lane2,             header: Lane2,       fmt: lane2_reliable}
     - {key: lane3,             header: Lane3,       fmt: lane3_state}
     - {key: signal,            header: 信号}
@@ -150,7 +150,7 @@ report:
         - {key: score_change_1d,    header: 日变化,    fmt: change_1d}
         - {key: score_trend,        header: 趋势分,    fmt: num}
         - {key: signal,             header: 信号}
-        - {key: position_level,     header: 位置,      fmt: position_level}
+        - {key: position_level,     header: 位置,      fmt: position_level, header_fmt: position_level_header}
         - {key: position_pct,       header: 位置值,    fmt: position_pct, header_fmt: position_header}
         - {key: data_status,        header: 数据状态}
     etf_matrix:
@@ -177,7 +177,7 @@ report:
         - {key: reason_codes,      header: reason_codes}
         - {key: rps15,             header: RPS15,     fmt: num}
         - {key: trend_status,      header: Lane1 趋势, fmt: etf_trend_status}
-        - {key: __position__,      header: 位置,       fmt: etf_position}
+        - {key: __position__,      header: 位置,       fmt: etf_position, header_fmt: position_level_header}
       detail_columns:
         - {key: name,               header: ETF}
         - {key: _theme_label,       header: 主题}
@@ -190,7 +190,7 @@ report:
         - {key: delta_rps15,        header: ΔRPS15,    fmt: num}
         - {key: trend_status,       header: 趋势状态,  fmt: etf_trend_status}
         - {key: liquidity,          header: 成交额,    fmt: liquidity}
-        - {key: position_level,     header: 位置,      fmt: position_level}
+        - {key: position_level,     header: 位置,      fmt: position_level, header_fmt: position_level_header}
         - {key: position_pct,       header: 位置值,    fmt: position_pct, header_fmt: position_header}
         - {key: blocking_flags,     header: 阻塞,      fmt: blocking}
         - {key: data_quality_flags, header: 数据,      fmt: data_quality}

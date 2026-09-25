@@ -253,7 +253,13 @@ def fmt_position_pct(row: dict[str, Any]) -> str:
 
 
 def fmt_position_header(row: dict[str, Any] | None = None) -> str:
-    return "偏离MA60%" if _position_metric() == "ma60_deviation" else "位置分位"
+    """数值列 header（metric 感知）：ma60_deviation → 偏离MA60%；price_percentile → 分位值。"""
+    return "偏离MA60%" if _position_metric() == "ma60_deviation" else "分位值"
+
+
+def fmt_position_level_header(row: dict[str, Any] | None = None) -> str:
+    """等级列 header（metric 感知）：ma60_deviation → 60 日乖离率；price_percentile → 位置分位。"""
+    return "60 日乖离率" if _position_metric() == "ma60_deviation" else "位置分位"
 
 
 def fmt_leadership(row: dict[str, Any]) -> str:
@@ -592,4 +598,5 @@ FORMATTERS: dict[str, Callable[[dict[str, Any]], str]] = {
 
 HEADER_FORMATTERS: dict[str, Callable[[Any], str]] = {
     "position_header": fmt_position_header,
+    "position_level_header": fmt_position_level_header,
 }

@@ -46,7 +46,7 @@ KNOWN_FORMATTERS = {
     "num", "pct", "money", "liquidity", "change_1d", "trajectory",
     "technical", "blocking", "data_quality", "evidence",
     "monitor_conclusion", "etf_conclusion", "trend_heat", "position_level",
-    "position_pct", "position_header", "etf_trend_status", "trade_state",
+    "position_pct", "position_header", "position_level_header", "etf_trend_status", "trade_state",
     "display_state_tag", "theme_role", "participation", "audit_reason",
     "etf_theme_role", "etf_audit_reason", "etf_strength", "etf_position",
     "audit_category", "leadership",

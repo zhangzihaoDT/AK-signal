@@ -64,7 +64,8 @@
 
 ### 05 ③C Timing · 今日执行（`renderer: timing`，每主题一卡）
 对选定载体逐行展示：载体 / **今日执行**（BUY·买入 / WATCH·观察 / WAIT·等待）/ Lane1 趋势 /
-位置 / Lane2 / Lane3 / 信号 / 原因。`__exec__` 语义 = ③C timing 结果：
+60 日乖离率（metric 感知：`ma60_deviation`→「60 日乖离率」；`price_percentile`→「位置分位」）/
+Lane2 / Lane3 / 信号 / 原因。`__exec__` 语义 = ③C timing 结果：
 `recommended → BUY`；`below_trend_gate → WAIT`；HOLD/WATCH 原样；否则 signal。
 示例（20260902 AI）：载体 人工智能ETF易方达 159819 → 今日执行 WAIT · Lane1 未达趋势门。
 
@@ -83,7 +84,7 @@
 ```
 08 决策审计
 ├─ 审计摘要（debug index）   ETF 审计 · N 只｜③A 合格 · 载体 · 时机到 · 数据不可靠 …
-├─ 第一层 Decision Audit     ETF | 分类 | 主题/角色 | 为什么 | reason_codes | RPS15 | Lane1 趋势 | 位置
+├─ 第一层 Decision Audit     ETF | 分类 | 主题/角色 | 为什么 | reason_codes | RPS15 | Lane1 趋势 | 60 日乖离率
 └─ 第二层 Technical Detail   <details> 默认折叠（全字段 + Lane 上下文）
 ```
 
@@ -100,7 +101,7 @@ ETF 审计回答：**这只 ETF 卡在 ③A 资格 / ③B 载体 / 还是 ③C �
 ```
 ETF 状态矩阵
 ├─ 审计摘要 + ETF 分类计数（互斥）
-└─ 第一层 Decision Audit    ETF | 分类 | 主题/角色 | 为什么 | reason_codes | RPS15 | Lane1 趋势 | 位置
+└─ 第一层 Decision Audit    ETF | 分类 | 主题/角色 | 为什么 | reason_codes | RPS15 | Lane1 趋势 | 60 日乖离率
 ```
 
 - **ETF 专属分类**（`_etf_audit_category`，V2 语义，先资格后时机）：
