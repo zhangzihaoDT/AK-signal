@@ -46,6 +46,8 @@
         ▼
  Opportunity Radar（Theme 外机会，Observation，非 Decision）
         ▼
+ Run-day Summary（今日推荐 + 范围外机会 + 宽基，只读消费）
+        ▼
  run-day-check（Final Validation）→ status/action/warnings
 ```
 
@@ -55,7 +57,7 @@
 etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline
   → stock-metrics-online → sw-rps-confirm → sw-rps-report
   → etf-bottom-scan → etf-refresh-v1 → trend-transition-state → three-lane
-  → select → opportunity-radar → run-day-check
+  → select → opportunity-radar → run-day-summary → run-day-check
 ```
 
 | 步骤 | 主报告/产物 | 说明 |
@@ -70,6 +72,7 @@ etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipe
 | three-lane | `outputs/etf_signal/three_lane_{date}.{parquet,csv}` + 重渲染 ETF 报告 ④ | L1×L2×L3 join |
 | select | `outputs/selection/tradable_candidates_{date}.{json,html}`（meta.scope=etf_only） | Layer③（ETF-only 发布；消费当日三 Lane，Lane Validation 硬 gate） |
 | opportunity-radar | `outputs/opportunity_radar/opportunity_radar_{date}.{json,html}` | Theme 外机会 Radar（Observation，不联网；V1.1 candidate_themes/broad_beta + taxonomy provenance） |
+| run-day-summary | `outputs/run_summary/run_summary_{date}.{json,md}` | 当日结论汇总（只读消费 Layer③ 推荐 + Radar 机会 + 宽基；不联网/不重算） |
 | run-day-check | 控制台 | status(CONFIRMED/PROVISIONAL) · action · warnings |
 
 ## 3. 报告输出清单（HTML/可读）
@@ -153,7 +156,7 @@ etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipe
 
 ## 6. 命令面（`make` / `python src/main.py`）
 
-- 每日：`make run-day`（/ `run-day-offline` / `run-day-check`）；分步 `make etf-update|etf-calculate|etf-pipeline|sw-rps-*|stock-metrics(-online)|select|etf-bottom-scan|etf-refresh-v1|trend-transition-state|three-lane|opportunity-radar`
+- 每日：`make run-day`（/ `run-day-offline` / `run-day-check` / `run-day-summary`）；分步 `make etf-update|etf-calculate|etf-pipeline|sw-rps-*|stock-metrics(-online)|select|etf-bottom-scan|etf-refresh-v1|trend-transition-state|three-lane|opportunity-radar`
 - 研究：`research replay single|parity|range` · `research event-study` · `research expression-regime` · `research etf-bottom --scan|--price-map|--state-odds|--drilldown|--episodes|--context-match|--context-replication|--repair|--current-eval|--refresh-v1` · `research trend-transition study3a|3b|3c|state`
 - 回测：`backtest trades|sensitivity|matrix|construction|portfolio`（数据补数：`data benchmark refresh`）
 - 验证：`make test`（865+ 用例）；`run-day-check`（产物完整性/状态聚合）

@@ -6,7 +6,7 @@ SRC_MAIN = src/main.py
 .PHONY: help run-day run-day-offline run-day-check \
 	etf-bootstrap etf-bootstrap-core etf-update etf-calculate \
 	etf-classify etf-layer1 etf-watchlist etf-account etf-account-blacklist etf-card etf-pipeline \
-	etf-refresh-v1 three-lane opportunity-radar \
+	etf-refresh-v1 three-lane opportunity-radar run-day-summary \
 	etf-retry-uncovered \
 	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-confirm sw-rps-report \
 	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown sw-rps-structure \
@@ -49,6 +49,7 @@ run-day: ## 每日全流程：Observation 自动联网构建（ETF/行业/个股
 	$(MAKE) three-lane             # 三 Lane 合成表 + 重渲染 ETF 报告（④ 三 Lane 路径视图）
 	$(MAKE) select                 # Decision 消费：离线、确定性（消费当日三 Lane）
 	$(MAKE) opportunity-radar      # [Observation] Theme 外机会 Radar（消费 three_lane Lane2/Lane3 事实，不联网）
+	$(MAKE) run-day-summary        # [Summary] 当日结论汇总（Layer③ 推荐 + Radar 机会 + 宽基，只读消费）
 	$(MAKE) run-day-check
 
 run-day-offline: ## 离线重放/CI：只读已落盘 Observation，不联网抓取（严格重放请用 research replay）
@@ -66,10 +67,14 @@ run-day-offline: ## 离线重放/CI：只读已落盘 Observation，不联网抓
 	$(MAKE) three-lane
 	$(MAKE) select
 	$(MAKE) opportunity-radar      # [Observation] Theme 外机会 Radar（消费 three_lane，不联网）
+	$(MAKE) run-day-summary        # [Summary] 当日结论汇总（Layer③ 推荐 + Radar 机会 + 宽基，只读消费）
 	$(MAKE) run-day-check
 
 run-day-check: ## [Final Validation] 校验 run-day 各层产物并输出最终结果
 	$(PYTHON) $(SRC_MAIN) final-check
+
+run-day-summary: ## [Summary] 当日结论汇总：① 今日推荐 ② 观察范围外机会 ③ 宽基指数值得研究（只读消费）
+	$(PYTHON) $(SRC_MAIN) run-summary run $(if $(SUMMARY_DATE),--date $(SUMMARY_DATE),)
 
 # ── ETF 全市场扫描（主系统） ────────────────────────────────────
 

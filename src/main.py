@@ -9,6 +9,7 @@ AKSignal 顶层命令路由
   python src/main.py                        → Layer ③ 交易候选（默认）
   python src/main.py select [run]           → Layer ③ 交易候选
   python src/main.py final-check            → run-day 末端 Final Validation
+  python src/main.py run-summary run        → run-day 末端结论汇总（Layer③ + Radar 只读消费）
   python src/main.py industry <command>     → 申万行业 RPS（Layer ② 确认）
   python src/main.py etf <command>          → ETF 趋势信号（Layer ①）
   python src/main.py run-day                → 申万行业 RPS run-day（向后兼容）
@@ -96,6 +97,12 @@ def main() -> None:
             from src.opportunity_radar.cli import main as radar_main
             sys.argv = [sys.argv[0], *argv[1:]]
             radar_main()
+            return
+
+        if cmd in ("run-summary", "run-day-summary"):
+            from src.run_summary.cli import main as summary_main
+            sys.argv = [sys.argv[0], *argv[1:]]
+            summary_main()
             return
 
         if cmd == "replay":  # 兼容别名：research replay

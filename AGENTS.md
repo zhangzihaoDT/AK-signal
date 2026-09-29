@@ -71,10 +71,11 @@
 
 ## 每日运行（run-day）
 
-- **唯一入口**：`make run-day`（etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline → **stock-metrics-online** → sw-rps-confirm → sw-rps-report → **etf-bottom-scan** → **etf-refresh-v1** → **trend-transition-state** → **three-lane** → **select** → **opportunity-radar** → **run-day-check**）——v0.9.1 起个股行情构建提前到 sw-rps-confirm 之前（Tier 确认消费个股趋势产物）；2026-09-02 起三 Lane（Lane 1 ETF 趋势 / Lane 2 底部 / Lane 3 迁移）在 Selection 之前合成，确保 Layer③ 消费当日 Lane 事实；Opportunity Radar（Theme 外机会发现，Observation）在 three-lane 之后消费 Lane 事实
+- **唯一入口**：`make run-day`（etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline → **stock-metrics-online** → sw-rps-confirm → sw-rps-report → **etf-bottom-scan** → **etf-refresh-v1** → **trend-transition-state** → **three-lane** → **select** → **opportunity-radar** → **run-day-summary** → **run-day-check**）——v0.9.1 起个股行情构建提前到 sw-rps-confirm 之前（Tier 确认消费个股趋势产物）；2026-09-02 起三 Lane（Lane 1 ETF 趋势 / Lane 2 底部 / Lane 3 迁移）在 Selection 之前合成，确保 Layer③ 消费当日 Lane 事实；Opportunity Radar（Theme 外机会发现，Observation）在 three-lane 之后消费 Lane 事实；Run-day Summary 在 Radar 之后把当日结论汇总成「一句话 × 3」
 - **三 Lane 合成（run-day 末端，v0.9.2）**：顺序锁定 `etf-pipeline（Lane1 signals）→ etf-bottom-scan（Lane2 快照）→ etf-refresh-v1（轻量全历史重算 v1_signal_daily）→ trend-transition-state（Lane3 状态，读冻结 YAML）→ three-lane（join + 重渲染 ETF 报告）→ select（消费当日三 Lane）`。`three_lane_{date}.{parquet,csv}` 是纯归集层（`src/etf_signal/three_lane.py`），按 fund_code 左外 join 三份已落盘事实，**不制造新事实**：Lane 2 底部用 **raw long_term_bottom**（price_map 口径，不改 3C confirmed）；Lane 3 迁移=状态机原始枚举；Lane 1 趋势=watchlist trend_state。核心列 `ETF | Lane 2 底部 | Lane 2 target | Lane 3 迁移 | 离开底部天数 | Lane 1 趋势`，默认只展示活跃路径子集（底部 ∪ 迁移中 ∪ 趋势活跃），全量折叠审计。展示层翻译（底部→刚离底部→切换中→趋势建立→强势）只在 report renderer，机器枚举保留原样
 - **run-day 默认含 Layer ③**：selection 是 run-day 默认流程的固定环节；`make select` / `make select-offline` 保留为独立执行入口
 - **离线的是决策，不是每日数据生产**：run-day 的 Observation 构建（ETF/行业/**个股行情**）默认允许联网更新（`stock-metrics-online` 自动增量抓取，不依赖手工补数）；Selection（Decision）阶段禁止联网。`make run-day-offline` 用于 CI/重放（个股仅读缓存，stale 降级兜底）；严格历史重放用 `research replay`
+- **Run-day Summary**（`make run-day-summary` → `python src/main.py run-summary run`，v0.1）：run-day 末端**纯只读消费层**（`src/run_summary/`），读已落盘的 Layer③ `tradable_candidates_{date}.json` 与 `opportunity_radar_{date}.json`，汇总三问：① **今日推荐**（Layer③ `recommended_actions` 去重，保留事实原值 rps15/signal/position，附未确认主题「仅观察」）· ② **观察范围外机会**（Radar `candidate_themes` 候选方向，按中位 RPS15 排序 + 代表 ETF）· ③ **宽基指数值得研究**（Radar `broad_beta` Market Beta，按 RPS15 排序）。**不联网、不重算、不制造新事实、不改任何上层产物**；缺产物记入 `missing` 不阻塞。产物 `outputs/run_summary/run_summary_{trade_date}.{json,md}`（JSON 事实源 + Markdown renderer），终端同步打印；已挂入 run-day / run-day-offline（opportunity-radar 后、run-day-check 前）
 - **末端 Final Validation**（`make run-day-check` → `python src/main.py final-check`）：汇总 Layer①/②/③ + **Lane 3 transition_state** 产物与 run 警告，输出最终结果
   - 成功：`Run completed successfully` + `trade_date / status / action / warnings`
   - 失败（产物缺失等）：`Run completed with errors` + errors 明细，退出码 1
@@ -182,6 +183,7 @@ make stock-metrics     # 构建个股趋势指标产物（Observation 层，离�
 make stock-metrics-online  # 个股行情在线补数（run-day 离线不抓个股）
 make select            # Layer ③ 交易候选（读预计算趋势，默认禁止联网）
 make opportunity-radar  # [Observation/Discovery] Theme 外机会 Radar（只读已落盘 Layer①/Lane2/3 事实；RADAR_DATE=YYYYMMDD 可选钉定目标日）
+make run-day-summary    # [Summary] 当日结论汇总：① 今日推荐 ② 观察范围外机会 ③ 宽基指数值得研究（只读消费）
 make replay-single    # v0.5 单日期历史信号重放（DATE=YYYYMMDD）
 make replay-parity    # v0.5 重放 + 与正式产物一致性校验
 make replay-range     # v0.5 区间重放（START/END=YYYYMMDD, LAYERS=123|12）
