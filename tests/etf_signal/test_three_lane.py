@@ -128,7 +128,7 @@ def test_report_section_renderer_pure(tmp_path):
     assert "Lane 2 底部" in html and "Lane 3 迁移" in html and "Lane 1 趋势" in html
     # 展示层中文翻译（机器枚举保留在数据层）
     assert "刚离底部" in html
-    assert "买入候选" in html
+    assert "趋势完整达标·待观察" in html
     # 空数据 → 空串（不抛错）
     assert rr._three_lane_section(pd.DataFrame(), "20260831") == ""
 

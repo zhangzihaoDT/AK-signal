@@ -62,7 +62,7 @@ td.num,th.num{text-align:right}
 """
 
 STATE_LABELS = {
-    "BUY_CANDIDATE": ("买入候选", "tag-buy"),
+    "BUY_CANDIDATE": ("趋势完整达标·待观察", "tag-buy"),
     "STRONG_WATCH": ("强势关注", "tag-strong"),
     "WATCH": ("观察", "tag-watch"),
     "OUT_OF_SCOPE": ("趋势不足", "tag-oos"),
@@ -116,7 +116,7 @@ _3LANE_L3_TAG = {
 }
 _3LANE_L2_CN = {"DEEP_BOTTOM": "深度底部", "RECOVERING_FROM_BOTTOM": "底部修复",
                 "RECENT_BOTTOM": "近期底部", "NORMAL": "正常", "UNRELIABLE": "数据不足"}
-_3LANE_L1_CN = {"BUY_CANDIDATE": "买入候选", "STRONG_WATCH": "强势关注",
+_3LANE_L1_CN = {"BUY_CANDIDATE": "趋势完整达标·待观察", "STRONG_WATCH": "强势关注",
                 "WATCH": "观察", "OUT_OF_SCOPE": "趋势不足"}
 
 

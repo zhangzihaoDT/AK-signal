@@ -47,7 +47,7 @@ PATH_STAGE = {
 
 # Lane 1 trend_state → 展示层
 TREND_CN = {
-    "BUY_CANDIDATE": "买入候选",
+    "BUY_CANDIDATE": "趋势完整达标·待观察",
     "STRONG_WATCH": "强势关注",
     "WATCH": "观察",
     "OUT_OF_SCOPE": "趋势不足",
