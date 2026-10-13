@@ -1,86 +1,56 @@
-# AKSignal — 三层决策信号链：ETF 轮动 × 主题确认 × 交易候选
+# AKsignal — Market Intelligence & Portfolio Strategy System
 
-## v0.4.3 多主题（两方向）
+当前基线：**v0.5.0**（2026-10-13）。版本源为 `VERSION`，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
-从「单一 AI 方向」升级为「Theme Registry（唯一事实源）」驱动的两方向信号与候选系统：
+通过量化方法辅助管理一个真实的投资组合，而不是只生成市场观察报告。
 
-| Bucket | 方向 | 确认因子（SW 二级行业证据） |
-|--------|------|------------------------------|
-| Core（核心） | AI 基础设施（不含 AI 应用） | 半导体 / 元件 / 通信设备 / 计算机设备 / 光学光电子 / 自动化设备 / 消费电子 |
-| Quality（质量） | 高现金流资产 | 电力 / 通信服务 / 铁路公路 / 航运港口 / 燃气 |
+整体架构为 **Facts + Strategy**：Facts 包含 Market Facts（市场事实）与 Portfolio State（实际持仓、现金、风险暴露）；Strategy 包含 Selection、Entry、Allocation、Exit、Portfolio Advice。
 
-- **主题定义**：`config/theme_registry.yaml`（bucket → theme → 行业 + ETF 关键词，单一事实源）
-- **资产池**：`config/selection_universe.yaml`（theme → tier → assets，bucket 由 themes 配置推导）
-- **Layer ② 改名「主题确认」**：确认目标是 Theme，SW 行业 / ETF / 参与率 / HHI 都是确认因子，不是目标本身
-- **顶层 Action 只回答方向**：BUY / OBSERVE / WAIT + Bucket + Theme；ETF / 股票 / 观察池全部落在下层 `buckets[].themes[]`
-- **Future Themes（Not Enabled）**：Resource Cycle / High-end Equipment / Aerospace / Shipping 等仅是未启用，可在 `theme_registry.yaml` 重新打开
+Allocation 给出单项资产的目标仓位建议；Portfolio Advice 结合真实组合与现金、主题集中度等约束，给出综合调整建议。实际仓位、目标仓位与本次调整量分别记录。
 
-## 每日业务批次
+**当前实现阶段**是 Market Facts：观察全市场 ETF、全行业及固定池个股的趋势与底部位置，daily-run 尚不自动给出投资建议。Portfolio State 和五项 Strategy 能力是后续建设方向。
+
+保留八项能力：固定池个股数据、全市场 ETF 数据、全行业指数数据、行业轮动、大类资产趋势、ETF 趋势活跃池、个股趋势、ETF 与个股底部位置。覆盖范围随配置和行情质量变化，固定池个股不等于 A 股全量。
+
+**必须坚持：AKsignal 负责发现和量化市场事实，你负责理解这些事实并作出投资决策。**
+
+## 当前 Market Facts 与日报
+
+Data Foundation（数据基础）：固定池股票、全市场 ETF、全行业指数。
+Trend（趋势观察）：行业轮动、大类资产、ETF 趋势、个股趋势。
+Position（位置观察）：ETF 与固定池个股底部位置。
+Daily Observation Report：统一日期、统一数据质量、统一发布。
+
+日报正文只有市场方向、趋势活跃、底部位置三个观察区域。覆盖、复权审计、缓存及来源状态放在独立数据质量区域。
+
+## 每日运行
 
 ```bash
-make run-day                    # 启动时固定最近完整交易日，全链使用同日数据
-make run-day RUN_DATE=20261012  # 明确分析的交易日
-make run-day-offline RUN_DATE=20261012  # 全链只读缓存，不联网补数
+make run-day
+make run-day RUN_DATE=20261012
+make run-day-offline RUN_DATE=20261012
+make run-day-status
+make run-day RUN_DATE=20261012 RUN_FLAGS=--resume
+make run-day RUN_DATE=20261012 RUN_FLAGS=--restart
+make run-day-check
+make run-day-summary
 ```
 
-失败或中断后，重新执行**同日期、同在线/离线模式**的命令，默认从失败步骤恢复。
-前面已完成步骤的事实产物会校验摘要；缺失或变化时，从最早受影响步骤重新生成。
+主链：ETF / 行业更新 → ETF / 行业计算 → 观察池个股行情与趋势 → 趋势与位置观察 → 验收 → 统一发布。启动时固定最近完整交易日，失败从检查点恢复；代码或配置变化需 --restart。离线模式不联网补数。
 
-```bash
-make run-day-status                           # 查看业务阶段和恢复进度
-make run-day RUN_DATE=20261012 RUN_FLAGS=--resume   # 明确恢复
-make run-day RUN_DATE=20261012 RUN_FLAGS=--restart  # 从头创建新批次
-```
+当前产品不运行主题 Tier 确认、Selection 推荐与 Timing、结构穿透、Radar、三 Lane、迁移状态机或历史赔率。旧代码和显式历史研究入口不属于核心每日产品。
 
-终端显示“更新行情 / 确认主题 / 筛选候选 / 生成报告 / 统一发布”等阶段；详细日志保存在
-`.run_day/runs/{date}/{run_id}/logs/`。配置或代码变化后须 `--restart`，避免复用不兼容结果。
+## 交付
 
-批次的输出先写入独立暂存目录，验收成功后一次切换整个 `outputs` 入口，原有报告路径
-保持可用。第一次发布会把原目录保存在 `.run_day/legacy/`，之后保留每批完整结果；
-检查或发布失败时，上一完整日报继续可读。原始行情与 `data/` 事实缓存仍共享，支持补数恢复。
-该统一发布机制用于 `make run-day` / `make run-day-offline`；独立子命令保持原来的写入行为。
+- `outputs/observation/observation_{date}.{html,json,md}`：一个观察日报入口。
+- `outputs/observation/{etf_trends,asset_directions,industry_rotation,industry_directions,etf_positions,stock_positions}_{date}.{parquet,csv}`：完整观察事实。
+- `outputs/stock_metrics/stock_metrics_{date}.parquet`：个股趋势事实。
+- `outputs/stock_metrics/stock_update_audit_{date}.json`：个股行情审计。
+- `outputs/run_day/final_check_{date}.json`、`publication.json`：验收与发布回执，不含投资 action。
 
-核心股票或沪深300基准未更新到目标日时，列出缺口并停止主题确认，避免新旧数据混用。
-ETF 缺口从当日发布范围排除，并在最终校验警告中列出。个股行情按市场＋代码复用，
-跨主题身份保留；行情源连续异常三次后熔断。本批次审计见
-`outputs/stock_metrics/stock_update_audit_{date}.json`，最终结果见
-`outputs/run_day/final_check_{date}.json`。
+批次 outputs 从空目录建立，验收后一次切换发布指针。失败保持上一完整日报；历史批次仍保存在 `.run_day/runs`，首次旧目录保存在 `.run_day/legacy`，不随新批次重复复制。
 
-## 项目架构
-
-```text
-src/
-├── main.py                       # 顶层命令路由
-├── common/                       # 公共层
-│   ├── paths.py                  # 路径单一事实源
-│   ├── themes.py                 # Theme Registry 加载（bucket→theme→行业+关键词）
-│   ├── run_context.py            # 运行上下文
-│   └── manifest.py               # 产物发现契约
-├── etf_signal/                   # Layer ① A股全市场 ETF 轮动
-│   ├── cli.py                    # 全流程编排
-│   ├── rotation.py               # 全市场横截面 RPS15/20/60 + 每主题焦点组
-│   ├── rotation_report.py        # Layer ① 报告
-│   └── ...（master/classifier/account/card 等）
-├── sw_industry_rps/              # Layer ② 行业轮动三问三答（与 Layer① 镜像）
-│   ├── cli.py                    # 行业 CLI（bootstrap/update/.../confirm/structure）
-│   ├── confirmation.py           # 主题确认：行业证据 + bucket 聚合 + 龙头广度
-│   ├── confirmation_sections.py  # 第三问渲染 section（主题概览 + 完整确认证据）
-│   └── ...（metrics/regimes/contribution/structure 等）
-├── selection/                    # Layer ③ 多主题交易标的筛选（执行对象压缩）
-│   ├── cli.py                    # select 命令
-│   ├── universe.py               # 分层资产池（theme→tier→assets）
-│   ├── selection.py              # 逐主题表达方式决策 + 候选对象构建
-│   └── report.py                 # 候选 HTML 可视化
-└── trend_engine/                 # Trend Engine（selection 的内部依赖）
-    ├── engine.py                 # 批量趋势计算 API
-    ├── data_provider.py          # AKShare 多市场数据提供器（多源/限流/退避）
-    ├── indicators.py             # 技术指标（MA/RSI/MACD）
-    ├── scoring.py                # 趋势评分（0-100）
-    └── ...（asset/fetch_data）
-```
-
-三层信号主链，共用 `.venv` Python 环境和 `data/` 目录规划：
-**Layer ① ETF 发现 → Layer ② 主题确认 → Layer ③ 交易候选（调用 Trend Engine）→ 未来 Layer 4 执行**
+底部只描述历史价格位置。个股口径独立实现；历史缓存已逐只核对当前参考，但全池口径尚未统一，price_basis_verified=false。缺历史与数据洞保持未知，不伪造离底。
 
 ## 安装
 
@@ -90,172 +60,4 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Layer ③ 交易标的筛选（selection）
-
-### 功能简介
-
-把 Layer ①（ETF 轮动）与 Layer ②（主题确认）的结论，压缩成「这个已确认主题用哪只 ETF、哪类股票交易」。核心是**执行对象压缩层**，不是又一层强弱排名。按 bucket → theme 逐主题输出候选。
-
-- 输入：Layer① rotation + Layer② confirmation + 分层资产池 `config/selection_universe.yaml` + 主题定义 `config/theme_registry.yaml`
-- 个股趋势由 Observation 阶段预计算，Selection 只读同日 stock_metrics 产物
-- 表达方式决策基于上涨结构：广泛上涨→ETF、龙头主导→龙头个股、扩散→ETF核心+龙头卫星、未确认→仅观察
-- 顶层 Action 只回答「今天投哪个方向」（BUY/OBSERVE/WAIT + Bucket + Theme）；ETF/股票/观察池落在下层
-- **核心输出是结构化候选对象 JSON**（`layer3.buckets[].themes[]`），HTML 仅为可视化
-
-### 运行
-
-```bash
-make select                # 离线消费已落盘事实，构建交易候选
-make select-offline        # 离线消费（保留兼容入口）
-python src/main.py select run
-python src/main.py select universe   # 查看分层资产池
-```
-
-### 输出
-
-- `outputs/selection/tradable_candidates_{date}.json` — 候选资产对象（唯一事实源）
-- `outputs/selection/tradable_candidates_{date}.html` — 可视化
-
-Layer 4（Portfolio）边界：本层只回答「买什么」，不回答「买多少 / 何时买 / 何时卖」。
-
----
-
-## 申万二级行业 RPS 监控
-
-### 功能定位
-
-基于申万二级行业指数的日频相对强度与轮动观察。计算各行业 5/10/15 日收益率在全部二级行业中的横截面百分位排名（RPS），识别进入强势区、持续强势、加速和掉队的行业。
-
-### 为什么作为 AKsignal 的行业模块
-
-AKsignal 已具备 AKShare 数据源、CSV 缓存分层、指标计算和 HTML 报告生成能力。行业 RPS 模块复用同一 Python 环境、数据存储约定和报告风格，同时保持与个股份析独立的工程边界。
-
-### 数据来源
-
-- 行业列表：`sw_index_second_info()` — legulegu.com（乐咕乐股）
-- 历史行情：`index_hist_sw()` — swsresearch.com（申万宏源研究）
-- 数据口径：申万二级行业（约 131 个行业）
-
-### RPS 计算方法
-
-```
-return_N  = close_t / close_{t-N} - 1        (N=5,10,15, 交易日窗口)
-RPS_N     = 横截面百分位排名(return_N)        (0-100, 越高越好, 并列平均排名)
-delta_rps15 = 当日 RPS15 - 上日 RPS15
-```
-
-状态规则（阈值可在 `config/industry_data.yaml` 中调整）：
-
-| 状态 | 条件 |
-|------|------|
-| new_entry | RPS15 ≥ 90 且上日 < 90 |
-| strong_streak | RPS15 ≥ 90 且连续 ≥ 3 天 |
-| accelerating | RPS15 ≥ 80 且 ΔRPS15 ≥ 10 |
-| falling_out | RPS15 < 90 且上日 ≥ 90 |
-
-### 安装依赖
-
-```bash
-pip install -r requirements.txt  # 已包含 pyyaml
-```
-
-### 命令
-
-```bash
-# 全部按顺序执行
-python src/main.py industry run-day
-
-# 分步执行
-python src/main.py industry bootstrap
-python src/main.py industry update
-python src/main.py industry calculate
-python src/main.py industry report
-python src/main.py industry validate
-
-# 或通过 -m 直接调用
-python -m src.sw_industry_rps.cli run-day
-```
-
-旧入口仍可用（向后兼容）：
-
-```bash
-python src/main.py run-day
-python src/main.py bootstrap|update|calculate|report|validate
-```
-
-### 报告位置
-
-```
-outputs/sw_industry_rps/
-├── sw_industry_rps_YYYYMMDD.html     # 每日报告
-├── sw_industry_rps_YYYYMMDD.csv      # 每日数据
-└── sw_industry_rps_latest.html       # 最新可用报告（仅数据质量 usable 时更新）
-```
-
-### 已知限制
-
-1. **swsresearch.com API 当前不可用**（HTTP 508）—— `index_hist_sw()` 是 AKShare 中获取申万行业历史行情的唯一原生接口，在接口恢复前无法获取真实行情数据
-2. 首版使用 CSV 存储，未引入数据库
-3. 未实现行业成分股联动分析（预留接口）
-4. 行业详情走势图属于 MVP 次优先级
-
-## ETF 趋势资产发现
-
-### 功能定位
-
-基于 AKShare 构建可观察的沪深场内 ETF 数据池，按资产类别分桶计算市场热度，在国金证券可交易范围内生成趋势 Watchlist 和候选信息卡片。
-
-### 版本状态
-
-```text
-v0.1.0-etf-discovery  ✅
-  状态：
-    orchestration pipeline：PASSED
-    discovery signal：      PASSED
-    historical coverage：   PARTIAL（255/300，85.0%）
-    broker coverage：       PARTIAL（116/300 已验证）
-
-  v0.2.0-etf-shadow-validation ⬅ 当前
-    目标：连续记录每日信号，通过回测和影子运行验证信号质量
-```
-
-### 工作流
-
-```text
-300 只核心 Universe → 255 只历史行情 → 252 只指标 → 101 只活跃
-    → 101 只国金可交易 → 101 张候选卡片
-```
-
-### 命令
-
-```bash
-# 数据底座
-python src/main.py etf bootstrap-core
-
-# 全链路（10 分钟）
-python src/main.py etf calculate && python src/main.py etf pipeline
-```
-
-### 输出
-
-```
-outputs/etf_signal/
-├── candidate_cards_{date}.json        # 完整卡片（含风险标记）
-└── watchlist_active_{date}.csv        # 活跃 ETF 清单
-```
-
-详细文档见 `docs/AKsignal_ETF_P0_方案.md`。
-
----
-
-## 三层信号链
-
-| 层 | 模块 | 职责 | 入口 |
-|------|------|------|------|
-| Layer ① | etf_signal | A股全市场 ETF 轮动（发现主线） | `python src/main.py etf <cmd>` |
-| Layer ② | sw_industry_rps | 主题确认（Theme Confirmation，行业证据验证） | `python src/main.py industry <cmd>` |
-| Layer ③ | selection | 多主题交易标的筛选（执行对象压缩） | `python src/main.py select run` |
-| Trend Engine | trend_engine | 指标与评分（selection 内部依赖） | 无独立入口 |
-| Layer 4 | — | Portfolio（买多少/何时买卖） | ⬜ 未来 |
-
-Layer ③ 严格继承 Layer①/② 产出，不重新从全市场开始；Trend Engine 只服务 selection，不暴露独立业务层。
+能力与边界见 [canonical 状态图](docs/ARCHITECTURE_MAP.md)；位置口径见 [POSITION_OBSERVATION.md](docs/POSITION_OBSERVATION.md)。

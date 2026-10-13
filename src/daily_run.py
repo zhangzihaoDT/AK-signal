@@ -31,16 +31,10 @@ def steps(trade_date: str, offline: bool = False) -> list[list[str]]:
     acquisition = [] if offline else [["etf", "update", *target], ["industry", "update", *target]]
     return acquisition + [
         ["etf", "calculate", *day], ["industry", "calculate", *target],
-        ["etf", "pipeline", *day],
-        ["select", "stock-metrics", *day, *([] if offline else ["--allow-online-fetch"])],
-        ["industry", "confirm", *target], ["industry", "report", *target],
-        ["research", "etf-bottom", "--scan", *day],
-        ["research", "etf-bottom", "--refresh-v1", *day],
-        ["research", "trend-transition", "state", *day],
-        ["etf", "three-lane", *day], ["select", "run", *day],
-        ["opportunity-radar", "run", *day], ["run-summary", "run", *day],
-        ["final-check", *day],
+        ["observation", "stock-metrics", *day, *([] if offline else ["--allow-online-fetch"])],
+        ["observation", "build", *day], ["observation", "check", *day],
     ]
+
 
 
 def check_stock_date(trade_date: str) -> None:
@@ -48,7 +42,7 @@ def check_stock_date(trade_date: str) -> None:
     df = pd.read_parquet(path)
     required = {"trade_date", "source_trade_date", "data_status", "symbol", "market", "name"}
     if df.empty or not required.issubset(df.columns):
-        raise ValueError("个股指标缺失或缺少日期证据，停止主题确认")
+        raise ValueError("个股指标缺失或缺少日期证据，停止观察发布")
     target = pd.Timestamp(trade_date)
     bad = df[(pd.to_datetime(df["trade_date"]) != target)
              | (pd.to_datetime(df["source_trade_date"]) != target)
@@ -57,12 +51,12 @@ def check_stock_date(trade_date: str) -> None:
         print(f"股票未对齐：{row['market']} {row['symbol']} {row['name']} "
               f"行情日={row['source_trade_date']} 状态={row['data_status']}", flush=True)
     if not bad.empty:
-        raise ValueError("个股数据未完整对齐目标日，停止主题确认，避免新旧数据混用")
+        raise ValueError("个股数据未完整对齐目标日，停止观察发布，避免新旧数据混用")
     audit_path = path.with_name(f"stock_update_audit_{trade_date}.json")
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     benchmark_date = audit.get("benchmark_trade_date")
     if not benchmark_date or pd.Timestamp(benchmark_date) != target:
-        raise ValueError(f"沪深300基准未对齐 {trade_date}（行情日={benchmark_date}），停止主题确认")
+        raise ValueError(f"沪深300基准未对齐 {trade_date}（行情日={benchmark_date}），停止观察发布")
 
 
 def check_partition(path: Path, trade_date: str, column: str = "trade_date") -> None:
@@ -76,87 +70,44 @@ def check_step(command: list[str], trade_date: str) -> None:
     if kind == ("etf", "calculate"):
         check_partition(etf_signal_daily_dir() / f"rotation_{trade_date}.parquet", trade_date)
         check_partition(etf_signal_daily_dir() / f"daily_indicators_{trade_date}.parquet", trade_date, "date")
-    elif kind == ("etf", "pipeline"):
-        for stem in ("watchlist", "account_candidates"):
-            check_partition(etf_signal_signals_dir() / f"{stem}_{trade_date}.parquet", trade_date)
-    elif kind == ("select", "stock-metrics"):
+    elif kind == ("observation", "stock-metrics"):
         check_stock_date(trade_date)
     elif kind == ("industry", "calculate"):
         from src.sw_industry_rps import storage
         df = storage.load_metrics(sw_industry_processed_dir())
         if df.empty or not (pd.to_datetime(df["trade_date"]) == pd.Timestamp(trade_date)).any():
             raise ValueError(f"行业指标缺少目标日 {trade_date}")
-    elif kind == ("industry", "confirm"):
-        for stem in ("confirmation", "tier_confirmation"):
-            check_partition(sw_industry_processed_dir() / f"{stem}_{trade_date}.parquet", trade_date)
-    elif kind == ("etf", "three-lane"):
-        check_partition(outputs_dir() / "etf_signal" / f"three_lane_{trade_date}.parquet", trade_date)
-    elif kind == ("research", "trend-transition") and command[2] == "state":
-        check_partition(outputs_dir() / "research" / "trend_transition"
-                        / f"trend_transition_state_{trade_date}.parquet", trade_date)
-    elif kind in (("select", "run"), ("opportunity-radar", "run"), ("run-summary", "run")):
-        folder, stem, date_key = {
-            ("select", "run"): ("selection", "tradable_candidates", "date"),
-            ("opportunity-radar", "run"): ("opportunity_radar", "opportunity_radar", "trade_date"),
-            ("run-summary", "run"): ("run_summary", "run_summary", "trade_date"),
-        }[kind]
-        payload = json.loads((outputs_dir() / folder / f"{stem}_{trade_date}.json").read_text(encoding="utf-8"))
-        actual = (payload.get("meta") or payload).get(date_key)
-        if actual != trade_date:
-            raise ValueError(f"{stem} 日期不一致：{actual}，目标={trade_date}")
+    elif kind == ("observation", "build"):
+        from src.observation.cli import validate
+        validate(trade_date)
+
 
 
 def phase(command: list[str]) -> str:
-    if command[:2] == ["research", "etf-bottom"]:
-        return "观察 ETF 底部" if "--scan" in command else "更新 ETF 历史状态"
     return {
-        ("etf", "update"): "更新 ETF 行情",
-        ("industry", "update"): "更新行业行情",
-        ("etf", "calculate"): "计算 ETF 强度",
-        ("industry", "calculate"): "计算行业强度",
-        ("etf", "pipeline"): "整理 ETF 趋势池与报告",
-        ("select", "stock-metrics"): "更新个股行情与趋势",
-        ("industry", "confirm"): "确认主题支撑",
-        ("industry", "report"): "生成行业报告",
-        ("research", "trend-transition"): "识别 ETF 生命周期",
-        ("etf", "three-lane"): "合成 ETF 状态与报告",
-        ("select", "run"): "筛选交易候选",
-        ("opportunity-radar", "run"): "发现主题外机会",
-        ("run-summary", "run"): "生成日报摘要",
-        ("final-check",): "检查全部结果",
+        ("etf", "update"): "更新 ETF 行情", ("industry", "update"): "更新行业行情",
+        ("etf", "calculate"): "计算 ETF 强度", ("industry", "calculate"): "计算行业轮动",
+        ("observation", "stock-metrics"): "更新观察池个股趋势",
+        ("observation", "build"): "构建趋势与底部位置观察",
+        ("observation", "check"): "验收观察事实",
     }.get(tuple(command[:2]), "检查全部结果")
 
 
 def step_artifacts(command: list[str], trade_date: str) -> list[Path]:
-    """Stable facts used for safe resume; reports may be re-rendered by later steps."""
     kind = tuple(command[:2])
     if kind == ("etf", "calculate"):
         return [etf_signal_daily_dir() / f"rotation_{trade_date}.parquet",
                 etf_signal_daily_dir() / f"daily_indicators_{trade_date}.parquet"]
     if kind == ("industry", "calculate"):
         return [sw_industry_processed_dir() / "industry_daily_metrics.csv"]
-    if kind == ("etf", "pipeline"):
-        return [etf_signal_signals_dir() / f"{name}_{trade_date}.parquet"
-                for name in ("watchlist", "account_candidates")]
-    if kind == ("select", "stock-metrics"):
+    if kind == ("observation", "stock-metrics"):
         return [stock_metrics_dir() / f"stock_metrics_{trade_date}.parquet",
                 stock_metrics_dir() / f"stock_update_audit_{trade_date}.json"]
-    if kind == ("industry", "confirm"):
-        return [sw_industry_processed_dir() / f"{name}_{trade_date}.parquet"
-                for name in ("confirmation", "tier_confirmation")]
-    if kind == ("research", "etf-bottom") and "--refresh-v1" in command:
-        return [outputs_dir() / "research" / "etf_bottom" / "backtest_v1" / "v1_signal_daily.parquet"]
-    if kind == ("research", "trend-transition"):
-        return [outputs_dir() / "research" / "trend_transition" / f"trend_transition_state_{trade_date}.parquet"]
-    if kind == ("etf", "three-lane"):
-        return [outputs_dir() / "etf_signal" / f"three_lane_{trade_date}.parquet"]
-    if kind == ("select", "run"):
-        return [outputs_dir() / "selection" / f"tradable_candidates_{trade_date}.json"]
-    if kind == ("opportunity-radar", "run"):
-        return [outputs_dir() / "opportunity_radar" / f"opportunity_radar_{trade_date}.json"]
-    if kind == ("run-summary", "run"):
-        return [outputs_dir() / "run_summary" / f"run_summary_{trade_date}.json"]
-    if command[0] == "final-check":
+    if kind == ("observation", "build"):
+        folder = outputs_dir() / "observation"
+        return [folder / f"{stem}_{trade_date}.parquet" for stem in
+                ("etf_trends", "asset_directions", "industry_rotation", "industry_directions", "stock_positions", "etf_positions")]
+    if kind == ("observation", "check"):
         return [outputs_dir() / "run_day" / f"final_check_{trade_date}.json"]
     return []
 
@@ -184,24 +135,15 @@ def run_step(command: list[str], env: dict[str, str], log: Path, title: str) -> 
 
 
 def check_generated_reports(command: list[str], trade_date: str, started_ns: int) -> None:
-    """Seeded old reports cannot stand in for a report that this attempt failed to build."""
-    base = outputs_dir()
-    groups = {
-        ("etf", "pipeline"): [[base / "etf_signal" / f"etf_rotation_{trade_date}.html"]],
-        ("etf", "three-lane"): [[base / "etf_signal" / f"etf_rotation_{trade_date}.html"]],
-        ("industry", "report"): [[base / "sw_industry_rps" / f"sw_industry_rps_{trade_date}{suffix}.html"
-                                   for suffix in ("", "_provisional")]],
-        ("select", "run"): [[base / "selection" / f"tradable_candidates_{trade_date}.html"]],
-        ("opportunity-radar", "run"): [[base / "opportunity_radar" / f"opportunity_radar_{trade_date}.html"]],
-        ("run-summary", "run"): [[base / "run_summary" / f"run_summary_{trade_date}.md"]],
-    }.get(tuple(command[:2]), [])
-    if command[:2] == ["research", "etf-bottom"] and "--scan" in command:
-        groups = [[base / "research" / "etf_bottom" / f"scan_{trade_date}.html"]]
-    if command[0] == "final-check":
-        groups = [[base / "run_day" / f"final_check_{trade_date}.json"]]
-    for variants in groups:
-        if not any(p.is_file() and p.stat().st_size and p.stat().st_mtime_ns >= started_ns for p in variants):
-            raise ValueError(f"该步骤未生成本批报告：{variants[0].name}；不能沿用旧文件冒充成功")
+    kind = tuple(command[:2])
+    paths = []
+    if kind == ("observation", "build"):
+        paths = [outputs_dir()/"observation"/f"observation_{trade_date}{suffix}" for suffix in (".html", ".md", ".json")]
+    elif kind == ("observation", "check"):
+        paths = [outputs_dir()/"run_day"/f"final_check_{trade_date}.json"]
+    for path in paths:
+        if not path.is_file() or not path.stat().st_size or path.stat().st_mtime_ns < started_ns:
+            raise ValueError(f"该步骤未生成本批报告：{path.name}；不能沿用旧文件冒充成功")
 
 
 def resume_index(state: dict, trade_date: str) -> int:
@@ -253,28 +195,12 @@ def committed_release(root: Path, state: dict) -> dict | None:
 
 
 def validate_release(trade_date: str) -> dict:
-    """A complete report set and a successful final check are mandatory for publication."""
-    base = outputs_dir()
-    paths = [
-        base / "etf_signal" / f"etf_rotation_{trade_date}.html",
-        base / "selection" / f"tradable_candidates_{trade_date}.html",
-        base / "opportunity_radar" / f"opportunity_radar_{trade_date}.html",
-        base / "run_summary" / f"run_summary_{trade_date}.md",
-        base / "research" / "etf_bottom" / f"scan_{trade_date}.html",
-    ]
-    industry = base / "sw_industry_rps" / f"sw_industry_rps_{trade_date}.html"
-    provisional = industry.with_name(f"sw_industry_rps_{trade_date}_provisional.html")
-    paths.append(industry if industry.exists() else provisional)
-    for path in paths:
-        if not path.is_file() or path.stat().st_size == 0:
+    for suffix in (".html", ".md", ".json"):
+        path = outputs_dir()/"observation"/f"observation_{trade_date}{suffix}"
+        if not path.is_file() or not path.stat().st_size:
             raise ValueError(f"报告未完整生成：{path.name}")
-    receipt = json.loads((base / "run_day" / f"final_check_{trade_date}.json").read_text(encoding="utf-8"))
-    if not receipt.get("ok") or receipt.get("trade_date") != trade_date:
-        raise ValueError("最终验收未通过，日报保持上一完整版本")
-    summary = json.loads((base / "run_summary" / f"run_summary_{trade_date}.json").read_text(encoding="utf-8"))
-    if summary.get("missing"):
-        raise ValueError(f"日报摘要缺少输入：{summary['missing']}")
-    return receipt
+    from src.observation.cli import validate
+    return validate(trade_date)
 
 
 def show_status(root: Path, trade_date: str = "", offline: bool = False) -> None:
@@ -367,7 +293,7 @@ def execute_batch(root: Path, trade_date: str, offline: bool, *, resume: bool = 
             release.publish_workspace(root, stage)
             state.update(status="published", finished_at=release.now(), result=receipt)
             save_published_checkpoint(root, state)
-            print(f"日报已统一发布 · {trade_date} · {receipt['status']} / {receipt['action']}", flush=True)
+            print(f"日报已统一发布 · {trade_date} · {receipt['status']} · 观察事实", flush=True)
             for warning in receipt.get("warnings", []):
                 print("提示：" + warning, flush=True)
             return 0

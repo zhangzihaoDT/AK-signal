@@ -30,7 +30,7 @@ def test_stale_stock_listed_and_confirmation_blocked(tmp_path, monkeypatch, caps
                   'source_trade_date': [pd.Timestamp('2026-10-09')],
                   'data_status': ['stale'], 'market': ['CN'], 'symbol': ['002050'],
                   'name': ['三花智控']}).to_parquet(tmp_path / 'stock_metrics_20261012.parquet')
-    with pytest.raises(ValueError, match='停止主题确认'):
+    with pytest.raises(ValueError, match='停止观察发布'):
         daily_run.check_stock_date('20261012')
     assert '002050 三花智控' in capsys.readouterr().out
 
@@ -107,13 +107,21 @@ def test_offline_enrichment_never_fetches_missing_cache(monkeypatch):
     assert market_data.fetch_cn_daily('002050') is None
 
 
-def test_json_partition_checks_internal_date(tmp_path, monkeypatch):
+def test_daily_plan_is_observation_only():
+    plan = daily_run.steps('20261012')
+    assert [c[:2] for c in plan] == [
+        ['etf','update'], ['industry','update'], ['etf','calculate'], ['industry','calculate'],
+        ['observation','stock-metrics'], ['observation','build'], ['observation','check']]
+    assert not any(c[0] in ('select','research','opportunity-radar','run-summary') for c in plan)
+
+
+def test_release_requires_observation_reports(tmp_path, monkeypatch):
     monkeypatch.setattr(daily_run, 'outputs_dir', lambda: tmp_path)
-    folder = tmp_path / 'selection'
+    from src.observation import cli
+    receipt = {'ok':True, 'trade_date':'20261012', 'scope':'observation_only'}
+    monkeypatch.setattr(cli, 'validate', lambda date: receipt)
+    folder = tmp_path/'observation'
     folder.mkdir()
-    path = folder / 'tradable_candidates_20261012.json'
-    path.write_text(json.dumps({'date': '20261009'}))
-    with pytest.raises(ValueError, match='日期不一致'):
-        daily_run.check_step(['select', 'run', '--date', '20261012'], '20261012')
-    path.write_text(json.dumps({'date': '20261012'}))
-    daily_run.check_step(['select', 'run', '--date', '20261012'], '20261012')
+    for suffix in ('.html','.md','.json'):
+        (folder/f'observation_20261012{suffix}').write_text('facts')
+    assert daily_run.validate_release('20261012') == receipt

@@ -72,6 +72,10 @@ def implementation_signature(root: Path) -> str:
             if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc":
                 digest.update(str(path.relative_to(root)).encode())
                 digest.update(fingerprint(path).encode())
+    version = root / "VERSION"
+    if version.exists():
+        digest.update(b"VERSION")
+        digest.update(fingerprint(version).encode())
     return digest.hexdigest()
 
 
@@ -118,11 +122,9 @@ def prepare_workspace(root: Path, state: dict) -> Path:
         # A killed initial copy may leave a private partial tree; no public file is touched.
         if stage.exists():
             shutil.rmtree(stage)
-        public = root / "outputs"
-        if public.exists():
-            shutil.copytree(public, stage)
-        else:
-            stage.mkdir(parents=True)
+        # Each batch publishes only current observation products. Prior releases
+        # remain in their own run directory; do not duplicate research archives.
+        stage.mkdir(parents=True)
         state["prepared"] = True
         save_checkpoint(root, state)
     return stage

@@ -37,10 +37,10 @@ etf-backfill: ## [保护] 目标日缺口回填：分类 + checkpoint/resume + �
 # RUN_DATE=YYYYMMDD pins the entire batch; otherwise resolved once at startup.
 RUN_DATE ?=
 RUN_FLAGS ?=
-run-day: ## 每日全链：固定交易日 → Observation → Decision → 数据完整性验收
+run-day: ## 每日观察链：数据 → 趋势与底部位置 → 验收与发布
 	$(PYTHON) -m src.daily_run $(if $(RUN_DATE),--date $(RUN_DATE),) $(RUN_FLAGS)
 
-run-day-offline: ## 同日离线批次：仅缓存，不联网；核心股票未对齐时停止确认
+run-day-offline: ## 同日离线批次：仅缓存，不联网；观察池股票未对齐时停止发布
 	$(PYTHON) -m src.daily_run --offline $(if $(RUN_DATE),--date $(RUN_DATE),) $(RUN_FLAGS)
 
 run-day-status: ## 查看当前业务阶段、失败原因与恢复进度
@@ -49,9 +49,9 @@ run-day-status: ## 查看当前业务阶段、失败原因与恢复进度
 .PHONY: run-day-status
 
 run-day-check: ## [Final Validation] 校验 run-day 各层产物并输出最终结果
-	$(PYTHON) $(SRC_MAIN) final-check
+	$(PYTHON) $(SRC_MAIN) observation check $(if $(RUN_DATE),--date $(RUN_DATE),)
 
-run-day-summary: ## [Summary] 当日结论汇总：① 今日推荐 ② 观察范围外机会 ③ 宽基指数值得研究（只读消费）
+run-day-summary: ## [Summary] 当日观察摘要（不输出推荐）
 	$(PYTHON) $(SRC_MAIN) run-summary run $(if $(SUMMARY_DATE),--date $(SUMMARY_DATE),)
 
 # ── ETF 全市场扫描（主系统） ────────────────────────────────────
@@ -145,12 +145,12 @@ sw-rps-structure: ## [Layer ②] Enrichment 行业内部结构（offline 读缓�
 # ── Layer ②/③ 个股趋势指标（Observation 层：Market Observation → Stock / Tier） ──
 
 stock-metrics: ## 构建个股趋势指标产物（Observation 层，离线读缓存确定性；--allow-online-fetch 可手工补数）
-	$(PYTHON) $(SRC_MAIN) select stock-metrics
+	$(PYTHON) $(SRC_MAIN) observation stock-metrics $(if $(RUN_DATE),--date $(RUN_DATE),)
 
 stock-metrics-online: ## 个股行情在线补数（手工刷新 raw 缓存；run-day 离线不抓个股）
-	$(PYTHON) $(SRC_MAIN) select stock-metrics --allow-online-fetch
+	$(PYTHON) $(SRC_MAIN) observation stock-metrics $(if $(RUN_DATE),--date $(RUN_DATE),) --allow-online-fetch
 
-select: ## Layer ③ 交易标的筛选（读 Layer①/② + 预计算个股趋势 → 候选对象 JSON + HTML；run-day 默认流程亦含，默认禁止联网）
+select: ## Layer ③ 交易标的筛选（读 Layer①/② + 预计算个股趋势 → 候选对象 JSON + HTML；旧版入口，已退出每日主链，默认禁止联网）
 	$(PYTHON) $(SRC_MAIN) select run
 
 select-offline: ## Layer ③ 交易候选（强制离线，仅读缓存/产物）

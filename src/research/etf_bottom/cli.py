@@ -168,16 +168,17 @@ def cmd_scan(args: argparse.Namespace) -> int:
     from .scanner_report import render_scan
 
     payload = run_scan(args.date or None)  # date 缺省 → 自动取最新 raw 交易日
-    html = render_scan(payload)
+    html = None if getattr(args, "no_report", False) else render_scan(payload)
     a = payload["layer_a_market_bottom_map"]
     print(f"scan json  : {STUDY_DIR / ('scan_' + str(payload['as_of']).replace('-', '') + '.json')}")
     print(f"scan pq/csv: {STUDY_DIR / ('scan_' + str(payload['as_of']).replace('-', '') + '.parquet')}")
-    print(f"scan html  : {html}")
+    if html:
+        print(f"scan html  : {html}")
     print("Layer A:", {k: a[k] for k in ("reliable_total", "cohort", "long_term_bottom_total",
                                          "deep_total", "recovering_total", "target_total",
                                          "near_miss_total")})
     print("transition:", a["transition_counts"])
-    if args.open:
+    if args.open and html:
         webbrowser.open(f"file://{html}")
     return 0
 
@@ -269,6 +270,7 @@ def main() -> None:
     p.add_argument("--context-replication", action="store_true", help="运行 Study 2D Replication（大样本复现 2C 发现）")
     p.add_argument("--repair", action="store_true", help="运行 Study 2E Repair Structure（pos120 结构验证）")
     p.add_argument("--current-eval", action="store_true", help="评估当前关注 ETF 的 Repair-Retest V1 阶段（读 2E 冻结 cut points）")
+    p.add_argument("--no-report", action="store_true", help="扫描仅生成事实产物，不生成独立 HTML（每日批次使用）")
     p.add_argument("--scan", action="store_true", help="全市场 Repair-Retest V1 每日扫描（Application，三层：Map/Scanner/Odds）")
     p.add_argument("--refresh-v1", action="store_true", help="轻量刷新 v1_signal_daily.parquet（每日 run-day，供 Lane 3 状态机消费）")
     p.add_argument("--backtest-v1", action="store_true", help="Repair-Retest V1 历史触发频率回测（Application Backtest / Signal Incidence）")

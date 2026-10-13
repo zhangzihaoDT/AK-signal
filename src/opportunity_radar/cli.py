@@ -178,11 +178,12 @@ def cmd_run(args: argparse.Namespace) -> None:
     json_path.write_text(_json_dumps(payload_full), encoding="utf-8")
     logger.info("radar json: %s", json_path)
 
-    from src.opportunity_radar.report import render_radar_html
-    html = render_radar_html(payload, meta)
-    html_path = out_dir / f"opportunity_radar_{td}.html"
-    html_path.write_text(html, encoding="utf-8")
-    logger.info("radar html: %s", html_path)
+    if not getattr(args, "no_report", False):
+        from src.opportunity_radar.report import render_radar_html
+        html = render_radar_html(payload, meta)
+        html_path = out_dir / f"opportunity_radar_{td}.html"
+        html_path.write_text(html, encoding="utf-8")
+        logger.info("radar html: %s", html_path)
 
     s = payload["summary"]
     logger.info("summary: full=%d mapped=%d unmapped=%d opportunity=%d (new=%d, gap=%d) rejected=%d",
@@ -215,6 +216,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--date", default="", help="目标 trade_date YYYYMMDD（默认最新 rotation 日）")
     p_run.add_argument("--min-amount", type=float, default=0.0,
                        help="流动性门（默认透传 Selection 的 etf_selection.trend.min_amount）")
+    p_run.add_argument("--no-report", action="store_true", help="仅生成 JSON；核心结果由每日摘要交付")
     p_run.add_argument("--log-level", default="INFO")
     return p
 

@@ -1,190 +1,117 @@
-# AKSignal Canonical Architecture Map
+# AKsignal Canonical Architecture Map
 
-> **定位**：当前代码库能力的 **canonical 状态图**（living snapshot）——模块 → 研究对象 → 回答什么问题 → 输入/产物/报告的单一事实映射。
-> 更新日期：2026-09-03（随代码演化修订；过时的叙事/目标态描述看 `docs/ARCHITECTURE.md`）。
-> 快速入口：`make run-day`（每日全链）；`python src/main.py <subsystem>`。
+> 当前能力的 canonical 状态图。基线版本：v0.5.0。更新：2026-10-13。
 
----
+## 完整定位与项目目标
 
-## 0. 五类计算主体（模块 → 对象 → 问题）
+**AKsignal = Market Intelligence & Portfolio Strategy System。**
 
-| 编号 | 主体 | 模块 | 研究对象 | 回答 | 输入 | 状态 |
-|---|---|---|---|---|---|---|
-| ① | Layer① ETF Rotation | `src/etf_signal/rotation` | 全市场 ETF（~1554） | 什么资产/主题在形成趋势 | EM/Sina 行情 → `raw/{code}.parquet` | Observation（制造事实） |
-| ② | Layer② Industry / Tier 确认 | `src/sw_industry_rps` | 124 申万二级 → 主题 Tier | ETF 趋势有无产业支撑 / 主题是否确认 | SW 日频/realtime + `stock_metrics` | Observation（制造事实） |
-| ③ | Layer③ Selection | `src/selection` | 主题 ETF（每日发布 ETF-only；engine 保留个股供 research） | 已确认主题选哪只 ETF 表达 + Lane Validation | Layer①② + three_lane + stock_metrics（离线） | Decision（消费事实） |
-| L1 | Lane 1 ETF 趋势池 | `etf_signal/signal`（watchlist） | 全市场 ETF | 谁已是趋势（状态池） | Layer① rotation | Observation（ETF 产品状态） |
-| L2 | Lane 2 底部/修复 | `src/research/etf_bottom` | 全市场 reliable ETF | 价格位置 / 赔率如何（底部域 + Repair-Retest V1） | raw 缓存（离线） | Observation（研究 → Application） |
-| L3 | Lane 3 趋势转换 | `src/research/trend_transition` | 全市场 ETF | 处于什么生命周期阶段 | `v1_signal_daily` + raw | Observation（研究 → Application） |
-| D | ETF State Fusion / 三 Lane 归集 | `etf_signal/three_lane` | 全市场 ETF | ETF 逐只「Trend × Position × Lifecycle」状态视图 | watchlist × v1 × state（三份已落盘） | Fact Aggregation / 归集层，不做 Policy |
-| R | Opportunity Radar | `src/opportunity_radar` | 全市场 ETF（Theme 外） | 有 Theme Registry 未覆盖的强势方向吗（V1.1：→ Candidate Directions） | Layer① rotation × account × master × three_lane × `opportunity_directions_v1.yaml` | Observation（Discovery，非 Decision） |
+目标是通过量化方法辅助管理一个真实的投资组合，而不是只生成市场观察报告。
 
-> 命名提示（两套「层」同名，勿混）：**Layer①②③** = 主链 Observation/Decision；**Lane1/2/3** = ETF 三维研究引擎。
-> Lane1 与 Layer① 同源不同产物：Layer①=横截面 RPS；Lane1=趋势状态池（`trend_state`）。
-> Trend Engine（`src/trend_engine`）= 个股行情/技术评分，被 Layer② Tier 确认与 Layer③ 消费，非独立报告入口。
-
-## 1. Observation / Decision / Lane 分层
-
-```
- 全市场 ETF 行情（raw）──────────────► 行业行情（SW）
-        │                                       │
- ① Layer① ETF Rotation                 ② Layer② Industry/Tier
-  · 横截面 RPS15/20/60 (+RPS1/Δ/liq)     · 行业 RPS + 主题确认 + Tier Gate
-  · data_quality_flag (corporate_action)  · 只做 Observation
-  ───────────── Observation ──────────────
-        │ 旋转事实                           │ 确认事实
-        ▼                                   ▼
- ③ Layer③ Selection（Decision，离线）═══════╪═════
-  ETF: trend门→leadership→position(MA60)→signal  │
-  (个股现状亦在此，规划收敛 ETF-only)              │
-        │                    Lane1 trend_state    │
-        ▼                    (同源状态池，③ 另读)  │
-  today / why / recommendation / watchlist        │
-        ▼
- ════ Lane 2（位置/赔率）· Lane 3（生命周期）═══════
-        └──── three_lane join（L1×L2×L3）──► ETF 报告 ④ 路径视图
-        ▼
- Opportunity Radar（Theme 外机会，Observation，非 Decision）
-        ▼
- Run-day Summary（今日推荐 + 范围外机会 + 宽基，只读消费）
-        ▼
- run-day-check（Final Validation）→ status/action/warnings
+```text
+AKsignal
+├── Facts
+│   ├── Market Facts       市场事实
+│   └── Portfolio State    组合状态
+└── Strategy
+    ├── Selection          选筹
+    ├── Entry              买入建议
+    ├── Allocation         单项资产仓位建议
+    ├── Exit               卖出建议
+    └── Portfolio Advice   整个组合的综合调整建议
 ```
 
-## 2. 每日 run-day 产物（`make run-day` 顺序）
-
-**业务批次恢复与统一发布（2026-10-13）**：`src/daily_run.py` 编排，
-`src/common/batch_release.py` 持久化检查点、独占锁与发布指针。检查点按 trade_date ×
-online/offline 隔离，记录每步状态、尝试次数、日志、耗时及事实产物 SHA256；同命令重跑
-默认从失败/中断处恢复，事实缺失/变化时回退至最早受影响步骤，代码/配置变化须 --restart。
-`make run-day-status` 读取业务阶段；子进程详细输出进私有日志，终端每15秒显示阶段耗时。
-
-产物先落 `.run_day/runs/{date}/{run_id}/outputs/`，由 `AKSIGNAL_OUTPUTS_DIR` 向各子进程
-透传；生命周期模块的 V1 读取也遵循该目录。报告必须由本轮步骤实际生成，不能沿用种子
-旧 HTML 冒充成功。Final Validation + 报告集合 + Summary missing 校验通过后，切换
-`outputs` 目录符号链接统一发布（首次原目录迁至 `.run_day/legacy/`，切换异常时恢复）；
-既有报告路径与 latest 规则保持。发布回执为 `outputs/run_day/publication.json`。
-原始行情和 data/事实缓存共享，日报/outputs 产物隔离；不改变 Observation/Decision 算法。
-
-
-**2026-10-13 日期/完整性加固**：`make run-day [RUN_DATE=YYYYMMDD]` 由
-`src/daily_run.py` 在批次开始固定目标日，全阶段透传。ETF 发布只含目标日行情对象，
-指标同时归档 `daily_indicators_{date}.parquet`；目标日缺失禁止回退。底部扫描在批次中也排除缺目标日行情对象。批次的 Lane 1
-只读同日 watchlist，行业/个股/基准均按目标日检查。核心个股或沪深300基准未对齐时，
-停止主题确认；股票清单保留在 `outputs/stock_metrics/stock_update_audit_{date}.json`。
-该审计记录市场+代码唯一抓取数、各源请求/熔断、失败与缓存回退。跨主题注册身份原样
-保留，单会话仅复用行情，不合并 participation。源连续异常3次即锁定 OPEN，空响应
-不视为源故障，新批次重置。Final Validation 汇总 ETF/股票缺口并落
-`outputs/run_day/final_check_{date}.json`。`run-day-offline` 不执行在线 update。
-评分/确认/推荐阈值不变；修复的是输入日期与发布范围。
-
-
-```
-etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline
-  → stock-metrics-online → sw-rps-confirm → sw-rps-report
-  → etf-bottom-scan → etf-refresh-v1 → trend-transition-state → three-lane
-  → select → opportunity-radar → run-day-summary → run-day-check
-```
-
-| 步骤 | 主报告/产物 | 说明 |
+| 部分 | 回答的问题 | 边界 |
 |---|---|---|
-| etf-update | `data/etf_signal/raw/*` + `diagnostics/source_audit_{target}.json` | Data Acquisition Performance V1（增量/熔断/Sina 并发） |
-| sw-rps-* | `data/processed/sw_industry/confirmation|tier_confirmation|structure_{date}.parquet` | Layer② 事实 |
-| etf-calculate/pipeline | `data/etf_signal/daily/rotation_{date}.parquet` · `signals/account_candidates_{date}.parquet` · `outputs/etf_signal/{etf_rotation_{date}.html, watchlist_active_{date}.csv, candidate_cards_{date}.json}` | Layer①/Lane1 |
-| stock-metrics-online | `outputs/stock_metrics/stock_metrics_{date}.parquet` | 个股趋势（Layer② Tier 与 ③ 共用） |
-| etf-bottom-scan | `outputs/research/etf_bottom/scan_{date}.{html,json,csv,parquet}` | Lane2 每日 Application |
-| etf-refresh-v1 | `outputs/research/etf_bottom/backtest_v1/v1_signal_daily.parquet` | Lane2/3 历史态 |
-| trend-transition-state | `outputs/research/trend_transition/trend_transition_state_{date}.{parquet,json}` | Lane3 每日 Application（无 HTML） |
-| three-lane | `outputs/etf_signal/three_lane_{date}.{parquet,csv}` + 重渲染 ETF 报告 ④ | L1×L2×L3 join |
-| select | `outputs/selection/tradable_candidates_{date}.{json,html}`（meta.scope=etf_only） | Layer③（ETF-only 发布；消费当日三 Lane，Lane Validation 硬 gate） |
-| opportunity-radar | `outputs/opportunity_radar/opportunity_radar_{date}.{json,html}` | Theme 外机会 Radar（Observation，不联网；V1.1 candidate_themes/broad_beta + taxonomy provenance） |
-| run-day-summary | `outputs/run_summary/run_summary_{date}.{json,md}` | 当日结论汇总（只读消费 Layer③ 推荐 + Radar 机会 + 宽基；不联网/不重算） |
-| run-day-check | 控制台 | status(CONFIRMED/PROVISIONAL) · action · warnings |
+| Market Facts | 市场发生了什么？ | 行情、趋势、位置等量化事实，不把策略结论写成事实 |
+| Portfolio State | 目前实际持有什么、现金和风险暴露是多少？ | 实际持仓、数量、现金、估值与暴露；派生量标注价格时点、来源与计算口径，不包含建议仓位 |
+| Selection | 应该买什么？ | 将事实压缩为候选标的及选择依据 |
+| Entry | 何时买？ | 给出买入条件、触发与当前是否满足的建议 |
+| Allocation | 单项资产建议配置多少？ | 输出单项资产目标仓位建议，显式说明占组合净资产等分母及假设 |
+| Exit | 何时卖？ | 给出退出、减持条件与依据 |
+| Portfolio Advice | 整个组合应该如何调整？ | 消费市场事实、实际组合与各项策略建议，综合现金、集中度、主题暴露等约束，给出组合层面的最终调整建议 |
 
-## 3. 报告输出清单（HTML/可读）
+**Allocation 与 Portfolio Advice 不混同。** 例如 Allocation 建议某资产目标权重10%，Portfolio Advice 结合该资产已有仓位和同主题暴露，可以建议本次只增加3个百分点，或暂不增持。目标权重、当前权重、建议调整量、调整后权重必须分别记录，不能用一个 weight 字段混合表达。Portfolio Advice 保留原始单项建议与约束原因，不覆盖它们或篡改实际持仓；建议调整不等于已发生交易。真实交易/账户记录确认后，才更新 Portfolio State。
 
-### 每日正式报告（run-day 产物）
-| 报告 | 路径 | 结构 |
-|---|---|---|
-| ① ETF 轮动 | `outputs/etf_signal/etf_rotation_{date}.html` | ①大类资产往哪里动 ②趋势活跃 ETF ③我的主题 ETF（④ 三 Lane 路径视图，仅当 three_lane 与报告日对齐时注入） |
-| ② 行业轮动 | `outputs/sw_industry_rps/sw_industry_rps_{date}.html`（CONFIRMED 同步 `_latest.html`；provisional 只落 `_{date}_provisional.html`） | ①产业方向Top ②行业/阶段表 ③每主题 Tier+判断+申万证据 |
-| ③ 今日投资建议 | `outputs/selection/tradable_candidates_{date}.html` | 01 今日结论→02 Theme Confirmation→03 ③A Eligibility→04 ③B 表达载体→05 ③C Timing→06 Why Now→07 Next Trigger→08 决策审计 |
-| Lane2 全市场扫描 | `outputs/research/etf_bottom/scan_{date}.html` | Layer A Market Bottom Map · B Repair-Retest Scanner · C Historical Odds · 口径与限定 |
-| Opportunity Radar | `outputs/opportunity_radar/opportunity_radar_{date}.html` | 01 今日 Radar · 02 Candidate Directions（方向级+成员折叠）· 02b Market Beta 单列 · 03 Possible Mapping Gaps · 04 Audit/Rejected |
-| 三 Lane 合成 | `outputs/etf_signal/three_lane_{date}.{csv,parquet}` | ETF｜Lane2 底部/target｜Lane3 迁移｜离开底部天数｜Lane1 趋势 |
+建议数据流：Market Facts + Portfolio State → 各项 Strategy 建议 → Portfolio Advice 综合协调 → 人工决策。策略可读取组合约束；五项能力不是必须严格串行的流水线。Strategy 消费版本化事实快照，不自行联网制造行情事实；不同策略可消费同一 Facts 给出不同建议。
 
-### 研究报告（一次性/累计，`outputs/research/`）
-- **etf_bottom（Lane2 研究）**：`study1_price_bottom` · `study1b_deep_stress` · `price_map_{date}` · `state_odds_result` · `state_odds_drilldown` · `bottom_episodes` · `context_matching` · `context_replication` · `repair_structure` · `current_odds_report` · `backtest_v1/v1_backtest_report`
-- **trend_transition（Lane3 研究）**：`study3a_report`（断点）· `study3b_report`（预测 FAIL）· `study3c_report`（状态机 PASS，冻结 V1）
-- **backtest**：`backtest_{theme}_{entity}_{range}*.html`（trades）· `sensitivity_*` · `matrix_*` · `construction_*` · `metrics_*.json` · `trades_*.parquet`
-- **portfolio**：`portfolio_{range}.{html,json}`（NAV/回撤/Sharpe/超额）
-- **其他研究**：`event_study_*` · `expression_regime_*` · `baskets/basket_compare` · `watchlist_compare` · `scania_china_watch` · `aug2026/aug2026_report` · replay 逐日信号 `research/daily/` + `historical_signals_{range}.parquet`
-- **历史遗留（保留不删，已被新链取代）**：`etf_signal/funnel_report_*` · `sw_industry_confirmation_*`（独立旧版）· `etf_signal/stock_trend/trend_report_*`（并入 trend_engine 前）
+## 必须坚持的原则
 
-## 4. 数据层清单（`data/`）
+**AKsignal 负责发现和量化市场事实，你负责理解这些事实并作出投资决策。**
 
-| 路径 | 内容 |
-|---|---|
-| `data/etf_signal/master/{etf_master,core_universe}.parquet` | 全市场清单/核心池 |
-| `data/etf_signal/raw/{code}.parquet` | 单只日行情（原子写；Performance V1 增量） |
-| `data/etf_signal/daily/rotation_{trade_date}.parquet` | Layer① 横截面（RPS + 元数据 trade_date/run_date/data_status/source） |
-| `data/etf_signal/signals/account_candidates_{trade_date}.parquet` | 趋势池 ∩ 账户池（含 trend_state） |
-| `data/etf_signal/backfill/` · `manifests/` · `positions/` | 缺口分类 checkpoint / 运行记录 / 仓位（L4 预留） |
-| `data/etf_signal/diagnostics/source_audit_{target}.json` | Data Acquisition 观测（per-source/circuit/cache_hits） |
-| `data/processed/sw_industry/{confirmation,tier_confirmation,ai_tier_confirmation,sw_industry_structure}_{trade_date}.parquet` | Layer② 事实 |
-| `outputs/stock_metrics/stock_metrics_{trade_date}.parquet` | 个股趋势 Observation（stock-metrics 构建） |
-| `config/` | 单一事实源（主题/资产池/策略/指标/执行/组合）；`market_data.yaml` 抓取参数不入 config_hash；`config/research/`（repair_retest_v1 / trend_transition_state_v1 / opportunity_directions_v1）为研究级 YAML，不进 config_hash |
+该原则约束最终投资决策的责任与事实/建议分离，不排斥 Strategy 提供量化建议。系统辅助真实组合管理；投资者保留最终决策权。
 
-## 5. 关键语义（跨模块约束，勿静默破坏）
+## 当前实现阶段
 
-1. **trade_date 分区**：Layer①/②/③ 与 Lane Application 一律按 trade_date 分区/命名；run_date/generated_at 仅审计。盘中锚 T-1，收盘后取当日。
-2. **alignment**：Selection 按各层元数据 trade_date 对齐（`aligned/stale_industry/stale_etf`）。Lane 产物同理：exact `three_lane_{trade_date}` 存在 → 对齐消费；exact 文件缺失 → lane-less（`lane_trade_date=None / lane_lag_days=None`），**禁止自动 fallback 到前后日期**。
-3. **`*_latest.*` 别名**：仅 CONFIRMED 落盘后更新（现仅 Layer② `sw_industry_rps_latest.html`）；PROVISIONAL 只落带日期文件。
-4. **Fact 不可变**：Observation 数字原值保留，Policy 接受/拒绝单独标注；Decision 禁止联网/重算/覆盖 Observation 字段。
-5. **config_hash / rule_version**：`market_data.yaml`（Data Acquisition）不入 strategy config_hash，抓取参数变化不触发 replay parity 失效；算法变化才 bump `rule_version`。
-6. **Layer③ ETF-only + Lane Validation（v0.11，生产中）**：Layer③ 每日发布输出收敛 ETF-only
-   （`select run` 固定 `include_stocks=False`，`meta.scope=etf_only`，报告无个股区块）；个股保留在
-   Layer② Tier 作行业确认输入，engine 默认 `include_stocks=True` 供 research replay/parity。
-   ETF State Fusion（three_lane）以 exact 日期对齐消费，缺失 → lane-less 不 gate。
-   Validation：**L2 数据可靠性=硬 gate**（`lane2_reliable_360=False` → 不可推荐，
-   reason=lane2_unreliable）；L2 结构=soft；L3 阶段=纯 context（不 gate）。`RULE_VERSION`=v0.11.0。
-   **Layer③ ETF Selection V2（v0.12.0，Eligibility/Vehicle/Timing）**：ETF 表达路径重写为三段——
-   ③A Eligibility（`_etf_eligible_pool`：theme + 账户可交易 + 流动性 + **lane2 可靠性前置** + rps15；
-   趋势不作资格）→ ③B Vehicle Selection（`_dedup_etf` 在 eligible 内按 **vehicle_score=amount 适配度**
-   取方向代表；rps 不进选车）→ ③C Timing（`_to_etf_candidate`：recommended = theme_confirmed ∧
-   trend_gate ∧ signal∈BUY）。`selection_score` 语义收敛为车辆适配度；`eligible_etf_count`=③A 通过数。
-   观察池 reason_codes：vehicle_eligible / lane2_unreliable / below_trend_gate / low_liquidity /
-   dedup_lost（仅 eligible 内）。修两个缺陷：① lane2 后置 veto 拖累同方向可靠次名（dedup bug，
-   可靠性前置 ③A 后结构消除）；② 未确认主题仍 recommended=True（③C 显式 AND theme_confirmed）。
-   `RULE_VERSION`=v0.12.0。
-7. **ETF 技术详情证据栈（Evidence Stack，v0.11）**：单只 ETF 的可审计「技术详情 · 底层证据」由
-   三块产物聚合而成，但**不是无冗余的最小集，也不是仅此三块才完整**：
+当前每日主链实现的是 **Market Facts** 的八项基础能力：观察全市场 ETF、全行业及固定池个股的趋势与底部位置。每日报告是事实交付入口，不是整个项目的最终产品定位。
 
-   - **聚合视图（curated，可读口径）**：Layer③ Selection candidate facts
-     （`recommendation.etf` / `etf_monitoring` / `watchlist.etf` 条目）——rotation 核心
-     （rps15/20/60/1、Δrps15、returns、liquidity）+ technical_diagnostics + blocking/
-     data_quality_flags + 四段（leadership/position/signal）+ 主题 + lane 透传子集
-     （6 字段）。**三块中的 hub**：已内嵌下两块的一部分字段（同源于 rotation 与 three_lane）。
-   - **产品/账户层（Layer① 账户候选卡）**：`candidate_cards_{date}.json` —— trend 变化
-     （trend_change/amount_change）、产品/账户门控（tradable + liquidity/size/history/premium
-     gates）、risks、validation.next_step；scope=账户候选集（非全市场）；**Selection 不消费它**
-     （属 Layer① 独立产物），其趋势字段与 Selection 重复是审计冗余而非事实双源。
-   - **生命周期校验层（three_lane 原始事实全集）**：`three_lane_{date}.parquet` ——
-     lane1 trend_state、lane2 bottom/target/reliable、lane3 transition/days +
-     `_watchlist_date` 对齐标记；Selection 只透传其子集，需要 lane 原始全量时读本文件。
+**Portfolio State 与新 Strategy 架构尚未作为正式核心能力实现。** 旧 Selection、Timing、研究代码的存在不等于这五项策略能力已完成；目前仍不由 daily-run 自动输出买入推荐。后续建设应基于这棵整体架构，而不是恢复已退出主链的旧功能拼装。
 
-   **约束**：① 三块刻意有冗余（展示口径 vs 审计口径），不互为唯一真源；② scope 不同
-   （candidate_cards=1291 账户池、three_lane≈1290 reliable、Selection=主题关键词命中池），
-   逐 ETF 完整性只在三块共同覆盖时成立；③ 管道仍有未进三块的原始列（rotation
-   `rank15/return_10/15/60/liquidity百分位/data_quality_flag`、account `trend_change/
-   amount_change`、three_lane `pos120/confirmed_long_term_bottom/lane1/_watchlist_date`、
-   Lane2 in-domain scan odds），字节级完整需连同 rotation/scan parquet 一起读。
+主题和 tier 当前仅保留观察分组与注册身份；同一股票多个身份不压成单标签。
 
-## 6. 命令面（`make` / `python src/main.py`）
+## Market Facts 的三类内部能力
 
-- 每日：`make run-day`（/ `run-day-offline` / `run-day-check` / `run-day-summary`）；分步 `make etf-update|etf-calculate|etf-pipeline|sw-rps-*|stock-metrics(-online)|select|etf-bottom-scan|etf-refresh-v1|trend-transition-state|three-lane|opportunity-radar`
-- 研究：`research replay single|parity|range` · `research event-study` · `research expression-regime` · `research etf-bottom --scan|--price-map|--state-odds|--drilldown|--episodes|--context-match|--context-replication|--repair|--current-eval|--refresh-v1` · `research trend-transition study3a|3b|3c|state`
-- 回测：`backtest trades|sensitivity|matrix|construction|portfolio`（数据补数：`data benchmark refresh`）
-- 验证：`make test`（865+ 用例）；`run-day-check`（产物完整性/状态聚合）
+- **Data Foundation｜数据基础**：①固定池股票 · ②全市场 ETF · ③全行业指数。
+- **Trend｜趋势观察**：④行业轮动 · ⑤大类资产 · ⑥ETF 趋势 · ⑦个股趋势。
+- **Position｜位置观察**：⑧ETF 与个股底部位置。
+- **Daily Observation Report**：统一日期 · 统一数据质量 · 统一发布，消费上述事实，不新增投资决策。
 
-> 本图为能力盘点快照；随代码演化更新。修订时保持「模块→对象→问题→产物」四元组格式不变。
+## 保留的八项能力
+
+| # | 能力 | 模块 / 输入 | 产物 |
+|---|---|---|---|
+| 1 | 固定观察池个股数据获取与整理 | trend_engine；selection_universe.yaml 作为现有观察池配置 | data/raw/{market}_{symbol}.csv；stock_update_audit_{date}.json |
+| 2 | 全市场 ETF 数据获取与整理 | etf_signal 数据获取 / 分类 / 缓存 | data/etf_signal/raw、master、diagnostics |
+| 3 | 全行业指数数据获取与整理 | sw_industry_rps 数据获取 / 兜底 / 缓存 | data/processed/sw_industry |
+| 4 | 全行业轮动观察 | 行业 metrics，保留 RPS / delta / 趋势阶段 | observation/industry_rotation、industry_directions |
+| 5 | 大类资产趋势观察 | ETF 分类与横截面聚合；通过 ETF 代理观察 | observation/asset_directions |
+| 6 | ETF 趋势识别与活跃池 | RPS 原值、价格 / MA20 / MA60 / 斜率 | observation/etf_trends |
+| 7 | 观察池个股趋势评估 | stock-metrics，只发布趋势事实，移除 action / watch_level | stock_metrics/stock_metrics_{date}.parquet |
+| 8 | ETF 与观察池个股底部位置判断 | ETF 复用 price_map；股票独立 stock_position_v1 | observation/etf_positions、stock_positions |
+
+上述 observation 文件均按 trade_date 输出 parquet + CSV。位置只描述历史收盘价区间位置，不断言未来不会继续下跌。股票口径与可靠性限制见 [POSITION_OBSERVATION.md](POSITION_OBSERVATION.md)。
+
+ETF 活跃的观察定义：price > MA20、price > MA60、MA20_slope > 0、MA60_slope > 0；均线缺失不视为活跃。不输出 BUY / WATCH / Timing。行业阶段沿用已有 Observation 三分类。ETF 与行业 RPS 横截面不同，不直接比较。
+
+## 每日运行与交付
+
+唯一完整每日入口为 `make run-day`，由 src/daily_run.py 编排：
+
+```text
+etf update → industry update → etf calculate → industry calculate
+  → observation stock-metrics → observation build → observation check
+  → validate_release → 统一发布
+```
+
+`make run-day-offline` 跳过在线 update，个股仅读缓存。所有步骤固定目标 trade_date；核心股票与基准未对齐时停止发布。ETF 缺口显式列入审计。
+
+每日只有一个报告入口：`outputs/observation/observation_{date}.html`，附同名 JSON 摘要与 Markdown。正文只保留三个主要观察区域：**市场方向**（大类资产与行业轮动）、**趋势活跃**（ETF 与固定池个股）、**底部位置**（ETF 与固定池个股的状态、变化、窗口可靠性）。数据覆盖、复权验证、缓存与来源状态集中在独立的数据质量区域；不占用投资观察正文。机器事实全量落盘。ETF 活跃定义沿用均线条件，个股活跃展示趋势分≥70，完整固定池可展开；这只是展示范围，不创造推荐资格。
+
+最终验收为 `outputs/run_day/final_check_{date}.json`，发布回执为 `outputs/run_day/publication.json`。结果包含 scope=observation_only、status、warnings、errors；不再包含投资 action。
+
+新批次暂存目录从空目录建立，不复制上一批 outputs 中的研究报告或旧候选。验收后切换 outputs 符号链接，上一批产物留在 `.run_day/runs/{date}/{run_id}/outputs`；首次旧 outputs 目录保存在 `.run_day/legacy`。失败不替换已发布产物。检查点、互斥锁、事实摘要、恢复与代码/config 兼容性检查继续保留。代码变化须 --restart。
+
+trade_date 为信号分区；run_date / generated_at 仅为审计时间。CONFIRMED / COMPLETE / PARTIAL 是来源与完整性状态，不是推荐状态。本产品不写新的 *_latest 报告别名。
+
+## 退出核心产品的能力
+
+主题 Tier 确认、Selection 推荐与 Timing、行业结构穿透、独立 Radar、三 Lane 合成、迁移生命周期状态机、历史赔率研究均已从每日主链和发布验收移除。旧模块与显式研究/legacy 命令暂保留供历史重放；其输出不属于当前核心产品，不由每日自动执行。price_map 的基础位置算法继续被 Observation 使用。
+
+`docs/ARCHITECTURE.md` 与 AGENTS.md 中旧 Layer / Lane 叙述为历史背景，当前范围以本状态图为准。
+
+## 每日展示一致性规则（UI v3）
+
+排序、分页与展开由 `src/observation/report.py` 统一定义，`observation build` 每日调用同一个 renderer；JSON 同步记录 report_layout_version。仅修改展示顺序，不改原始事实或候选条件。
+
+- 大类资产：固定 CROSS_ASSET_ORDER，保证方向位置每天一致。
+- 行业：RPS15降序 → RPS5降序 → 行业代码（缺少代码时名称兜底）。
+- 活跃ETF：RPS15降序 → 流动性降序 → ETF代码。
+- 固定池股票：趋势分降序 → 20日收益降序 → 市场/代码。默认展示分数≥70的前20项；其余活跃及未达门槛股票在同一个“其余固定池个股”展开区，不再复制完整池。
+- 底部位置：有效进入/离开变化 → 有效长期低位 → 其他有效 → 未知/不适用；同组按360日位置升序，再按身份代码。数据缺口不因位置数值低而排到可靠低位之前。
+- 每个面板最多默认20项，只提供一个展开区；默认行与剩余行互斥，每对象每面板只出现一次。无活跃个股时默认区明确为空，展开仍可读剩余固定池。
+- 同股票跨注册身份仅在展示层按市场/代码去重；机器事实保留全部注册。跨不同观察区域的同资产允许重复，分别回答趋势与位置问题。
+- 搜索覆盖该面板默认与展开的完整列表，搜索时展开剩余区；清空后恢复原展开状态。缺值排最后，同分用稳定身份键打破平局。
+
+UI v3：页面最大宽度1120px；压缩标题、卡片和行间距。取消表格纵向高度限制与内部纵向滚动，使用页面主滚动；小屏仅保留必要的表格横向滚动。展开与排序规则保持不变。
+
+已知身份错配的跨日保护源为 config/observation_identity_issues.json；当日审计可补充覆盖，但不依赖本地审计快照存在。

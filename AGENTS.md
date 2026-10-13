@@ -1,5 +1,11 @@
 # AKsignal — Agent 操作手册
 
+> **整体定位更新（2026-10-13，优先于下文阶段性/历史定位）**：AKsignal = Market Intelligence & Portfolio Strategy System，目标是通过量化方法辅助管理真实投资组合。整体架构 Facts（Market Facts + Portfolio State）/ Strategy（Selection / Entry / Allocation / Exit / Portfolio Advice）。Allocation 是单项资产目标仓位建议，Portfolio Advice 是结合实际组合约束的综合调整建议；实际仓位、目标权重、调整量不能混写。当前八项能力与三类观察结构仅是 Market Facts 的已实现阶段；Portfolio State 与新五项 Strategy 尚未正式实现，不将规划冒充现有能力。系统可以提供建议，投资者保留最终决策权。
+
+> **必须坚持的原则**：AKsignal 负责发现和量化市场事实，你负责理解这些事实并作出投资决策。日报正文只有市场方向、趋势活跃、底部位置；覆盖、复权和缓存集中到数据质量区域。Market Facts 内部为 Data Foundation / Trend / Position，通过 Daily Observation Report 统一日期、数据质量与发布。
+
+> **2026-10-13 当前范围更新（用户明确授权，优先于下文历史 Layer/Lane 叙述）**：当前实现阶段为“数据基础 + 趋势与底部位置观察系统”，每日核心仅保留 canonical 状态图中的八项能力。每日主链不运行 Tier 确认、Selection/Timing、结构穿透、Radar、三 Lane、迁移状态机或历史赔率；不输出买入推荐或投资 action。主题/tier 仅作观察分组。工程日期对齐、恢复、验收与统一发布保留。下文旧每日流程与选筹基线为历史背景，当前实现以 docs/ARCHITECTURE_MAP.md 为准。个股位置的价格依据限制见 docs/POSITION_OBSERVATION.md。
+
 > 当前代码库能力总览（模块→对象→问题→产物/报告）见 **`docs/ARCHITECTURE_MAP.md`**（canonical 状态图，随代码演化修订）。
 
 ## 分层原则（最值得坚持的一点）

@@ -6,13 +6,13 @@ AKSignal 顶层命令路由
   不包含个股、行业或 ETF 的业务逻辑。
 
 用法：
-  python src/main.py                        → Layer ③ 交易候选（默认）
+  python src/main.py                        → 观察系统每日批次（默认）
   python src/main.py select [run]           → Layer ③ 交易候选
-  python src/main.py final-check            → run-day 末端 Final Validation
-  python src/main.py run-summary run        → run-day 末端结论汇总（Layer③ + Radar 只读消费）
+  python src/main.py final-check            → 观察产物验收
+  python src/main.py run-summary run        → 观察日报摘要
   python src/main.py industry <command>     → 申万行业 RPS（Layer ② 确认）
   python src/main.py etf <command>          → ETF 趋势信号（Layer ①）
-  python src/main.py run-day                → 申万行业 RPS run-day（向后兼容）
+  python src/main.py run-day                → 观察系统每日批次
   python src/main.py bootstrap|update|calculate|report|validate → 申万行业 RPS（向后兼容）
 """
 
@@ -45,6 +45,18 @@ def main() -> None:
     if argv:
         cmd = argv[0]
 
+        if cmd == "run-day":
+            from src.daily_run import main as daily_main
+            sys.argv = [sys.argv[0], *argv[1:]]
+            daily_main()
+            return
+
+        if cmd == "observation":
+            from src.observation.cli import main as observation_main
+            sys.argv = [sys.argv[0], *argv[1:]]
+            observation_main()
+            return
+
         if cmd == "etf":
             from src.etf_signal.cli import main as etf_main
             sys.argv = [sys.argv[0], *argv[1:]]
@@ -70,9 +82,9 @@ def main() -> None:
             return
 
         if cmd in ("final-check", "run-day-check"):
-            from src.final_validation.cli import main as fv_main
-            sys.argv = [sys.argv[0], *argv[1:]]
-            fv_main()
+            from src.observation.cli import main as observation_main
+            sys.argv = [sys.argv[0], "check", *argv[1:]]
+            observation_main()
             return
 
         if cmd == "research":
@@ -100,9 +112,10 @@ def main() -> None:
             return
 
         if cmd in ("run-summary", "run-day-summary"):
-            from src.run_summary.cli import main as summary_main
-            sys.argv = [sys.argv[0], *argv[1:]]
-            summary_main()
+            from src.observation.cli import main as observation_main
+            tail = argv[2:] if len(argv) > 1 and argv[1] == "run" else argv[1:]
+            sys.argv = [sys.argv[0], "summary", *tail]
+            observation_main()
             return
 
         if cmd == "replay":  # 兼容别名：research replay
@@ -111,9 +124,10 @@ def main() -> None:
             research_main()
             return
 
-    # 无命令时默认走 Layer ③（原 stock_trend 已并入 trend_engine，不再有独立入口）
-    from src.selection.cli import main as selection_main
-    selection_main()
+    # Default entry is the observation-only daily batch.
+    from src.daily_run import main as daily_main
+    daily_main()
+
 
 
 if __name__ == "__main__":

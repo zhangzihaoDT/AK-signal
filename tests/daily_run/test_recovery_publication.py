@@ -185,15 +185,17 @@ def test_incomplete_report_set_is_never_published(tmp_path):
 
 
 def test_seeded_old_html_does_not_count_as_this_attempts_report(tmp_path):
-    path = tmp_path / 'selection/tradable_candidates_20261012.html'
+    path = tmp_path / 'observation/observation_20261012.html'
     path.parent.mkdir()
     path.write_text('previous complete report')
+    for suffix in ('.md', '.json'):
+        path.with_suffix(suffix).write_text('previous complete report')
     with release.output_workspace(tmp_path):
         with pytest.raises(ValueError, match='不能沿用旧文件'):
-            daily_run.check_generated_reports(['select', 'run', '--date', '20261012'],
-                                              '20261012', path.stat().st_mtime_ns + 1)
-        daily_run.check_generated_reports(['select', 'run', '--date', '20261012'],
-                                          '20261012', path.stat().st_mtime_ns)
+            daily_run.check_generated_reports(['observation', 'build', '--date', '20261012'],
+                                              '20261012', max(p.stat().st_mtime_ns for p in path.parent.iterdir()) + 1)
+        daily_run.check_generated_reports(['observation', 'build', '--date', '20261012'],
+                                          '20261012', min(p.stat().st_mtime_ns for p in path.parent.iterdir()))
 
 
 def test_stage_root_used_by_lifecycle_consumer_in_fresh_process(tmp_path):
@@ -254,3 +256,13 @@ def test_validation_diagnostics_stay_in_log(tmp_path, monkeypatch, capsys):
     daily_run.verify_step(['industry', 'calculate'], '20261012', log)
     assert 'internal CSV dtype detail' in log.read_text()
     assert not capsys.readouterr().err
+
+
+def test_new_observation_batch_does_not_copy_old_decisions_or_research(tmp_path):
+    public = tmp_path/'outputs'
+    (public/'selection').mkdir(parents=True)
+    (public/'selection/old.json').write_text('legacy recommendation')
+    state = release.new_checkpoint(tmp_path,'20261012',True,[])
+    stage = release.prepare_workspace(tmp_path,state)
+    assert list(stage.iterdir()) == []
+    assert (public/'selection/old.json').read_text() == 'legacy recommendation'
