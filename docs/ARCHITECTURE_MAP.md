@@ -53,6 +53,18 @@
 
 ## 2. 每日 run-day 产物（`make run-day` 顺序）
 
+**2026-10-13 日期/完整性加固**：`make run-day [RUN_DATE=YYYYMMDD]` 由
+`src/daily_run.py` 在批次开始固定目标日，全阶段透传。ETF 发布只含目标日行情对象，
+指标同时归档 `daily_indicators_{date}.parquet`；目标日缺失禁止回退。底部扫描在批次中也排除缺目标日行情对象。批次的 Lane 1
+只读同日 watchlist，行业/个股/基准均按目标日检查。核心个股或沪深300基准未对齐时，
+停止主题确认；股票清单保留在 `outputs/stock_metrics/stock_update_audit_{date}.json`。
+该审计记录市场+代码唯一抓取数、各源请求/熔断、失败与缓存回退。跨主题注册身份原样
+保留，单会话仅复用行情，不合并 participation。源连续异常3次即锁定 OPEN，空响应
+不视为源故障，新批次重置。Final Validation 汇总 ETF/股票缺口并落
+`outputs/run_day/final_check_{date}.json`。`run-day-offline` 不执行在线 update。
+评分/确认/推荐阈值不变；修复的是输入日期与发布范围。
+
+
 ```
 etf-update → sw-rps-update → etf-calculate → sw-rps-calculate → etf-pipeline
   → stock-metrics-online → sw-rps-confirm → sw-rps-report

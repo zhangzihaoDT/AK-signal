@@ -186,7 +186,7 @@ def cmd_refresh_v1(args: argparse.Namespace) -> int:
     """轻量刷新 v1_signal_daily.parquet（每日 run-day，供 Lane 3 状态机消费）。"""
     from .backtest_v1 import refresh_v1_signal_daily
 
-    out = refresh_v1_signal_daily(end=args.end_date or None)
+    out = refresh_v1_signal_daily(end=args.date or args.end_date or None)
     df = pd.read_parquet(out)
     print(f"v1_signal_daily : {out}")
     print(f"rows            : {len(df)}")

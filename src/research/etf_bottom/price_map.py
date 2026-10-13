@@ -26,6 +26,7 @@ bottom_state（互斥 5 状态）+ long_term_bottom（独立 bool）：
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -167,6 +168,9 @@ def build_price_map(as_of: date | str = "2026-08-28") -> pd.DataFrame:
             logger.warning("unreadable raw %s: %s", code, e)
             continue
         if "date" not in d.columns or "close" not in d.columns or d.empty:
+            continue
+        if os.environ.get("AKSIGNAL_TRADE_DATE") and not (pd.to_datetime(d["date"]) == as_of_ts).any():
+            logger.warning("daily batch excludes stale ETF %s: target=%s", code, as_of_ts.date())
             continue
         nm, bucket = name_map.get(code, ("", ""))
         et = calibrate_etf_type(nm or code, "")["calibrated_type"]

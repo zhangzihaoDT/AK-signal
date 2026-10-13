@@ -20,6 +20,7 @@ from typing import Any, Callable
 
 import akshare as ak
 import pandas as pd
+from .source_session import SourceSession
 
 
 CN_SOURCES: dict[str, dict[str, Any]] = {
@@ -42,6 +43,7 @@ CN_SOURCES: dict[str, dict[str, Any]] = {
 
 _next_allowed: dict[str, float] = {}
 _logger = logging.getLogger(__name__)
+_fetch_session = SourceSession()
 
 
 def _add_exchange_prefix(symbol: str) -> str:
@@ -113,9 +115,14 @@ def fetch_cn_daily(
     每次重试切换数据源（em → sina → tx → em → ...），
     应用节流和指数退避。
     """
+    if os.environ.get("AKSIGNAL_OFFLINE") == "1":
+        return None
     src_keys = list(CN_SOURCES.keys())
     for attempt in range(1, max_retries + 1):
-        src_name = src_keys[(attempt - 1) % len(src_keys)]
+        available = [s for s in src_keys if _fetch_session.available(s)]
+        if not available:
+            break
+        src_name = available[(attempt - 1) % len(available)]
         src = CN_SOURCES[src_name]
         fn = src["factory"]()
         if fn is None:
@@ -127,9 +134,13 @@ def fetch_cn_daily(
                   "end_date": end_date or "22220101", **src["extra_params"]}
             df = _call_ak(fn, **kw)
             normalized = _normalize(df)
+            _fetch_session.record(src_name, normalized is not None and not normalized.empty,
+                                  empty=normalized is None or normalized.empty)
             if normalized is not None and not normalized.empty:
                 return normalized
         except Exception as e:
+            if _fetch_session.record(src_name, False):
+                _logger.warning("CN source circuit OPEN: %s; remaining stocks skip this source", src_name)
             if attempt < max_retries:
                 delay = 2.0 * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
                 _logger.debug("source=%s symbol=%s attempt=%d/%d failed: %s, retry in %.1fs",

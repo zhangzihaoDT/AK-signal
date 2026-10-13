@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +70,13 @@ def load_watchlist(trade_date: pd.Timestamp) -> pd.DataFrame:
     并在结果上带 _watchlist_date 列供审计。缺文件 → 空表（不阻塞 join）。
     """
     target = pd.Timestamp(trade_date)
+    if os.environ.get("AKSIGNAL_TRADE_DATE"):
+        path = etf_signal_signals_dir() / f"watchlist_{target:%Y%m%d}.parquet"
+        df = pd.read_parquet(path)
+        if "trade_date" not in df or not (pd.to_datetime(df["trade_date"]) == target).all():
+            raise ValueError("Lane 1 watchlist 日期不一致，禁止新旧数据混用")
+        df["_watchlist_date"] = target
+        return df[["fund_code", "fund_name", "trend_state", "_watchlist_date"]].drop_duplicates("fund_code")
     files = sorted(etf_signal_signals_dir().glob("watchlist_*.parquet"))
     best_path = None
     best_date: pd.Timestamp | None = None

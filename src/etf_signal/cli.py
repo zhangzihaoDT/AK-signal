@@ -952,7 +952,7 @@ def cmd_watchlist(args: argparse.Namespace) -> None:
         logger.error("no ETF master — run bootstrap first")
         return
 
-    indicators_path = daily_dir / "daily_indicators.parquet"
+    indicators_path = daily_dir / (f"daily_indicators_{pd.Timestamp(args.date):%Y%m%d}.parquet" if getattr(args, "date", "") else "daily_indicators.parquet")
     if not indicators_path.exists():
         logger.error("no indicators — run calculate first")
         return
@@ -1005,7 +1005,10 @@ def cmd_account_mapping(args: argparse.Namespace) -> None:
         logger.error("no ETF master")
         return
 
-    watchlist_files = sorted(signals_dir.glob("watchlist_*.parquet"), reverse=True)
+    requested = getattr(args, "date", "")
+    watchlist_files = ([signals_dir / f"watchlist_{pd.Timestamp(requested):%Y%m%d}.parquet"] if requested
+                       else sorted(signals_dir.glob("watchlist_*.parquet"), reverse=True))
+    watchlist_files = [p for p in watchlist_files if p.exists()]
     if not watchlist_files:
         logger.error("no watchlist found — run watchlist first")
         return
@@ -1109,7 +1112,10 @@ def cmd_card(args: argparse.Namespace) -> None:
         logger.error("no ETF master")
         return
 
-    cand_files = sorted(signals_dir.glob("account_candidates_*.parquet"), reverse=True)
+    requested = getattr(args, "date", "")
+    cand_files = ([signals_dir / f"account_candidates_{pd.Timestamp(requested):%Y%m%d}.parquet"] if requested
+                  else sorted(signals_dir.glob("account_candidates_*.parquet"), reverse=True))
+    cand_files = [p for p in cand_files if p.exists()]
     if not cand_files:
         logger.error("no account candidates — run account first")
         return
@@ -1120,7 +1126,7 @@ def cmd_card(args: argparse.Namespace) -> None:
         return
 
     # ── 指标验收门控 ──────────────────────────────────────────
-    indicators_path = daily_dir / "daily_indicators.parquet"
+    indicators_path = daily_dir / (f"daily_indicators_{pd.Timestamp(args.date):%Y%m%d}.parquet" if getattr(args, "date", "") else "daily_indicators.parquet")
     gate_warnings: list[str] = []
     if indicators_path.exists():
         indicators_df = pd.read_parquet(indicators_path)
@@ -1160,7 +1166,7 @@ def cmd_card(args: argparse.Namespace) -> None:
         amount_change = row.get("amount_change", "—")
 
         # 风险检测
-        risk_flags = card_mod.detect_risks(code, raw_dir)
+        risk_flags = card_mod.detect_risks(code, raw_dir, as_of_date=getattr(args, "date", ""))
 
         # 字段完整性判定
         card_status = "complete"
@@ -1226,13 +1232,13 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
     t_start = time.monotonic()
 
     signals_dir = etf_signal_signals_dir()
-    indicators_path = etf_signal_daily_dir() / "daily_indicators.parquet"
+    indicators_path = etf_signal_daily_dir() / (f"daily_indicators_{pd.Timestamp(args.date):%Y%m%d}.parquet" if getattr(args, "date", "") else "daily_indicators.parquet")
     if not indicators_path.exists():
         logger.error("no indicators — run bootstrap + calculate first")
         return
 
     # 横截面 trade_date 由已保存的 Layer ① 产物解析，不再承担运行日语义
-    date_str = _resolve_etf_trade_date_str()
+    date_str = pd.Timestamp(args.date).strftime("%Y%m%d") if getattr(args, "date", "") else _resolve_etf_trade_date_str()
 
     # Step 1: Watchlist
     t0 = time.monotonic()
@@ -1261,7 +1267,7 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
     # 4a: 活跃 watchlist CSV
     wl = pd.DataFrame()
     watchlist_files = sorted(signals_dir.glob(f"watchlist_{date_str}.parquet"))
-    if not watchlist_files:
+    if not watchlist_files and not getattr(args, "date", ""):
         watchlist_files = sorted(signals_dir.glob("watchlist_*.parquet"), reverse=True)
     if watchlist_files:
         wl = pd.read_parquet(watchlist_files[0])
@@ -1274,7 +1280,7 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
     rotation_path = daily_dir / f"rotation_{date_str}.parquet"
     if rotation_path.exists():
         rotation_df = pd.read_parquet(rotation_path)
-    else:
+    elif not getattr(args, "date", ""):
         logger.warning("rotation_%s.parquet not found — recomputing from raw", date_str)
         combined = _load_all_raw(master)
         if not combined.empty:
@@ -1292,7 +1298,7 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
         prev_active: set[str] = set()
         prev_files = sorted(signals_dir.glob("watchlist_*.parquet"))
         for pf in reversed(prev_files):
-            if pf.name == f"watchlist_{date_str}.parquet":
+            if pf.stem.rsplit("_", 1)[-1] >= date_str:
                 continue
             try:
                 pw = pd.read_parquet(pf)
@@ -1368,7 +1374,7 @@ def cmd_three_lane(args: argparse.Namespace) -> None:
     master = etf_master.load_master(etf_signal_master_dir())
     wl = pd.DataFrame()
     wl_files = sorted(signals_dir.glob(f"watchlist_{date_str}.parquet"))
-    if not wl_files:
+    if not wl_files and not args.date:
         wl_files = sorted(signals_dir.glob("watchlist_*.parquet"), reverse=True)
     if wl_files:
         wl = pd.read_parquet(wl_files[0])
@@ -1440,6 +1446,8 @@ def cmd_calculate(args: argparse.Namespace) -> None:
     if pd.isna(max_avail):
         logger.error("no ETF daily data at or before target %s", trade_date.date())
         return
+    if max_avail < trade_date and (getattr(args, "date", "") or getattr(args, "target_date", "")):
+        raise ValueError(f"ETF 目标日 {anchor} 无行情，禁止回退到 {max_avail.date()}")
     if max_avail < trade_date:
         logger.warning("target %s 无数据，回退到最近可用交易日 %s", trade_date.date(), max_avail.date())
     trade_date = max_avail
@@ -1470,6 +1478,9 @@ def cmd_calculate(args: argparse.Namespace) -> None:
         codes_with_data = combined["fund_code"].unique()
         codes_at_td = combined[combined["date"] == trade_date]["fund_code"].nunique() if len(codes_with_data) else 0
         rotation_status = _coverage_status(int(codes_at_td), len(codes_with_data))
+        if getattr(args, "date", "") or getattr(args, "target_date", ""):
+            current_codes = set(combined.loc[pd.to_datetime(combined["date"]) == trade_date, "fund_code"])
+            rotation_df = rotation_df[rotation_df["fund_code"].isin(current_codes)].copy()
         rotation_df = _stamp_output_meta(rotation_df, trade_date, rotation_status)
         rotation_path = daily_dir / f"rotation_{trade_date:%Y%m%d}.parquet"
         rotation_df.to_parquet(rotation_path, index=False)
@@ -1485,6 +1496,9 @@ def cmd_calculate(args: argparse.Namespace) -> None:
             indicators_df["rps60"] = indicators_df["return_60d"].rank(ascending=True, pct=True) * 100
         logger.warning("rotation metrics empty — fallback to per-date RPS")
 
+    if getattr(args, "date", "") or getattr(args, "target_date", ""):
+        indicators_df = indicators_df[pd.to_datetime(indicators_df["date"]) == trade_date].copy()
+
     # 标记 rps60 验收门控状态
     rps60_nunique = indicators_df["rps60"].nunique(dropna=True) if "rps60" in indicators_df.columns else 0
     if rps60_nunique <= 10:
@@ -1495,6 +1509,7 @@ def cmd_calculate(args: argparse.Namespace) -> None:
     # 保存日指标
     daily_dir.mkdir(parents=True, exist_ok=True)
     indicators_df.to_parquet(daily_dir / "daily_indicators.parquet", index=False)
+    indicators_df.to_parquet(daily_dir / f"daily_indicators_{trade_date:%Y%m%d}.parquet", index=False)
 
     logger.info("calculate complete: %d ETFs", len(indicators_df))
 
@@ -2141,9 +2156,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_screen.add_argument("--log-level", default="INFO")
 
     p_watchlist = sub.add_parser("watchlist", help="生成趋势关注池（trend_watchlist）")
+    p_watchlist.add_argument("--date", default="", help="目标交易日，精确消费同日分区")
     p_watchlist.add_argument("--log-level", default="INFO")
 
     p_account = sub.add_parser("account", help="映射 trend_watchlist 至国金账户可交易池")
+    p_account.add_argument("--date", default="", help="目标交易日，精确消费同日分区")
     p_account.add_argument("--log-level", default="INFO")
 
     p_acct_bl = sub.add_parser("account-blacklist", help="维护国金不可交易黑名单（add/remove/list）")
@@ -2154,9 +2171,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_acct_bl.add_argument("--log-level", default="INFO")
 
     p_card = sub.add_parser("card", help="生成 ETF 候选信息卡片")
+    p_card.add_argument("--date", default="", help="目标交易日，精确消费同日分区")
     p_card.add_argument("--log-level", default="INFO")
 
     p_pipeline = sub.add_parser("pipeline", help="完整发现链路：watchlist → account → card → JSON+CSV+HTML")
+    p_pipeline.add_argument("--date", default="", help="目标交易日，精确消费同日分区")
     p_pipeline.add_argument("--log-level", default="INFO")
 
     p_three_lane = sub.add_parser("three-lane", help="三 Lane 合成表（watchlist × v1_signal_daily × trend_transition_state）并重渲染 ETF 报告")

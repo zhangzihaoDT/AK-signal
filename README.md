@@ -15,6 +15,20 @@
 - **顶层 Action 只回答方向**：BUY / OBSERVE / WAIT + Bucket + Theme；ETF / 股票 / 观察池全部落在下层 `buckets[].themes[]`
 - **Future Themes（Not Enabled）**：Resource Cycle / High-end Equipment / Aerospace / Shipping 等仅是未启用，可在 `theme_registry.yaml` 重新打开
 
+## 每日业务批次
+
+```bash
+make run-day                    # 启动时固定最近完整交易日，全链使用同日数据
+make run-day RUN_DATE=20261012  # 明确分析的交易日
+make run-day-offline RUN_DATE=20261012  # 全链只读缓存，不联网补数
+```
+
+核心股票或沪深300基准未更新到目标日时，列出缺口并停止主题确认，避免新旧数据混用。
+ETF 缺口从当日发布范围排除，并在最终校验警告中列出。个股行情按市场＋代码复用，
+跨主题身份保留；行情源连续异常三次后熔断。本批次审计见
+`outputs/stock_metrics/stock_update_audit_{date}.json`，最终结果见
+`outputs/run_day/final_check_{date}.json`。
+
 ## 项目架构
 
 ```text
@@ -66,7 +80,7 @@ pip install -r requirements.txt
 把 Layer ①（ETF 轮动）与 Layer ②（主题确认）的结论，压缩成「这个已确认主题用哪只 ETF、哪类股票交易」。核心是**执行对象压缩层**，不是又一层强弱排名。按 bucket → theme 逐主题输出候选。
 
 - 输入：Layer① rotation + Layer② confirmation + 分层资产池 `config/selection_universe.yaml` + 主题定义 `config/theme_registry.yaml`
-- 个股趋势由 **Trend Engine**（`trend_engine`）现场计算，不读独立报告
+- 个股趋势由 Observation 阶段预计算，Selection 只读同日 stock_metrics 产物
 - 表达方式决策基于上涨结构：广泛上涨→ETF、龙头主导→龙头个股、扩散→ETF核心+龙头卫星、未确认→仅观察
 - 顶层 Action 只回答「今天投哪个方向」（BUY/OBSERVE/WAIT + Bucket + Theme）；ETF/股票/观察池落在下层
 - **核心输出是结构化候选对象 JSON**（`layer3.buckets[].themes[]`），HTML 仅为可视化
@@ -74,8 +88,8 @@ pip install -r requirements.txt
 ### 运行
 
 ```bash
-make select                # 构建交易候选（在线）
-make select-offline        # 仅缓存行情
+make select                # 离线消费已落盘事实，构建交易候选
+make select-offline        # 离线消费（保留兼容入口）
 python src/main.py select run
 python src/main.py select universe   # 查看分层资产池
 ```

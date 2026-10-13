@@ -27,6 +27,7 @@ import pandas as pd
 from src.common import warnings as run_warnings
 from src.common.paths import (
     etf_signal_daily_dir, sw_industry_confirmation_dir, outputs_dir,
+    etf_signal_raw_dir, stock_metrics_dir,
 )
 
 
@@ -250,6 +251,8 @@ def cmd_run_day_check(args: argparse.Namespace) -> int:
     ).exists()
 
     warns = run_warnings.load_warnings(trade_date)
+    quality_warnings = data_quality_warnings(trade_date)
+    warns.extend(quality_warnings)
     lane1_lag_days = _three_lane_lane1_lag_days(trade_date)
     result = evaluate(
         trade_date=trade_date,
@@ -264,6 +267,10 @@ def cmd_run_day_check(args: argparse.Namespace) -> int:
         transition_state_exists=transition_state_exists,
         lane1_lag_days=lane1_lag_days,
     )
+    result["data_complete"] = not quality_warnings
+    result_path = outputs_dir() / "run_day" / f"final_check_{trade_date}.json"
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
 
     if result["ok"]:
         print("Run completed successfully")
@@ -272,6 +279,7 @@ def cmd_run_day_check(args: argparse.Namespace) -> int:
     print(f"trade_date : {_fmt_date(result['trade_date'])}")
     print(f"status     : {result['status']}")
     print(f"action     : {result['action']}")
+    print("data_check : " + ("完整" if result["data_complete"] else "有缺口或缺少完整性证据"))
     if result["errors"]:
         print("errors     : " + "; ".join(result["errors"]))
     if result["warnings"]:
@@ -285,6 +293,42 @@ def cmd_run_day_check(args: argparse.Namespace) -> int:
         logger.error("error: %s", e)
 
     return 0 if result["ok"] else 1
+
+
+def data_quality_warnings(trade_date: str) -> list[dict[str, Any]]:
+    """Read target-date acquisition evidence; never report a missing audit as complete."""
+    out: list[dict[str, Any]] = []
+    etf_path = etf_signal_raw_dir().parent / "diagnostics" / f"source_audit_{trade_date}.json"
+    if etf_path.exists():
+        audit = json.loads(etf_path.read_text(encoding="utf-8"))
+        codes = audit.get("failed_codes") or []
+        if codes:
+            out.append({"category": "etf_data", "message":
+                        f"ETF 未更新到 {trade_date}：{'、'.join(codes)}（{len(codes)} 只）"})
+    else:
+        out.append({"category": "etf_data", "message": f"ETF 抓取审计缺失：{trade_date}，完整性未知"})
+    path = stock_metrics_dir() / f"stock_metrics_{trade_date}.parquet"
+    audit_path = path.with_name(f"stock_update_audit_{trade_date}.json")
+    if audit_path.exists():
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        benchmark_date = audit.get("benchmark_trade_date")
+        if not benchmark_date or pd.Timestamp(benchmark_date) != pd.Timestamp(trade_date):
+            out.append({"category": "benchmark_data", "message":
+                        f"沪深300基准未更新到 {trade_date}（行情日={benchmark_date or '无'}）"})
+    if path.exists():
+        df = pd.read_parquet(path)
+        if not df.empty and {"source_trade_date", "data_status", "market", "symbol", "name"}.issubset(df):
+            bad = df[(pd.to_datetime(df["source_trade_date"]) != pd.Timestamp(trade_date))
+                     | (df["data_status"] != "current")].drop_duplicates(["market", "symbol"])
+            for _, r in bad.iterrows():
+                out.append({"category": "stock_data", "message":
+                            f"股票未更新到 {trade_date}：{r['market']} {r['symbol']} {r['name']} "
+                            f"（{r['data_status']}，行情日={r['source_trade_date']}）"})
+        else:
+            out.append({"category": "stock_data", "message": "个股指标无日期证据或为空，完整性未知"})
+    else:
+        out.append({"category": "stock_data", "message": f"个股指标缺失：{trade_date}"})
+    return out
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

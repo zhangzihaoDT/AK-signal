@@ -58,6 +58,10 @@ def fetch_constituent_list(
     max_retries: int = 3,
     base_delay: float = 5.0,
 ) -> pd.DataFrame:
+    import os
+    if os.environ.get("AKSIGNAL_OFFLINE") == "1":
+        logging.getLogger(__name__).warning("offline: missing constituent cache for %s", industry_code)
+        return pd.DataFrame()
     url = _LEGULEGU_URL.format(code=industry_code)
     for attempt in range(1, max_retries + 1):
         try:

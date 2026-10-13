@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Sequence
@@ -154,7 +155,7 @@ def _normalize_row(
 
     if source == "failed" or src_date is None:
         data_status = "missing"
-    elif src_date < trade_date:
+    elif src_date != trade_date:
         data_status = "stale"
     else:
         data_status = "current"
@@ -243,6 +244,27 @@ def build_stock_metrics(
         path = stock_metrics_path(trade_date)
         path.parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(path, index=False)
+        incomplete = df[df["data_status"] != "current"].drop_duplicates(["market", "symbol"])
+        audit = {
+            "trade_date": trade_date,
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "complete": incomplete.empty,
+            "not_updated": [
+                {"market": r["market"], "symbol": r["symbol"], "name": r["name"],
+                 "data_status": r["data_status"],
+                 "source_trade_date": _to_date_str(r["source_trade_date"])}
+                for _, r in incomplete.iterrows()
+            ],
+            **trend_df.attrs.get("source_audit", {}),
+        }
+        benchmark_date = audit.get("benchmark_trade_date")
+        audit["complete"] = bool(incomplete.empty and benchmark_date
+                                 and pd.Timestamp(benchmark_date) == pd.Timestamp(trade_date))
+        path.with_name(f"stock_update_audit_{trade_date}.json").write_text(
+            json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8")
+        for r in audit["not_updated"]:
+            lgr.warning("股票未更新到 %s：%s %s %s（%s，行情日=%s）", trade_date,
+                        r["market"], r["symbol"], r["name"], r["data_status"], r["source_trade_date"] or "无")
     elapsed = (datetime.now() - t0).total_seconds()
 
     counts = df["data_status"].value_counts().to_dict() if not df.empty else {}

@@ -118,10 +118,10 @@ class AKShareProvider(DataProvider):
     def _call_ak(fn: Any, **kwargs: Any) -> Any:
         try:
             sig = inspect.signature(fn)
-            filtered = {k: v for k, v in kwargs.items() if k in sig.parameters}
-            return fn(**filtered)
-        except Exception:
+        except (TypeError, ValueError):
             return fn(**kwargs)
+        filtered = {k: v for k, v in kwargs.items() if k in sig.parameters}
+        return fn(**filtered)
 
     @staticmethod
     def _cn_symbol_with_exchange(symbol: str) -> str:

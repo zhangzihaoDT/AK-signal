@@ -60,6 +60,7 @@ def validate_indicators(metrics: pd.DataFrame) -> list[str]:
 def detect_risks(
     fund_code: str,
     raw_dir: Path,
+    as_of_date: str = "",
 ) -> list[str]:
     """从原始日行情检测极端值和异常。"""
     flags: list[str] = []
@@ -69,6 +70,8 @@ def detect_risks(
 
     try:
         df = pd.read_parquet(path)
+        if as_of_date:
+            df = df[pd.to_datetime(df["date"]) <= pd.Timestamp(as_of_date)].copy()
         if df.empty or "close" not in df.columns or "amount" not in df.columns:
             return flags
 

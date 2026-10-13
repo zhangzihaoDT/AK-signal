@@ -43,6 +43,7 @@ def load_or_fetch_hs300(
     logger: logging.Logger,
     force: bool = False,
     offline: bool = False,
+    target_date: str = "",
 ) -> pd.DataFrame:
     raw_dir.mkdir(parents=True, exist_ok=True)
     raw_path = raw_dir / "_benchmark_sh000300.csv"
@@ -50,14 +51,14 @@ def load_or_fetch_hs300(
     if raw_path.exists() and not force:
         try:
             df = pd.read_csv(raw_path, parse_dates=["date"])
-            if not df.empty:
+            if not df.empty and (not target_date or (df["date"] == pd.Timestamp(target_date)).any()):
                 return df.sort_values("date").reset_index(drop=True)
         except Exception as e:
             logger.warning("failed reading cached raw %s: %s", raw_path, e)
 
     if offline:
         # 离线模式：无基准缓存时不联网获取，relative_strength_20d 记为缺失
-        logger.warning("offline: no cached hs300 benchmark, skipping fetch")
+        logger.warning("offline: no target-date hs300 benchmark, skipping fetch")
         return pd.DataFrame()
 
     try:

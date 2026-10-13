@@ -20,6 +20,7 @@ from typing import Any, Sequence
 import pandas as pd
 
 from src.common.asset_state import tech_diag_to_json
+from src.common.source_session import SourceSession
 from src.common.paths import (
     raw_dir as common_raw_dir,
     processed_dir as common_processed_dir,
@@ -230,9 +231,25 @@ def decide_refresh_mode(
     refresh_all: bool,
     refresh_missing: bool,
     offline: bool,
+    target_date: date | None = None,
 ) -> tuple[str, str | None, str | None]:
     has_cache = raw_path.exists()
     last_cache = cached_last_date(raw_path)
+
+    if target_date is not None and not offline and not refresh_all and has_cache:
+        try:
+            cached = _load_cached_raw(raw_path)
+        except (OSError, ValueError, KeyError):
+            return ("online_full", None, None)
+        exact = cached[pd.to_datetime(cached["date"]).dt.date == target_date]
+        if not exact.empty and exact[["open", "high", "low", "close", "volume"]].notna().all(axis=None):
+            return ("cache", None, None)
+        # max(date) may be a future/intraday bar while the target itself is absent.
+        prior = cached[pd.to_datetime(cached["date"]).dt.date < target_date]
+        if asset.market == "CN" and not prior.empty:
+            last_prior = pd.to_datetime(prior["date"]).max().date()
+            return ("online_incremental", f"{last_prior + timedelta(days=1):%Y%m%d}", f"{target_date:%Y%m%d}")
+        return ("online_full", None, None)
 
     if offline:
         return ("cache" if has_cache else "failed", None, None)
@@ -319,6 +336,7 @@ def load_or_fetch_daily(
     start_date: str | None = None,
     end_date: str | None = None,
     merge_with_cache: bool = False,
+    session: SourceSession | None = None,
 ) -> tuple[pd.DataFrame, str]:
     raw_dir.mkdir(parents=True, exist_ok=True)
     cache_path = _raw_cache_path(raw_dir, asset)
@@ -360,12 +378,15 @@ def load_or_fetch_daily(
         eff_retry_sleep_base = 1.0
 
     retries = max(1, eff_max_retries)
-    cn_sources = ["em", "sina", "tx"]
+    cn_sources = [s for s in ["em", "sina", "tx"] if session is None or session.available(s)]
+    if asset.market == "CN":
+        retries = min(retries, len(cn_sources))
+    errors: list[dict[str, str]] = []
     for i in range(1, retries + 1):
         try:
             if asset.market == "CN":
                 time.sleep(random.uniform(1.2, 2.5))
-                source = cn_sources[(i - 1) % len(cn_sources)]
+                source = cn_sources[i - 1]
             else:
                 time.sleep(random.uniform(0.1, 0.6))
                 source = None
@@ -373,6 +394,10 @@ def load_or_fetch_daily(
             df = provider.get_daily(asset, start_date=start_date, end_date=end_date, source=source)
             if df is None or df.empty:
                 raise RuntimeError("fetch returned empty")
+            if session is not None:
+                session.record(source or asset.market, True)
+                session.assets.append({"market": asset.market, "symbol": asset.symbol,
+                                       "source": source or "default", "result": "online", "errors": errors})
             logger.info("fetch online success: %s (source=%s)", asset_key, source or "default")
             if merge_with_cache and cache_path.exists():
                 df_cached = _load_cached_raw(cache_path)
@@ -381,6 +406,11 @@ def load_or_fetch_daily(
             return df, "online"
         except Exception as e:
             last_err = e
+            errors.append({"source": source or "default", "error": str(e)})
+            if session is not None:
+                opened = session.record(source or asset.market, False, empty=str(e) == "fetch returned empty")
+                if opened:
+                    logger.warning("stock source circuit OPEN: %s; remaining stocks skip this source", source or asset.market)
             if not _is_retryable_error(e):
                 logger.warning("fetch failed (non-retryable), using fallback: %s (err=%s)", asset_key, e)
                 break
@@ -390,6 +420,9 @@ def load_or_fetch_daily(
                 jitter = random.uniform(0.0, 0.4 * base)
                 time.sleep(base + jitter)
 
+    if session is not None:
+        session.assets.append({"market": asset.market, "symbol": asset.symbol,
+                               "result": "cache_fallback" if cache_path.exists() else "failed", "errors": errors})
     if cache_path.exists():
         logger.warning("fetch failed, using cached raw data: %s", asset_key)
         return _load_cached_raw(cache_path), "cache"
@@ -525,6 +558,9 @@ def compute_trends(
     from datetime import datetime, timezone
     logger = build_logger(log_level)
     report_date = date.today()
+    target_date = pd.Timestamp(as_of_date).date() if as_of_date else None
+    session = SourceSession()
+    fetched: dict[tuple[str, str], tuple[pd.DataFrame, str] | Exception] = {}
 
     if only_symbols:
         raw_tokens = [t.strip() for t in only_symbols.split(",") if t.strip()]
@@ -551,11 +587,13 @@ def compute_trends(
     raw_dir = common_raw_dir()
     processed_dir = common_processed_dir()
 
-    eff_end_date = end_date or "22220101"
+    eff_end_date = as_of_date or end_date or "22220101"
     fetch_cfg = fetch_data.FetchConfig(start_date=start_date, end_date=eff_end_date, adjust=adjust)
 
     bench_raw = fetch_data.load_or_fetch_hs300(raw_dir=raw_dir, cfg=fetch_cfg, logger=logger,
-                                               force=force, offline=offline)
+                                               force=force, offline=offline, target_date=as_of_date)
+    if as_of_date and not bench_raw.empty:
+        bench_raw = bench_raw[pd.to_datetime(bench_raw["date"]) <= pd.Timestamp(as_of_date)].copy()
     bench = bench_raw[["date", "close"]].rename(columns={"close": "bench_close"}).copy() if not bench_raw.empty else pd.DataFrame()
     if not bench.empty:
         bench["date"] = pd.to_datetime(bench["date"], errors="coerce").astype("datetime64[ns]")
@@ -580,11 +618,22 @@ def compute_trends(
             asset=asset, update_policy=update_policy, state_df=state_df,
             raw_path=raw_path, today=report_date,
             refresh_all=refresh_all, refresh_missing=refresh_missing, offline=offline,
+            target_date=target_date,
         )
 
         attempted_online = mode.startswith("online")
+        reused = False
         try:
-            if mode == "cache":
+            key = (asset.market, asset.symbol)
+            if key in fetched:
+                reused = True
+                attempted_online = False
+                cached_result = fetched[key]
+                if isinstance(cached_result, Exception):
+                    raise cached_result
+                df_raw, data_source = cached_result
+                df_raw = df_raw.copy()
+            elif mode == "cache":
                 if not raw_path.exists():
                     raise RuntimeError("offline/cache-only but no raw cache")
                 df_raw = _load_cached_raw(raw_path)
@@ -593,12 +642,16 @@ def compute_trends(
                 df_raw, data_source = load_or_fetch_daily(
                     asset, provider, raw_dir=raw_dir, logger=logger,
                     start_date=inc_start, end_date=inc_end, merge_with_cache=True,
+                    session=session,
                 )
             else:  # online_full
                 df_raw, data_source = load_or_fetch_daily(
                     asset, provider, raw_dir=raw_dir, logger=logger,
                     start_date=start_date, end_date=eff_end_date,
+                    session=session,
                 )
+
+            fetched.setdefault(key, (df_raw.copy(), data_source))
 
             if as_of_date:
                 # 截断到目标日期，避免使用目标日期之后的最新/盘中数据
@@ -627,11 +680,13 @@ def compute_trends(
             )
             rows.append(row)
         except Exception as e:
+            fetched.setdefault((asset.market, asset.symbol), e)
             logger.warning("analyze failed for %s: %s", asset.symbol, e)
-            state_df = update_asset_state(
-                state_df=state_df, asset=asset, today=report_date,
-                data_source="failed", attempted_online=attempted_online, latest_data_date=None,
-            )
+            if not reused:
+                state_df = update_asset_state(
+                    state_df=state_df, asset=asset, today=report_date,
+                    data_source="failed", attempted_online=attempted_online, latest_data_date=None,
+                )
             rows.append({
                 "name": asset.name, "symbol": asset.symbol, "market": asset.market,
                 "exchange": asset.exchange or "", "currency": asset.currency or "",
@@ -641,7 +696,7 @@ def compute_trends(
                 "relative_strength_20d": None, "risk_flags": "", "reason": str(e), "note": note,
             })
 
-        if not offline:
+        if not offline and attempted_online:
             # 在线补数才需要限速；离线读缓存无需等待
             if asset.market == "CN":
                 time.sleep(random.uniform(0.5, 1.0))
@@ -649,4 +704,9 @@ def compute_trends(
                 time.sleep(random.uniform(0.2, 0.5))
 
     save_asset_state(state_df, state_path)
-    return sort_summary_df(pd.DataFrame(rows))
+    result = sort_summary_df(pd.DataFrame(rows))
+    result.attrs["source_audit"] = {"sources": session.sources, "assets": session.assets,
+                                     "registrations": len(items), "unique_assets": len(fetched),
+                                     "benchmark_trade_date": str(pd.to_datetime(bench_raw["date"]).max().date())
+                                     if not bench_raw.empty else None}
+    return result

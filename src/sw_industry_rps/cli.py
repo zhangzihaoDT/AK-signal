@@ -574,7 +574,7 @@ def validate_raw_completeness(raw_dir: Path, target_date: str, active_codes: lis
     missing: list[str] = []
     for code in active_codes:
         df = storage.load_industry_raw(raw_dir, code)
-        if not df.empty and df["trade_date"].max() >= pd.Timestamp(target_date):
+        if not df.empty and (pd.to_datetime(df["trade_date"]) == pd.Timestamp(target_date)).any():
             covered += 1
         else:
             missing.append(code)
@@ -662,6 +662,8 @@ def cmd_calculate(args: argparse.Namespace) -> None:
             all_hist.append(df)
 
     combined = pd.concat(all_hist, ignore_index=True)
+    if explicit_date:
+        combined = combined[pd.to_datetime(combined["trade_date"]) <= pd.Timestamp(target_date)].copy()
     logger.info("computing metrics for %d rows across %d industries", len(combined), combined["industry_code"].nunique())
 
     result = metrics.compute_all_metrics(combined, windows=windows,
@@ -854,6 +856,7 @@ def cmd_report(args: argparse.Namespace) -> None:
                 constituents=const_df,
                 industry_hist=ind_hist,
                 window=5,
+                offline=os.environ.get("AKSIGNAL_OFFLINE") == "1",
             )
             if result.contribution_structure == "数据不足":
                 continue
@@ -1310,6 +1313,7 @@ def cmd_confirm(args: argparse.Namespace) -> None:
                 constituents=const_df,
                 industry_hist=ind_hist,
                 window=window,
+                offline=os.environ.get("AKSIGNAL_OFFLINE") == "1",
             )
             drilldown_results[code] = dd
             ql = dd.reconstruction_quality
@@ -1343,6 +1347,8 @@ def cmd_confirm(args: argparse.Namespace) -> None:
     data_status = _ss.classify_data_status(source_status, is_complete)
     source_label = _evidence_source_label(sources, provisional=(data_status != "confirmed"))
     final_df = final_df.copy()
+    final_df["trade_date"] = latest_date
+    final_df["run_date"] = pd.Timestamp(datetime.now().date())
     final_df["data_status"] = data_status
     final_df["source_status"] = source_status
     final_df["source"] = source_label

@@ -34,41 +34,13 @@ etf-backfill: ## [保护] 目标日缺口回填：分类 + checkpoint/resume + �
 
 # ── 每日市场扫描（唯一入口） ──────────────────────────────────────
 
-run-day: ## 每日全流程：Observation 自动联网构建（ETF/行业/个股）→ 三Lane 合成 → Decision 离线消费 → Final Validation
-	$(MAKE) etf-update
-	$(MAKE) sw-rps-update
-	$(MAKE) etf-calculate
-	$(MAKE) sw-rps-calculate
-	$(MAKE) etf-pipeline
-	$(MAKE) stock-metrics-online  # Observation 构建：个股行情先建（Tier 确认消费，不依赖手工补数）
-	$(MAKE) sw-rps-confirm     # 落 confirmation + tier_confirmation parquet（第三问消费）
-	$(MAKE) sw-rps-report      # 再生成报告（消费 confirmation + tier + structure）
-	$(MAKE) etf-bottom-scan        # [Lane2] 全市场底部扫描（Application，只读 raw 缓存，不联网）
-	$(MAKE) etf-refresh-v1         # [Lane2] 轻量刷新 v1_signal_daily（Lane 3 状态机输入，全历史重算）
-	$(MAKE) trend-transition-state # [Lane3] 状态分类 Application（读冻结 YAML，自动取最新 trade_date）
-	$(MAKE) three-lane             # 三 Lane 合成表 + 重渲染 ETF 报告（④ 三 Lane 路径视图）
-	$(MAKE) select                 # Decision 消费：离线、确定性（消费当日三 Lane）
-	$(MAKE) opportunity-radar      # [Observation] Theme 外机会 Radar（消费 three_lane Lane2/Lane3 事实，不联网）
-	$(MAKE) run-day-summary        # [Summary] 当日结论汇总（Layer③ 推荐 + Radar 机会 + 宽基，只读消费）
-	$(MAKE) run-day-check
+# RUN_DATE=YYYYMMDD pins the entire batch; otherwise resolved once at startup.
+RUN_DATE ?=
+run-day: ## 每日全链：固定交易日 → Observation → Decision → 数据完整性验收
+	$(PYTHON) -m src.daily_run $(if $(RUN_DATE),--date $(RUN_DATE),)
 
-run-day-offline: ## 离线重放/CI：只读已落盘 Observation，不联网抓取（严格重放请用 research replay）
-	$(MAKE) etf-update
-	$(MAKE) sw-rps-update
-	$(MAKE) etf-calculate
-	$(MAKE) sw-rps-calculate
-	$(MAKE) etf-pipeline
-	$(MAKE) stock-metrics          # 离线：仅用缓存，缺失/过期由 stale 降级兜底
-	$(MAKE) sw-rps-confirm     # 落 confirmation + tier_confirmation parquet（第三问消费）
-	$(MAKE) sw-rps-report      # 再生成报告（消费 confirmation + tier + structure）
-	$(MAKE) etf-bottom-scan
-	$(MAKE) etf-refresh-v1
-	$(MAKE) trend-transition-state
-	$(MAKE) three-lane
-	$(MAKE) select
-	$(MAKE) opportunity-radar      # [Observation] Theme 外机会 Radar（消费 three_lane，不联网）
-	$(MAKE) run-day-summary        # [Summary] 当日结论汇总（Layer③ 推荐 + Radar 机会 + 宽基，只读消费）
-	$(MAKE) run-day-check
+run-day-offline: ## 同日离线批次：仅缓存，不联网；核心股票未对齐时停止确认
+	$(PYTHON) -m src.daily_run --offline $(if $(RUN_DATE),--date $(RUN_DATE),)
 
 run-day-check: ## [Final Validation] 校验 run-day 各层产物并输出最终结果
 	$(PYTHON) $(SRC_MAIN) final-check
