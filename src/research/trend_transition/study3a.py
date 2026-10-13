@@ -38,10 +38,12 @@ from .structural_break import structural_break_report
 from .survival import kaplan_meier, survival_curve
 from .trajectory import extract_trajectories
 
+from src.common.paths import outputs_dir
+
 logger = logging.getLogger(__name__)
 
 V1_PATH = (
-    Path("outputs/research/etf_bottom/backtest_v1/v1_signal_daily.parquet")
+    outputs_dir() / "research" / "etf_bottom" / "backtest_v1" / "v1_signal_daily.parquet"
 )
 
 _RAW_EXCLUDE = ("money", "bond", "commodity")

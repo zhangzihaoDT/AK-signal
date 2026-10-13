@@ -65,14 +65,17 @@ def test_final_check_reports_etf_and_named_stock_holes(tmp_path, monkeypatch):
     assert any('002050 三花智控' in s for s in messages)
 
 
-def test_failed_stage_never_reaches_confirmation(monkeypatch):
+def test_failed_stage_never_reaches_confirmation(monkeypatch, tmp_path):
     commands = []
     monkeypatch.setattr('sys.argv', ['daily_run', '--date', '20261012'])
     monkeypatch.setattr(daily_run, 'check_step', lambda c, td: None)
-    def run(cmd, **kwargs):
+    monkeypatch.setattr(daily_run, 'project_root', lambda: tmp_path)
+    monkeypatch.setattr(daily_run, 'step_artifacts', lambda c, td: [])
+    monkeypatch.setattr(daily_run, 'check_generated_reports', lambda *a: None)
+    def run(cmd, *args):
         commands.append(cmd)
-        return SimpleNamespace(returncode=1 if 'stock-metrics' in cmd else 0)
-    monkeypatch.setattr(daily_run.subprocess, 'run', run)
+        return 1 if 'stock-metrics' in cmd else 0
+    monkeypatch.setattr(daily_run, 'run_step', run)
     with pytest.raises(SystemExit) as error:
         daily_run.main()
     assert error.value.code == 1

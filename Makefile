@@ -36,11 +36,17 @@ etf-backfill: ## [保护] 目标日缺口回填：分类 + checkpoint/resume + �
 
 # RUN_DATE=YYYYMMDD pins the entire batch; otherwise resolved once at startup.
 RUN_DATE ?=
+RUN_FLAGS ?=
 run-day: ## 每日全链：固定交易日 → Observation → Decision → 数据完整性验收
-	$(PYTHON) -m src.daily_run $(if $(RUN_DATE),--date $(RUN_DATE),)
+	$(PYTHON) -m src.daily_run $(if $(RUN_DATE),--date $(RUN_DATE),) $(RUN_FLAGS)
 
 run-day-offline: ## 同日离线批次：仅缓存，不联网；核心股票未对齐时停止确认
-	$(PYTHON) -m src.daily_run --offline $(if $(RUN_DATE),--date $(RUN_DATE),)
+	$(PYTHON) -m src.daily_run --offline $(if $(RUN_DATE),--date $(RUN_DATE),) $(RUN_FLAGS)
+
+run-day-status: ## 查看当前业务阶段、失败原因与恢复进度
+	$(PYTHON) -m src.daily_run --status $(if $(RUN_DATE),--date $(RUN_DATE),) $(RUN_FLAGS)
+
+.PHONY: run-day-status
 
 run-day-check: ## [Final Validation] 校验 run-day 各层产物并输出最终结果
 	$(PYTHON) $(SRC_MAIN) final-check

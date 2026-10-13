@@ -45,9 +45,11 @@ from .state_metrics import (
     compute_transition_flow,
 )
 
+from src.common.paths import outputs_dir
+
 logger = logging.getLogger(__name__)
 
-V1_PATH = Path("outputs/research/etf_bottom/backtest_v1/v1_signal_daily.parquet")
+V1_PATH = outputs_dir() / "research" / "etf_bottom" / "backtest_v1" / "v1_signal_daily.parquet"
 WATCHLIST_GLOB = "data/etf_signal/signals/watchlist_{date}.parquet"
 SPEC_PATH = Path("config/research/trend_transition_state_v1.yaml")
 SPEC_ID = "TREND_TRANSITION_STATE_V1"

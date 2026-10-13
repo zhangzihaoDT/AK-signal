@@ -9,3 +9,6 @@ __pycache__/
 
 data/
 outputs/
+outputs
+.outputs-*
+.run_day/

@@ -53,6 +53,20 @@
 
 ## 2. 每日 run-day 产物（`make run-day` 顺序）
 
+**业务批次恢复与统一发布（2026-10-13）**：`src/daily_run.py` 编排，
+`src/common/batch_release.py` 持久化检查点、独占锁与发布指针。检查点按 trade_date ×
+online/offline 隔离，记录每步状态、尝试次数、日志、耗时及事实产物 SHA256；同命令重跑
+默认从失败/中断处恢复，事实缺失/变化时回退至最早受影响步骤，代码/配置变化须 --restart。
+`make run-day-status` 读取业务阶段；子进程详细输出进私有日志，终端每15秒显示阶段耗时。
+
+产物先落 `.run_day/runs/{date}/{run_id}/outputs/`，由 `AKSIGNAL_OUTPUTS_DIR` 向各子进程
+透传；生命周期模块的 V1 读取也遵循该目录。报告必须由本轮步骤实际生成，不能沿用种子
+旧 HTML 冒充成功。Final Validation + 报告集合 + Summary missing 校验通过后，切换
+`outputs` 目录符号链接统一发布（首次原目录迁至 `.run_day/legacy/`，切换异常时恢复）；
+既有报告路径与 latest 规则保持。发布回执为 `outputs/run_day/publication.json`。
+原始行情和 data/事实缓存共享，日报/outputs 产物隔离；不改变 Observation/Decision 算法。
+
+
 **2026-10-13 日期/完整性加固**：`make run-day [RUN_DATE=YYYYMMDD]` 由
 `src/daily_run.py` 在批次开始固定目标日，全阶段透传。ETF 发布只含目标日行情对象，
 指标同时归档 `daily_indicators_{date}.parquet`；目标日缺失禁止回退。底部扫描在批次中也排除缺目标日行情对象。批次的 Lane 1

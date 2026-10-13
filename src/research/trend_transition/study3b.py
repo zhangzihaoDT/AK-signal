@@ -48,9 +48,11 @@ from .study3b_validation import (
     select_score_features,
 )
 
+from src.common.paths import outputs_dir
+
 logger = logging.getLogger(__name__)
 
-V1_PATH = Path("outputs/research/etf_bottom/backtest_v1/v1_signal_daily.parquet")
+V1_PATH = outputs_dir() / "research" / "etf_bottom" / "backtest_v1" / "v1_signal_daily.parquet"
 _RAW_EXCLUDE = ("money", "bond", "commodity")
 
 

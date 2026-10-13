@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 
 
 _ROOT: Path | None = None
@@ -74,6 +75,9 @@ def asset_state_path() -> Path:
 
 
 def outputs_dir() -> Path:
+    staged = os.environ.get("AKSIGNAL_OUTPUTS_DIR")
+    if staged:
+        return Path(staged)
     return project_root() / "outputs"
 
 
