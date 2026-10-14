@@ -1,5 +1,7 @@
 # AKsignal Daily → mashang-hub：现状审计与最小方案
 
+> Historical audit / initial proposal. Its Service Scheduler external-hook design has been superseded by the AKsignal-owned LaunchAgent in [DAILY_SCHEDULER.md](DAILY_SCHEDULER.md).
+
 审计日期：2026-10-14（Asia/Shanghai）。本轮只读审计、既有离线单元测试；未修改业务代码、生产配置、Scheduler、Worker 或部署，未请求在线行情。
 
 ## 实际基线

@@ -3,7 +3,7 @@ SRC_MAIN = src/main.py
 
 .DEFAULT_GOAL = help
 
-.PHONY: help run-day run-day-offline run-day-check \
+.PHONY: help run-day run-day-offline run-day-check daily-scheduler-install daily-scheduler-start daily-scheduler-stop daily-scheduler-restart daily-scheduler-status daily-scheduler-uninstall \
 	etf-bootstrap etf-bootstrap-core etf-update etf-calculate \
 	etf-classify etf-layer1 etf-watchlist etf-account etf-account-blacklist etf-card etf-pipeline \
 	etf-refresh-v1 three-lane opportunity-radar run-day-summary \
@@ -47,6 +47,24 @@ run-day-status: ## 查看当前业务阶段、失败原因与恢复进度
 	$(PYTHON) -m src.daily_run --status $(if $(RUN_DATE),--date $(RUN_DATE),) $(RUN_FLAGS)
 
 .PHONY: run-day-status
+
+daily-scheduler-install: ## 安装并启动 AKsignal 独立 macOS 08:30 Scheduler LaunchAgent
+	$(PYTHON) -m src.daily_scheduler install
+
+daily-scheduler-start: ## 启动 AKsignal Scheduler LaunchAgent
+	$(PYTHON) -m src.daily_scheduler start
+
+daily-scheduler-stop: ## 暂停 AKsignal Scheduler（不终止已启动的 Daily Run）
+	$(PYTHON) -m src.daily_scheduler stop
+
+daily-scheduler-restart: ## 重启 AKsignal Scheduler（不重跑 Daily Run）
+	$(PYTHON) -m src.daily_scheduler restart
+
+daily-scheduler-status: ## 查看 AKsignal Scheduler LaunchAgent 状态
+	$(PYTHON) -m src.daily_scheduler status
+
+daily-scheduler-uninstall: ## 卸载 AKsignal Scheduler LaunchAgent
+	$(PYTHON) -m src.daily_scheduler uninstall
 
 run-day-check: ## [Final Validation] 校验 run-day 各层产物并输出最终结果
 	$(PYTHON) $(SRC_MAIN) observation check $(if $(RUN_DATE),--date $(RUN_DATE),)

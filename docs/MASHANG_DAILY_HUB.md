@@ -1,22 +1,24 @@
 # AKsignal 独立 Hub 业务入口：初版交付
 
-范围：手动补跑、只读状态、HTML/Markdown 正式日报附件。不是原 P1/P2 全部能力验收；Resume、维护 Restart、浏览器日志、组合与策略功能未纳入。生产 Hub/Worker 尚未更新，本轮只在本地隔离环境验证。
+范围：手动运行/恢复、只读状态、HTML/Markdown 正式日报附件。本文其余内容保留首次 Hub 接入的历史验收记录；当前调度所有权和自动/人工控制边界以 [AKsignal Daily Scheduler](DAILY_SCHEDULER.md) 为准。
+
+2026-10-14 更新：Sealos Hub 已切换到 `0.3.2-def2a95`，本地 Worker 已重载并连回。后续 AKsignal 独立 LaunchAgent 与 Service/Run Control 分离已在本代码树实现，但尚未随该镜像上线，也未安装本机 Agent。源码改造、Hub/Worker 发布和 LaunchAgent 显式安装是三个独立步骤；未安装 Agent 时，08:30 自动调度未启用。
 
 ## 领域与职责
 
-业务入口按领域划分，运行基础设施统一复用。AKsignal 是与 Service、Fetch、Knbase、Publish 同级的第五个业务区域。复用 Service Scheduler 只构成技术依赖，不构成业务归属。
+业务入口按领域划分，运行基础设施统一复用。AKsignal 是与 Service、Fetch、Knbase、Publish 同级的第五个业务区域。AKsignal Scheduler 独立于 Service Scheduler；底层 Daily Run 锁、checkpoint、发布门控仍由 AKsignal 统一拥有。
 
-Scheduler 继续提供共享触发；AKsignal 拥有 Market Facts、Runner、业务锁、checkpoint、等待/防重/发布门控和独立结果。Worker 拥有固定调用与安全文件读取；Hub 拥有通用状态、审批、控制和附件展示。没有新增 Scheduler、数据库、依赖或 Agent。
+Service Scheduler 只管理 Service 域定时任务。AKsignal LaunchAgent 管自己的 08:30 计划、定时器健康和最近触发；Hub Worker 暴露 AKsignal Scheduler 启停/重启与 Daily Run 手动操作；Hub 只提供通用状态、审批、控制和附件展示。
 
 ## 接口和状态
 
-`python -m src.daily_hub` 是新增只读 JSON 接口，返回 lastRun、details 和正式附件描述，不运行 Pipeline，不写 checkpoint 或回执。
+`python -m src.daily_hub` 是只读 JSON 接口，返回 Scheduler 心跳、下次检查、可操作 trade_date、Daily 状态和正式附件描述，不运行 Pipeline，不写 checkpoint 或回执。
 
-details 包含目标交易日、当前 run_id、业务阶段、完成/总阶段、运行秒数、失败原因、重试时间、最新正式批次和 data_complete/warnings/errors；时间区采用 Asia/Shanghai。行业主源覆盖只读已发布的行业事实。失败耗时停止在 checkpoint 更新时间，不将等待时长冒充计算时长。
+details 包含计划状态、目标交易日、触发来源、当前 run_id、业务阶段、失败原因、最新正式批次和 data_complete/warnings/errors；时间区采用 Asia/Shanghai。MISSED/FAILED 是等待人工处理的状态，不显示自动重试时间。
 
-状态包括 RUNNING / WAITING / BLOCKED / PUBLISHED，未开始时 IDLE。业务状态与控制请求结果分离：`--tick` 请求结束只表示检查请求已处理，不等于发布成功。正式回执与 checkpoint 不同批次时，继续展示当前运行/失败，同时保留上一正式日报。
+Daily 状态包括 RUNNING / MISSED / FAILED / WAITING / BLOCKED / PUBLISHED，未开始时 IDLE。Scheduler 状态另行显示 RUNNING / OFFLINE / ERROR。错过 08:30 或 scheduled batch 失败后不自动重跑；`--manual-run` 才会由面板按钮触发恢复。人工请求受理不等于正式发布。
 
-Worker 注册 `aksignal-daily`，workspace=aksignal；可用 `MASHANG_AKSIGNAL_ROOT` 指定本地仓库路径，默认 Documents/github/AKsignal。Run 只调用原生 `python -m src.daily_schedule --tick`，不传 --restart、不直接执行业务子步骤。没有为 AKsignal 注册 Agent 工作空间。
+Worker 注册 AKsignal Scheduler service 与 `aksignal-daily` manual operation，workspace=aksignal；可用 `MASHANG_AKSIGNAL_ROOT` 指定本地仓库路径，默认 Documents/github/AKsignal。Worker 只调用固定的 Agent 管理入口或 `python -m src.daily_schedule --manual-run`，不直接执行业务子步骤。没有为 AKsignal 注册 Agent 工作空间。
 
 只读 Worker 快照通常每 30 秒更新，Hub 每 15 秒获取并订阅更新；“查询状态”读取当前 Worker 快照，页面显示快照时间。Worker 离线或快照过期禁用手动补跑。短控制请求独立于后台长批次，不会将控制会话结束/超时误当成后台失败；同日期互斥和防重仍由原生锁/回执负责。此入口不提供取消后台批次按钮。
 
@@ -42,9 +44,9 @@ CONFIRMED 表示来源确认，data_complete=false 仍明确展示“数据不�
 - 真正的本地 Hub + Worker + Python provider + Chrome 集成通过。隔离 fixture 在 /private/tmp/aksignal-hub-e2e-fixture，复制现有 20261013 正式发布和源码，不复制行情缓存；Python socket 禁止行情网络请求。
 - 实际点击“手动补跑”及既有审批，调用原生 --tick 后命中现有正式回执，attempts=0，无计算/重发。HTML/Markdown 预览与下载逐个验证 SHA256，data_complete=false 和全部五条 warnings 可见；没有 Agent POST 请求。桌面 1440×1050、手机 390×844 无横向溢出，完成截图视觉复核。
 
-## 正式启用待确认
+## LaunchAgent 部署边界
 
-开发分支提交后还需更新部署的 Hub 静态资源/协议代码，并让 Mac Worker 重新加载注册与 provider。生产操作会短暂影响 Hub/Worker 连接，应确认当前任务和维护时点后执行。本轮未推送、部署、重启 Worker/Scheduler、修改 LaunchAgent 或开启生产自动调度；不重新请求在线行情。
+Hub/Worker 的业务入口与独立 Scheduler 属于不同部署动作。Hub/Worker 新版本部署不自动安装或开启 `com.aksignal.daily-scheduler`；需要显式运行 `make daily-scheduler-install`，并在 AKsignal 面板确认 Scheduler 心跳。暂停/重启 Scheduler 不会终止或重跑已经启动的 Daily batch。当前 miss/failure 只允许面板人工 Run/Resume，详见 [AKsignal Daily Scheduler](DAILY_SCHEDULER.md)。
 
 ## Market Snapshot
 

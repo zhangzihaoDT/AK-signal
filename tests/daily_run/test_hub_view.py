@@ -82,3 +82,24 @@ def test_running_waiting_blocked_and_no_unpublished_attachments(tmp_path, monkey
         assert daily_hub.view(tmp_path, now)['lastRun']['status'] == 'RUNNING'
     release.atomic_json(tmp_path / '.run_day/scheduler/20261012.json', {'status': 'blocked', 'error': '签名不一致'})
     assert daily_hub.view(tmp_path, now)['lastRun']['status'] == 'BLOCKED'
+
+
+def test_missed_schedule_is_visible_and_manual_target_is_actionable(tmp_path, monkeypatch):
+    _, _, now = setup(tmp_path, monkeypatch)
+    schedule_dir = tmp_path / '.run_day/scheduler'
+    release.atomic_json(schedule_dir / 'agent_state.json', {
+        'schema_version': 1, 'pid': 123, 'status': 'running',
+        'started_at': now.isoformat(), 'last_checked_at': now.isoformat(),
+        'last_occurrence_status': 'missed', 'last_occurrence_trade_date': '20261012',
+    })
+    release.atomic_json(schedule_dir / '20261012.json', {
+        'schema_version': 2, 'trade_date': '20261012', 'status': 'missed',
+        'source': 'scheduled', 'scheduled_at': '2026-10-13T08:30:00+08:00',
+        'reason': 'MISSED_SCHEDULE', 'attempts': 0, 'history': [],
+    })
+    view = daily_hub.view(tmp_path, now)
+    assert view['lastRun']['status'] == 'MISSED'
+    assert view['details']['targetDate'] == '20261012'
+    assert view['details']['schedule']['enabled'] is True
+    assert view['details']['schedule']['manualPendingCount'] == 1
+    assert view['details']['schedule']['missedPolicy'] == 'manual_only'

@@ -58,78 +58,78 @@ def test_calendar_fail_closed(root, failure):
         if failure == 'source_missing':
             value['sources'] = []
         path.write_text(json.dumps(value))
-    result = schedule.tick(root, offline=True, at=when,
-                           launch=lambda *a: pytest.fail('spawn despite invalid calendar'))
+    result = schedule.scheduled_poll(root, at=when,
+                                     launch=lambda *a: pytest.fail('spawn despite invalid calendar'))
     assert result['reason'] == 'CALENDAR_UNAVAILABLE'
 
 
-def test_nonblocking_persistent_trigger_survives_scheduler_restart(root):
+def test_scheduled_run_launches_only_during_0830_minute(root):
     calls = []
-    def launch(*args):
-        calls.append(args)
-        return 12345
-    result = schedule.tick(root, offline=True, at=at('2026-10-14T11:00'), launch=launch)
-    assert result['status'] == 'running'
-    assert result['attempts'] == 1
+    launch = lambda *args: calls.append(args) or 12345
+    result = schedule.scheduled_poll(root, at=at('2026-10-14T08:30'), launch=launch)
+    assert result['occurrences'][0]['status'] == 'running'
     assert calls[0][1:3] == ('20261013', True)
-    # A new tick invocation reads disk; it has no in-memory scheduler state.
-    for mode in (False, True):
-        result = schedule.tick(root, offline=mode, at=at('2026-10-14T12:00'), launch=launch, alive=lambda p: True)
-        assert result['reason'] == 'PROCESS_RUNNING'
-    assert len(calls) == 1
-    assert json.loads((root / '.run_day/scheduler/20261013.json').read_text())['attempts'] == 1
+    assert schedule.scheduled_poll(root, at=at('2026-10-14T08:31'), launch=launch,
+                                   alive=lambda _pid: True)['occurrences'][0]['reason'] == 'PROCESS_RUNNING'
+    record = json.loads((root / '.run_day/scheduler/20261013.json').read_text())
+    assert record['attempts'] == 1 and record['source'] == 'scheduled'
 
 
-def test_latest_only_catchup_no_historical_loop(root):
+def test_missed_schedule_waits_for_manual_button(root):
     calls = []
-    schedule.tick(root, offline=True, at=at('2026-10-19T13:00'),
-                  launch=lambda *a: calls.append(a) or 11)
-    assert [c[1] for c in calls] == ['20261016']
+    launch = lambda *args: calls.append(args) or 99
+    missed = schedule.scheduled_poll(root, at=at('2026-10-14T08:31'), launch=launch)
+    assert missed['occurrences'][0]['status'] == 'missed'
+    assert not calls
+    assert schedule.scheduled_poll(root, at=at('2026-10-14T09:00'), launch=launch)['occurrences'][0]['status'] == 'missed'
+    resumed = schedule.manual_run(root, at=at('2026-10-14T09:01'), launch=launch)
+    assert resumed['status'] == 'running' and resumed['source'] == 'manual'
+    assert calls[0][1:3] == ('20261013', False)
 
 
-def test_native_business_and_trigger_lock_no_attempt_consumed(root):
-    with release.batch_lock(root):
-        result = schedule.tick(root, offline=True, at=at('2026-10-14T08:30'),
-                               launch=lambda *a: pytest.fail('manual run overlapped'))
-        assert result['reason'] == 'BUSINESS_LOCK'
-        assert result['attempts'] == 0
-    with schedule.trigger_lock(root):
-        assert schedule.tick(root, offline=True)['reason'] == 'TRIGGER_LOCK'
-
-
-def test_wait_backoff_and_retry_cap_across_modes(root):
+def test_scheduler_restart_marks_each_elapsed_date_missed_without_running(root):
     calls = []
-    launch = lambda *a: calls.append(a) or 12
-    def tick(instant, offline=True):
-        return schedule.tick(root, offline=offline, at=at(instant), launch=launch, alive=lambda p: False)
-    tick('2026-10-14T08:30')
-    assert tick('2026-10-14T08:31')['status'] == 'waiting'
-    tick('2026-10-14T09:00')
+    launch = lambda *args: calls.append(args) or 9
+    schedule.scheduled_poll(root, at=at('2026-10-14T08:00'), launch=launch)
+    result = schedule.scheduled_poll(root, at=at('2026-10-16T08:31'), launch=launch)
+    records = [json.loads((root / '.run_day/scheduler' / f'{day}.json').read_text())
+               for day in ('20261013', '20261014', '20261015')]
+    assert [r['status'] for r in records] == ['missed', 'missed', 'missed']
+    assert result['occurrences'][-1]['status'] == 'missed'
+    assert calls == []
+
+
+def test_failed_scheduled_attempt_is_not_retried_until_manual_run(root):
+    calls = []
+    launch = lambda *args: calls.append(args) or 12
+    schedule.scheduled_poll(root, at=at('2026-10-14T08:30'), launch=launch)
+    failed = schedule.scheduled_poll(root, at=at('2026-10-14T08:31'), launch=launch,
+                                     alive=lambda _pid: False)
+    assert failed['occurrences'][0]['status'] == 'failed'
     assert len(calls) == 1
-    assert tick('2026-10-14T09:01', False)['attempts'] == 2
-    assert tick('2026-10-14T09:02')['status'] == 'waiting'
-    tick('2026-10-14T10:31')
+    schedule.scheduled_poll(root, at=at('2026-10-14T09:00'), launch=launch)
+    assert len(calls) == 1
+    assert schedule.manual_run(root, at=at('2026-10-14T09:01'), launch=launch)['status'] == 'running'
     assert len(calls) == 2
-    assert tick('2026-10-14T10:32')['attempts'] == 3
-    tick('2026-10-14T10:33')
-    assert tick('2026-10-14T10:34')['status'] == 'exhausted'
-    tick('2026-10-15T08:29')
-    assert len(calls) == 3  # No reset at midnight/weekend or mode change.
-    assert tick('2026-10-15T08:30')['attempts'] == 1  # New target has its own budget.
 
 
-def test_spawn_failure_and_crash_before_pid_persist(root):
-    def fail(*args):
-        raise OSError('spawn error')
-    result = schedule.tick(root, offline=True, at=at('2026-10-14T08:30'), launch=fail)
-    assert result['status'] == 'waiting'
-    assert result['attempts'] == 1
-    path = root / '.run_day/scheduler/20261013.json'
-    record = json.loads(path.read_text())
-    record.update(status='starting', pid=None)
-    path.write_text(json.dumps(record))
-    assert schedule.tick(root, offline=True, at=at('2026-10-14T08:31'),
-                         launch=lambda *a: pytest.fail('uncertain launch immediately repeated'))['status'] == 'waiting'
+def test_spawn_failure_is_failed_and_not_automatically_retried(root):
+    result = schedule.scheduled_poll(root, at=at('2026-10-14T08:30'),
+                                     launch=lambda *_: (_ for _ in ()).throw(OSError('spawn error')))
+    assert result['occurrences'][0]['status'] == 'failed'
+    later = schedule.scheduled_poll(root, at=at('2026-10-14T08:31'),
+                                    launch=lambda *_: pytest.fail('automatic retry'))
+    assert later['occurrences'][0]['status'] == 'failed'
+
+
+def test_native_business_and_trigger_locks_do_not_spawn(root):
+    with release.batch_lock(root):
+        result = schedule.scheduled_poll(root, at=at('2026-10-14T08:30'),
+                                         launch=lambda *_: pytest.fail('overlapping run'))
+        assert result['occurrences'][0]['reason'] == 'BUSINESS_LOCK'
+    with schedule.trigger_lock(root):
+        result = schedule.scheduled_poll(root, at=at('2026-10-14T08:30'))
+        assert result['occurrences'][0]['reason'] == 'TRIGGER_LOCK'
 
 
 def test_cross_mode_dedupe_and_previous_day_archived_receipt(tmp_path, monkeypatch):
@@ -190,6 +190,36 @@ def test_spawn_uses_native_make_complete_offline_and_detaches(root, monkeypatch)
     assert schedule.spawn_batch(root, '20261013', True, root / 'trigger.log') == 123
     assert captured['argv'] == ['make', 'run-day-offline', 'RUN_DATE=20261013', 'RUN_FLAGS=--require-complete']
     assert captured['start_new_session'] is True
+    schedule.spawn_batch(root, '20261013', False, root / 'restart.log', restart=True)
+    assert captured['argv'] == ['make', 'run-day', 'RUN_DATE=20261013', 'RUN_FLAGS=--require-complete --restart']
+
+
+def test_maintenance_restart_requires_signature_mismatch(root, monkeypatch):
+    target = '20261013'
+    checkpoint = release.new_checkpoint(root, target, False, [['step']])
+    release.atomic_json(schedule.record_path(root, target), {
+        'schema_version': 2, 'trade_date': target, 'status': 'failed', 'attempts': 1,
+        'offline': False, 'source': 'scheduled', 'history': [],
+    })
+    monkeypatch.setattr(schedule.release, 'implementation_signature', lambda _root: 'new-signature')
+    calls = []
+    launch = lambda *args: calls.append(args) or 123
+    blocked = schedule.manual_run(root, at=at('2026-10-14T09:00'), launch=launch)
+    assert blocked['status'] == 'blocked' and blocked['reason'] == 'RESTART_REQUIRED'
+    assert schedule.actionable_target(root, at('2026-10-14T09:00')) == target
+    restarted = schedule.manual_run(root, at=at('2026-10-14T09:01'), restart=True, launch=launch)
+    assert restarted['status'] == 'running'
+    assert restarted['source'] == 'manual_restart'
+    assert restarted['maintenance_restart'] is True
+    assert restarted['history'][-1]['maintenance_restart'] is True
+    assert calls and calls[0][1] == target
+
+
+def test_maintenance_restart_refuses_when_signature_matches(root):
+    result = schedule.manual_run(root, at=at('2026-10-14T09:00'), restart=True,
+                                 launch=lambda *_: pytest.fail('unnecessary maintenance restart'))
+    assert result['status'] == 'blocked'
+    assert result['reason'] == 'RESTART_NOT_REQUIRED'
 
 
 def test_completed_fallback_publication_retains_warnings(tmp_path, monkeypatch):
@@ -212,17 +242,17 @@ def test_corrupt_trigger_and_checkpoint_do_not_reset_budget(root):
     path = root / '.run_day/scheduler/20261013.json'
     path.parent.mkdir(parents=True)
     path.write_text('{broken')
-    result = schedule.tick(root, offline=True, at=at('2026-10-14T08:30'),
-                           launch=lambda *a: pytest.fail('corrupt record reset'))
-    assert result['reason'] == 'TRIGGER_RECORD_INVALID'
+    result = schedule.scheduled_poll(root, at=at('2026-10-14T08:30'),
+                                     launch=lambda *a: pytest.fail('corrupt record reset'))
+    assert result['occurrences'][0]['reason'] == 'TRIGGER_RECORD_INVALID'
     assert path.read_text() == '{broken'
     path.unlink()
     path = release.checkpoint_path(root, '20261013', True)
     path.parent.mkdir(parents=True)
     path.write_text('{broken')
-    result = schedule.tick(root, offline=True, at=at('2026-10-14T08:30'),
-                           launch=lambda *a: pytest.fail('corrupt checkpoint reset'))
-    assert result['reason'] == 'CHECKPOINT_INVALID'
+    result = schedule.scheduled_poll(root, at=at('2026-10-14T08:30'),
+                                     launch=lambda *a: pytest.fail('corrupt checkpoint reset'))
+    assert result['occurrences'][0]['reason'] == 'CHECKPOINT_INVALID'
 
 
 def test_scheduler_rejects_preexisting_partial_release(root, monkeypatch):
@@ -235,9 +265,9 @@ def test_scheduler_rejects_preexisting_partial_release(root, monkeypatch):
         return value
     monkeypatch.setattr(daily_run, 'validate_release', partial)
     assert daily_run.execute_batch(root, '20261012', True) == 0
-    result = schedule.tick(root, offline=False, at=at('2026-10-13T08:30'),
-                           launch=lambda *a: pytest.fail('partial silently reissued'))
-    assert result['reason'] == 'PUBLICATION_NOT_COMPLETE'
+    result = schedule.scheduled_poll(root, at=at('2026-10-13T08:30'),
+                                     launch=lambda *a: pytest.fail('partial silently reissued'))
+    assert result['occurrences'][0]['reason'] == 'PUBLICATION_NOT_COMPLETE'
     with pytest.raises(ValueError, match='完整性门控'):
         daily_run.execute_batch(root, '20261012', False, require_complete=True)
 

@@ -93,11 +93,11 @@ etf update → industry update → etf calculate → industry calculate
 
 trade_date 为信号分区；run_date / generated_at 仅为审计时间。CONFIRMED / COMPLETE / PARTIAL 是来源与完整性状态，不是推荐状态。本产品不写新的 *_latest 报告别名。
 
-### mashang Scheduler 接入（P0，生产未启用）
+### AKsignal Daily Scheduler / Run Control
 
-`src/daily_schedule.py` 提供非阻塞检查/触发，复用原生 run-day、锁、checkpoint 与发布；使用有覆盖范围的交易所日历，按 08:30 Asia/Shanghai 补最近遗漏批次、跨在线/离线防重并有限重试。Service 的可选外部任务注册默认关闭。P0 已提供离线集成能力，未启用生产定时、Hub Runtime Manager 或成果交付。在线自动发布暂保守等待带日期主源；详见 [P0 交付与证据](MASHANG_DAILY_P0.md)。
+AKsignal 自己的 macOS LaunchAgent（`com.aksignal.daily-scheduler`）拥有 08:30 Asia/Shanghai 定时任务；Service Scheduler 只管理 Service 域任务，不再触发 AKsignal。Scheduler 在计划分钟启动离线 Daily Run；若 Mac 错过计划时点，或批次失败/退出未发布，只记录 `MISSED` / `FAILED` 并等待 AKsignal 面板手动 Run/Resume，不自动补跑、不自动重试。每个交易日继续复用原生 Runner、互斥锁、checkpoint、代码/config 签名与正式发布门控。Scheduler 进程重启与 Daily 批次恢复是独立控制。
 
-Hub 独立业务区域初版已在开发分支实现并本地验证：新增只读 `src/daily_hub.py`，供 Worker 查询 checkpoint/回执及交付正式 HTML/Markdown。业务入口按领域划分，AKsignal 与 Service 同级，运行基础设施继续复用。尚未部署生产 Hub 或重新加载生产 Worker，不代表生产功能已启用；范围与证据见 [Hub 初版交付](MASHANG_DAILY_HUB.md)。
+`src/daily_scheduler.py` 安装/管理 LaunchAgent，`src/daily_schedule.py` 分离定时检查与人工运行入口，`src/daily_hub.py` 只读提供 Scheduler 与批次状态；Hub Worker 在 AKsignal 域分别暴露 Scheduler 服务控制与 Daily Run 人工操作。首次部署仍需显式安装/启动 AKsignal LaunchAgent；源码存在或面板可见不等于生产定时已启用。字段、操作和切换步骤见 [AKsignal Daily Scheduler](DAILY_SCHEDULER.md)。
 
 ## 退出核心产品的能力
 

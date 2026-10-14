@@ -1,6 +1,8 @@
 # AKsignal Daily / mashang Scheduler — P0 离线交付
 
-生产开关保持关闭。未修改 LaunchAgent、`.env` 或生产 Scheduler 配置，未重启 Scheduler，未更新真实在线行情，未部署 Sealos。P1 Runtime Manager 和 P2 附件交付尚未实施。
+> Historical snapshot: this describes the 2026-10-13 P0 design and verification only. Its Service Scheduler external-hook architecture is superseded by [AKsignal Daily Scheduler](DAILY_SCHEDULER.md): AKsignal now owns an independent LaunchAgent; misses/failures require manual Run/Resume and are not automatically retried. Do not use this document as the current control-plane specification.
+
+At the time of this P0 snapshot, production scheduling was disabled. The independent AKsignal LaunchAgent and manual-only recovery policy are documented separately.
 
 ## 修改与复用
 

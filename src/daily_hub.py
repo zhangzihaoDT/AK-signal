@@ -1,7 +1,7 @@
 """Read-only Hub view and pinned formal-report manifest. No pipeline execution."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from pathlib import Path
 import re
@@ -23,8 +23,55 @@ def view(root: Path, at: datetime | None = None) -> dict:
     detail['timezone'] = 'Asia/Shanghai'
     target, state = None, {}
     try:
-        target, _ = default_calendar(root).scheduled_target(at)
+        calendar = default_calendar(root)
+        scheduled_target, occurrence = calendar.scheduled_target(at)
+        from src.daily_schedule import actionable_target
+        target = actionable_target(root, at)
         detail['targetDate'] = target
+        detail['scheduledTargetDate'] = scheduled_target
+        next_occurrence = occurrence if occurrence > at else occurrence + timedelta(days=1)
+        scheduler_dir = root / '.run_day/scheduler'
+        try:
+            agent = json.loads((scheduler_dir / 'agent_state.json').read_text())
+        except (OSError, ValueError, TypeError):
+            agent = {}
+        last_checked = agent.get('last_checked_at')
+        heartbeat_age = None
+        if last_checked:
+            try:
+                heartbeat_age = max(0, int((at - datetime.fromisoformat(last_checked)).total_seconds()))
+            except (TypeError, ValueError):
+                pass
+        recent = heartbeat_age is not None and heartbeat_age <= 90 and agent.get('status') == 'running'
+        heartbeat_fresh = heartbeat_age is not None and heartbeat_age <= 90
+        missed_count = 0
+        for item in scheduler_dir.glob('????????.json'):
+            if not item.stem.isdigit():
+                continue
+            try:
+                record = json.loads(item.read_text())
+                actionable = record.get('status') in ('missed', 'failed', 'waiting', 'exhausted') or (
+                    record.get('status') == 'blocked' and record.get('reason') == 'RESTART_REQUIRED')
+                if not actionable:
+                    continue
+                published = release.published_batch(root, item.stem)
+                if not published or published['result'].get('status') not in ('CONFIRMED', 'COMPLETE'):
+                    missed_count += 1
+            except (OSError, ValueError, TypeError):
+                continue
+        detail['schedule'] = {
+            'enabled': recent,
+            'agentStatus': ('RUNNING' if recent else 'BLOCKED' if heartbeat_fresh and agent.get('status') == 'blocked'
+                            else 'ERROR' if heartbeat_fresh and agent.get('status') == 'error' else 'OFFLINE'),
+            'lastCheckedAt': last_checked,
+            'heartbeatAgeSeconds': heartbeat_age,
+            'nextScheduledAt': next_occurrence.isoformat(),
+            'lastOccurrenceAt': agent.get('last_occurrence'),
+            'lastOccurrenceStatus': agent.get('last_occurrence_status'),
+            'lastOccurrenceTradeDate': agent.get('last_occurrence_trade_date'),
+            'manualPendingCount': missed_count,
+            'missedPolicy': 'manual_only',
+        }
         record_path = root / '.run_day/scheduler' / f'{target}.json'
         record = json.loads(record_path.read_text()) if record_path.exists() else {}
         states = [release.read_checkpoint(root, target, mode) for mode in (False, True)]
@@ -32,8 +79,12 @@ def view(root: Path, at: datetime | None = None) -> dict:
         status = record.get('status', '')
         if state.get('status') in ('preparing', 'running', 'publishing') and release.lock_active(root):
             result['lastRun']['status'] = 'RUNNING'
-        elif status in ('blocked', 'exhausted'):
+        elif status == 'blocked':
             result['lastRun']['status'] = 'BLOCKED'
+        elif status == 'missed':
+            result['lastRun']['status'] = 'MISSED'
+        elif status in ('failed', 'exhausted'):
+            result['lastRun']['status'] = 'FAILED'
         elif state.get('status') in ('preparing', 'running', 'publishing'):
             result['lastRun']['status'] = 'RUNNING' if release.lock_active(root) else 'WAITING'
         elif state.get('status') in ('failed', 'interrupted') or status == 'waiting':
@@ -42,8 +93,9 @@ def view(root: Path, at: datetime | None = None) -> dict:
             result['lastRun']['status'] = 'RUNNING' if release.lock_active(root) else 'WAITING'
         detail.update(runId=state.get('run_id'),
                       error=public_error(state.get('error') or
-                                         (record.get('error') if status in ('blocked', 'waiting', 'exhausted') else '') or ''),
-                      reason=record.get('reason'), retryAt=record.get('next_attempt_at'))
+                                         (record.get('error') if status in ('blocked', 'waiting', 'exhausted', 'failed', 'missed') else '') or ''),
+                      reason=record.get('reason'), triggerSource=record.get('source'),
+                      retryAt=record.get('next_attempt_at'))
         if result['lastRun']['status'] == 'WAITING' and not detail['error']:
             detail['error'] = '批次未发布，等待原生调度检查或恢复'
         start = state.get('started_at') or record.get('triggered_at')
