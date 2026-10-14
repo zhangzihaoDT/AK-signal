@@ -20,8 +20,8 @@ from src.common.paths import project_root, stock_metrics_dir, etf_signal_daily_d
 
 def resolve_date(value: str = "") -> str:
     if not value:
-        from src.etf_signal.cli import _default_target_date
-        value = _default_target_date()
+        from src.common.trading_calendar import default_calendar, shanghai_now
+        value = default_calendar(project_root()).complete_day(shanghai_now())
     return pd.Timestamp(value).strftime("%Y%m%d")
 
 
@@ -229,7 +229,22 @@ def show_status(root: Path, trade_date: str = "", offline: bool = False) -> None
     print("批次记录：" + str(release.run_dir(root, state) / "state.json"))
 
 
-def execute_batch(root: Path, trade_date: str, offline: bool, *, resume: bool = False, restart: bool = False) -> int:
+def execute_batch(root: Path, trade_date: str, offline: bool, *, resume: bool = False, restart: bool = False,
+                  require_complete: bool = False) -> int:
+    if not restart:
+        published = release.published_batch(root, trade_date)
+        if published:
+            if require_complete and published['result'].get('status') not in ('CONFIRMED', 'COMPLETE'):
+                raise ValueError('该日既有发布不满足完整性门控，需显式维护，不能自动重发')
+            # Reconcile bookkeeping interrupted after the atomic pointer commit.
+            path = release.run_dir(root, published) / 'state.json'
+            if path.exists():
+                state = json.loads(path.read_text())
+                if state.get('status') != 'published':
+                    state.update(status='published', finished_at=published['published_at'], result=published['result'])
+                    save_published_checkpoint(root, state)
+            print(f"信号日 {trade_date} 已正式发布（跨模式核对 run_id={published['run_id']}），不重复执行", flush=True)
+            return 0
     commands = steps(trade_date, offline)
     existing = None if restart else release.read_checkpoint(root, trade_date, offline)
     if resume and not existing:
@@ -253,6 +268,11 @@ def execute_batch(root: Path, trade_date: str, offline: bool, *, resume: bool = 
                "AKSIGNAL_OFFLINE": "1" if offline else "0", "AKSIGNAL_OUTPUTS_DIR": str(stage)}
         with release.output_workspace(stage):
             start = resume_index(state, trade_date) if continuing else 0
+            # Waiting for fresh data must recheck acquisition: a successful
+            # update with no target bars cannot be frozen across scheduled retries.
+            # Keep the same run_id/checkpoint; this is not an implicit restart.
+            if continuing and require_complete and not offline:
+                start = 0
             if continuing:
                 print(f"从第 {start + 1} 步恢复，复用前 {start} 步结果", flush=True)
             for item in state["steps"][start:]:
@@ -284,6 +304,17 @@ def execute_batch(root: Path, trade_date: str, offline: bool, *, resume: bool = 
             state.update(status="publishing", current_step=len(commands), error="")
             release.save_checkpoint(root, state)
             receipt = validate_release(trade_date)
+            if require_complete and (receipt.get("ok") is not True or receipt.get("errors")
+                                     or receipt.get("status") not in ("CONFIRMED", "COMPLETE")):
+                raise ValueError("目标日数据尚未完整就绪，保持上一发布并等待重试")
+            if require_complete and not offline and receipt.get('status') == 'COMPLETE':
+                # The current online SW fallback assigns the target date to an
+                # undated realtime prev_close. That is not independent evidence
+                # of its price date, particularly during holiday catch-up.
+                # Do not change those facts/policies: withhold scheduled publication
+                # until a dated primary observation arrives. Cached releases keep
+                # their original completeness labels and warnings.
+                raise ValueError('行业实时兜底缺少独立源交易日证据，调度等待带日期主源后重试')
             if release.implementation_signature(root) != state["signature"]:
                 raise ValueError("运行过程中代码或配置发生变化，暂不发布；请 --restart")
             release.atomic_json(stage / "run_day" / "publication.json", {
@@ -322,6 +353,7 @@ def main() -> None:
     mode.add_argument("--resume", action="store_true", help="恢复该日该模式的批次")
     mode.add_argument("--restart", action="store_true", help="创建新批次，从第一步重新运行")
     parser.add_argument("--status", action="store_true", help="查看最新或指定日期批次进度")
+    parser.add_argument("--require-complete", action="store_true", help="调度发布只接受 confirmed/complete 验收")
     args = parser.parse_args()
     root = project_root()
     if args.status:
@@ -334,7 +366,8 @@ def main() -> None:
     previous_handler = signal.signal(signal.SIGTERM, terminate_batch)
     try:
         with release.batch_lock(root):
-            sys.exit(execute_batch(root, trade_date, args.offline, resume=args.resume, restart=args.restart))
+            sys.exit(execute_batch(root, trade_date, args.offline, resume=args.resume, restart=args.restart,
+                                   require_complete=args.require_complete))
     except (ValueError, OSError) as exc:
         print(str(exc), flush=True)
         sys.exit(1)

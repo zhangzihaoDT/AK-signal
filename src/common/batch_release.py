@@ -151,3 +151,60 @@ def publish_workspace(root: Path, stage: Path) -> None:
             raise
     finally:
         temp.unlink(missing_ok=True)
+
+
+def published_batch(root: Path, trade_date: str) -> dict | None:
+    """Verify a committed receipt, including older releases, across run modes.
+
+    A receipt in a private stage alone is not evidence of publication. The
+    public pointer or the archived published checkpoint is the commit witness.
+    """
+    public = root / "outputs"
+    store = root / ".run_day" / "runs" / trade_date
+    def candidates():
+        if public.is_symlink():
+            yield public.resolve(), True
+        for state_path in sorted(store.glob("*/state.json"), reverse=True):
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            if state.get("status") == "published" and state.get("trade_date") == trade_date:
+                yield run_dir(root, state) / "outputs", False
+    for stage, current in candidates():
+        receipt_path = stage / "run_day" / "publication.json"
+        if not receipt_path.exists():
+            if current:
+                raise ValueError("正式发布指针缺少回执，拒绝重复执行")
+            continue
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if receipt.get("trade_date") != trade_date:
+            continue
+        expected = run_dir(root, receipt) / "outputs"
+        if stage.resolve() != expected.resolve():
+            raise ValueError("发布回执 run_id 与批次路径不一致")
+        result = receipt.get("result", {})
+        final = json.loads((stage / "run_day" / f"final_check_{trade_date}.json").read_text())
+        report = json.loads((stage / "observation" / f"observation_{trade_date}.json").read_text())
+        if (final != result or final.get("ok") is not True or final.get("errors")
+                or final.get("trade_date") != trade_date
+                or final.get("scope") != "observation_only"
+                or report.get("trade_date") != trade_date):
+            raise ValueError("正式发布日期或验收回执不一致，拒绝重复执行")
+        for suffix in (".html", ".md"):
+            path = stage / "observation" / f"observation_{trade_date}{suffix}"
+            if not path.is_file() or not path.stat().st_size:
+                raise ValueError("正式日报不完整，拒绝重复执行")
+        return receipt
+    return None
+
+
+def lock_active(root: Path) -> bool:
+    """Probe the native lock without creating a batch or parsing process names."""
+    path = root / ".run_day" / "run.lock"
+    if not path.exists():
+        return False
+    with path.open("a") as stream:
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(stream, fcntl.LOCK_UN)
+    return False

@@ -93,6 +93,10 @@ etf update → industry update → etf calculate → industry calculate
 
 trade_date 为信号分区；run_date / generated_at 仅为审计时间。CONFIRMED / COMPLETE / PARTIAL 是来源与完整性状态，不是推荐状态。本产品不写新的 *_latest 报告别名。
 
+### mashang Scheduler 接入（P0，生产未启用）
+
+`src/daily_schedule.py` 提供非阻塞检查/触发，复用原生 run-day、锁、checkpoint 与发布；使用有覆盖范围的交易所日历，按 08:30 Asia/Shanghai 补最近遗漏批次、跨在线/离线防重并有限重试。Service 的可选外部任务注册默认关闭。P0 已提供离线集成能力，未启用生产定时、Hub Runtime Manager 或成果交付。在线自动发布暂保守等待带日期主源；详见 [P0 交付与证据](MASHANG_DAILY_P0.md)。
+
 ## 退出核心产品的能力
 
 主题 Tier 确认、Selection 推荐与 Timing、行业结构穿透、独立 Radar、三 Lane 合成、迁移生命周期状态机、历史赔率研究均已从每日主链和发布验收移除。旧模块与显式研究/legacy 命令暂保留供历史重放；其输出不属于当前核心产品，不由每日自动执行。price_map 的基础位置算法继续被 Observation 使用。

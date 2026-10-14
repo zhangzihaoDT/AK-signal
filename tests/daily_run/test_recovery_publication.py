@@ -18,8 +18,18 @@ def harness(tmp_path, monkeypatch, fail_at=5):
     monkeypatch.setattr(daily_run, 'steps', lambda *a: commands)
     monkeypatch.setattr(daily_run, 'check_step', lambda *a: None)
     monkeypatch.setattr(daily_run, 'step_artifacts', lambda command, td: [daily_run.outputs_dir() / f'{command[1]}.json'])
-    monkeypatch.setattr(daily_run, 'validate_release', lambda td: {
-        'ok': True, 'trade_date': td, 'status': 'CONFIRMED', 'action': 'OBSERVE', 'warnings': []})
+    def validate(td):
+        receipt = {'ok': True, 'trade_date': td, 'status': 'CONFIRMED',
+                   'scope': 'observation_only', 'warnings': [], 'errors': []}
+        stage = daily_run.outputs_dir()
+        (stage / 'run_day').mkdir(exist_ok=True)
+        (stage / 'run_day' / f'final_check_{td}.json').write_text(json.dumps(receipt))
+        (stage / 'observation').mkdir(exist_ok=True)
+        for suffix in ('.html', '.md', '.json'):
+            (stage / 'observation' / f'observation_{td}{suffix}').write_text(
+                json.dumps({'trade_date': td}) if suffix == '.json' else 'facts')
+        return receipt
+    monkeypatch.setattr(daily_run, 'validate_release', validate)
     def run(command, env, log, title):
         number = int(command[1])
         calls.append(number)
