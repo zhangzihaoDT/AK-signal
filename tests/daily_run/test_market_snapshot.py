@@ -42,3 +42,19 @@ def test_common_source_changes_only(monkeypatch):
     old['etf_trends']['source']='other'
     s=m.snapshot(root,Path('.'),receipt)
     assert '不能判断' in s['sections'][2]['rows'][1]
+
+
+def test_visuals_preserve_calendar_gaps_and_unknown(monkeypatch):
+    f=frames()
+    f['industry_rotation']['parent_industry']='广泛方向'
+    monkeypatch.setattr(m,'load',lambda stage,stem,date:f[stem].copy())
+    monkeypatch.setattr(m.release,'published_batch',lambda *a:None)
+    receipt={'trade_date':'20261013','run_id':'r','result':{'data_complete':False}}
+    v=m.snapshot(Path(__file__).resolve().parents[2],Path('.'),receipt)['visuals']
+    assert len(v['breadth']['history'])==20
+    assert sum(p['active'] is not None for p in v['breadth']['history'])==1
+    assert v['breadth']['history'][-1]['dataComplete'] is False
+    assert v['breadth']['delta'] is None
+    assert v['industries'][0]['change'] is None
+    assert v['industries'][0]['activeRatio']==.75
+    assert sum(s['count'] for s in v['distribution'])==1

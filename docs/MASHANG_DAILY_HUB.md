@@ -49,3 +49,7 @@ CONFIRMED 表示来源确认，data_complete=false 仍明确展示“数据不�
 ## Market Snapshot
 
 只读 `src/market_snapshot.py` 消费正式批次的 asset_directions、industry_directions、industry_rotation、etf_trends 与 etf_positions。输出市场状态/关注方向/重要变化；不修改任何事实或指标，不运行 Pipeline。广泛行业支撑优先于单点强势，不做股票榜。变化只比较官方日历上一交易日的已核验正式批次、同源同状态共同样本；缺失或不可比明确提示。有效底部变化仍受窗口完整性门控，不构成买入建议。Snapshot 的日期/run_id 与当前回执绑定，由通用 Runtime details 交付。测试覆盖行顺序无关、广度优先、无上一期、同源共同样本与无效位置排除。
+
+## Snapshot v2 可视化数据
+
+只读摘要增加124行业格子（RPS15、所属一级行业活跃比例、上一交易日同源可比RPS15差值）、20个官方交易日广度序列以及行业状态分布。序列只含正式发布，缺失记null；不拉取历史、不插值。每点附样本总数、来源口径和完整性，防止跨缺失/来源变更连线。当前实际只有两期正式发布，明确显示2/20。63项每日链测试通过；Hub图形单测与浏览器三口径切换、未知、手机布局、原补跑/附件/只读讨论回归通过。
