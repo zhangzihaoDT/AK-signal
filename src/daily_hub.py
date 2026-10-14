@@ -79,6 +79,12 @@ def view(root: Path, at: datetime | None = None) -> dict:
             facts = publication['result']
             detail['publication'] = {k: publication[k] for k in ('run_id', 'trade_date', 'published_at')}
             detail['quality'] = {k: facts[k] for k in ('status', 'data_complete', 'warnings', 'errors')}
+            try:
+                from src.market_snapshot import snapshot
+                detail['marketSnapshot'] = snapshot(root, stage, publication)
+            except (OSError, ValueError, KeyError, TypeError):
+                detail['marketSnapshot'] = {'tradeDate': publication['trade_date'], 'runId': publication['run_id'], 'sections': [{'title': '市场状态', 'rows': ['摘要事实不齐，无法可靠概括；请查看正式日报。']}]}
+
             import pandas as pd
             frame = pd.read_parquet(stage / 'observation' / f"industry_rotation_{publication['trade_date']}.parquet")
             detail['metrics'] = [{'label': '行业主源覆盖',

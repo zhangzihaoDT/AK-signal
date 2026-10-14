@@ -45,3 +45,7 @@ CONFIRMED 表示来源确认，data_complete=false 仍明确展示“数据不�
 ## 正式启用待确认
 
 开发分支提交后还需更新部署的 Hub 静态资源/协议代码，并让 Mac Worker 重新加载注册与 provider。生产操作会短暂影响 Hub/Worker 连接，应确认当前任务和维护时点后执行。本轮未推送、部署、重启 Worker/Scheduler、修改 LaunchAgent 或开启生产自动调度；不重新请求在线行情。
+
+## Market Snapshot
+
+只读 `src/market_snapshot.py` 消费正式批次的 asset_directions、industry_directions、industry_rotation、etf_trends 与 etf_positions。输出市场状态/关注方向/重要变化；不修改任何事实或指标，不运行 Pipeline。广泛行业支撑优先于单点强势，不做股票榜。变化只比较官方日历上一交易日的已核验正式批次、同源同状态共同样本；缺失或不可比明确提示。有效底部变化仍受窗口完整性门控，不构成买入建议。Snapshot 的日期/run_id 与当前回执绑定，由通用 Runtime details 交付。测试覆盖行顺序无关、广度优先、无上一期、同源共同样本与无效位置排除。
