@@ -97,6 +97,8 @@ trade_date 为信号分区；run_date / generated_at 仅为审计时间。CONFIR
 
 `src/daily_schedule.py` 提供非阻塞检查/触发，复用原生 run-day、锁、checkpoint 与发布；使用有覆盖范围的交易所日历，按 08:30 Asia/Shanghai 补最近遗漏批次、跨在线/离线防重并有限重试。Service 的可选外部任务注册默认关闭。P0 已提供离线集成能力，未启用生产定时、Hub Runtime Manager 或成果交付。在线自动发布暂保守等待带日期主源；详见 [P0 交付与证据](MASHANG_DAILY_P0.md)。
 
+Hub 独立业务区域初版已在开发分支实现并本地验证：新增只读 `src/daily_hub.py`，供 Worker 查询 checkpoint/回执及交付正式 HTML/Markdown。业务入口按领域划分，AKsignal 与 Service 同级，运行基础设施继续复用。尚未部署生产 Hub 或重新加载生产 Worker，不代表生产功能已启用；范围与证据见 [Hub 初版交付](MASHANG_DAILY_HUB.md)。
+
 ## 退出核心产品的能力
 
 主题 Tier 确认、Selection 推荐与 Timing、行业结构穿透、独立 Radar、三 Lane 合成、迁移生命周期状态机、历史赔率研究均已从每日主链和发布验收移除。旧模块与显式研究/legacy 命令暂保留供历史重放；其输出不属于当前核心产品，不由每日自动执行。price_map 的基础位置算法继续被 Observation 使用。
