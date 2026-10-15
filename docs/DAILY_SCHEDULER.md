@@ -12,11 +12,12 @@ The Service Scheduler does not poll or launch AKsignal. Runtime service status, 
 ## Schedule policy
 
 - The LaunchAgent polls locally every five seconds and processes the 08:30 occurrence once.
-- Scheduled execution is offline/cache-only and requires the existing complete-publication gate.
+- On macOS the waiting scheduler holds a bounded `caffeinate -i -s` assertion during 08:00–08:31 Asia/Shanghai, covering the existing 08:10 system wake. Each native Daily batch independently holds an assertion through update, calculation, validation and publication, releasing it on success or failure. Assertions follow their owner PID so process death also releases them; the display can sleep normally. The scheduler does not prevent sleep all day or change global power settings. This prevents idle sleep (and system sleep on AC where macOS honors the assertion); it does not promise to override explicit sleep, lid closure, shutdown or forced power events. On 2026-10-15 the user-authorized local power plan removed the daily 09:00 scheduled sleep and retained the daily 08:10 wake; normal idle sleep applies after protection is released.
+- Scheduled execution uses the online `make run-day` pipeline: update ETF and industry data, calculate market facts (including online stock updates), validate, then publish. It requires the existing complete-publication gate; missing or stale target-date data cannot be published. Offline mode remains available for explicit cache-only runs and replay.
 - If the Mac is unavailable at the occurrence, the next poll records that occurrence as `MISSED`; it does not launch a catch-up batch.
 - If a scheduled batch fails to start, or its process exits without a valid publication, it becomes `FAILED`. Later polls do not retry it.
 - Missed and failed tasks remain available for explicit manual Run/Resume. Future occurrences are independent and are not blocked by an older failure.
-- Manual Run selects the newest unresolved eligible `trade_date` by default. The CLI also accepts an explicit `--date YYYYMMDD`. A compatible checkpoint resumes the prior run; a signature mismatch is `BLOCKED` and requires explicit maintenance.
+- Manual Run selects the newest unresolved eligible `trade_date` by default and uses online acquisition, including for legacy offline failures. The CLI also accepts an explicit `--date YYYYMMDD` or `--offline`. A compatible checkpoint resumes the prior run; a signature mismatch automatically creates a new run from the beginning. The panel exposes one Run/Resume operation.
 - Rerunning a complete published date is a no-op. A Scheduler restart only affects the LaunchAgent; it never restarts or cancels an existing Daily batch.
 
 ## Status and local records
@@ -43,7 +44,7 @@ python -m src.daily_schedule --manual-run --date YYYYMMDD
 python -m src.daily_schedule --manual-run --restart  # only when signature mismatch blocks resume
 ```
 
-The Hub Worker registers `AKsignal Scheduler` as an AKsignal-domain service (Enable / Restart / Pause), `AKsignal Daily` as a manual Run/Resume operation, and a separate maintenance-restart operation. Maintenance restart is accepted only when the selected unresolved batch is blocked by a code/config signature change; it creates a new run_id and never reruns a published target. Worker Run acknowledgement means the manual request was handled; only the native formal receipt means `PUBLISHED`.
+The Hub Worker registers `AKsignal Scheduler` as an AKsignal-domain service (Enable / Restart / Pause) and `AKsignal Daily` as the single manual Run/Resume operation. The native runner handles incompatible checkpoints by creating a new run_id and never reruns a published target. Worker Run acknowledgement means the manual request was handled; only the native formal receipt means `PUBLISHED`.
 
 ## Cutover
 

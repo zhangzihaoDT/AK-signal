@@ -68,11 +68,12 @@ def test_scheduled_run_launches_only_during_0830_minute(root):
     launch = lambda *args: calls.append(args) or 12345
     result = schedule.scheduled_poll(root, at=at('2026-10-14T08:30'), launch=launch)
     assert result['occurrences'][0]['status'] == 'running'
-    assert calls[0][1:3] == ('20261013', True)
+    assert calls[0][1:3] == ('20261013', False)
     assert schedule.scheduled_poll(root, at=at('2026-10-14T08:31'), launch=launch,
                                    alive=lambda _pid: True)['occurrences'][0]['reason'] == 'PROCESS_RUNNING'
     record = json.loads((root / '.run_day/scheduler/20261013.json').read_text())
     assert record['attempts'] == 1 and record['source'] == 'scheduled'
+    assert record['offline'] is False
 
 
 def test_missed_schedule_waits_for_manual_button(root):
@@ -190,11 +191,13 @@ def test_spawn_uses_native_make_complete_offline_and_detaches(root, monkeypatch)
     assert schedule.spawn_batch(root, '20261013', True, root / 'trigger.log') == 123
     assert captured['argv'] == ['make', 'run-day-offline', 'RUN_DATE=20261013', 'RUN_FLAGS=--require-complete']
     assert captured['start_new_session'] is True
+    schedule.spawn_batch(root, '20261013', False, root / 'online.log')
+    assert captured['argv'] == ['make', 'run-day', 'RUN_DATE=20261013', 'RUN_FLAGS=--require-complete']
     schedule.spawn_batch(root, '20261013', False, root / 'restart.log', restart=True)
     assert captured['argv'] == ['make', 'run-day', 'RUN_DATE=20261013', 'RUN_FLAGS=--require-complete --restart']
 
 
-def test_maintenance_restart_requires_signature_mismatch(root, monkeypatch):
+def test_manual_run_restarts_incompatible_checkpoint(root, monkeypatch):
     target = '20261013'
     checkpoint = release.new_checkpoint(root, target, False, [['step']])
     release.atomic_json(schedule.record_path(root, target), {
@@ -204,15 +207,27 @@ def test_maintenance_restart_requires_signature_mismatch(root, monkeypatch):
     monkeypatch.setattr(schedule.release, 'implementation_signature', lambda _root: 'new-signature')
     calls = []
     launch = lambda *args: calls.append(args) or 123
-    blocked = schedule.manual_run(root, at=at('2026-10-14T09:00'), launch=launch)
-    assert blocked['status'] == 'blocked' and blocked['reason'] == 'RESTART_REQUIRED'
-    assert schedule.actionable_target(root, at('2026-10-14T09:00')) == target
-    restarted = schedule.manual_run(root, at=at('2026-10-14T09:01'), restart=True, launch=launch)
+    restarted = schedule.manual_run(root, at=at('2026-10-14T09:00'), launch=launch)
     assert restarted['status'] == 'running'
     assert restarted['source'] == 'manual_restart'
     assert restarted['maintenance_restart'] is True
     assert restarted['history'][-1]['maintenance_restart'] is True
     assert calls and calls[0][1] == target
+
+
+def test_manual_run_migrates_legacy_offline_failure_to_online(root):
+    target = '20261013'
+    release.new_checkpoint(root, target, True, [['step']])
+    release.atomic_json(schedule.record_path(root, target), {
+        'schema_version': 2, 'trade_date': target, 'status': 'blocked', 'reason': 'RESTART_REQUIRED',
+        'attempts': 1, 'offline': True, 'history': [],
+    })
+    calls = []
+    result = schedule.manual_run(root, at=at('2026-10-14T09:00'),
+                                 launch=lambda *args: calls.append(args) or 123)
+    assert result['status'] == 'running'
+    assert result['offline'] is False
+    assert calls[0][1:3] == (target, False)
 
 
 def test_maintenance_restart_refuses_when_signature_matches(root):
@@ -247,7 +262,7 @@ def test_corrupt_trigger_and_checkpoint_do_not_reset_budget(root):
     assert result['occurrences'][0]['reason'] == 'TRIGGER_RECORD_INVALID'
     assert path.read_text() == '{broken'
     path.unlink()
-    path = release.checkpoint_path(root, '20261013', True)
+    path = release.checkpoint_path(root, '20261013', False)
     path.parent.mkdir(parents=True)
     path.write_text('{broken')
     result = schedule.scheduled_poll(root, at=at('2026-10-14T08:30'),

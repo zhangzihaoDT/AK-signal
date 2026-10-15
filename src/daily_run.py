@@ -12,6 +12,7 @@ import warnings
 import signal
 
 from src.common import batch_release as release
+from src.common.sleep_guard import batch_sleep_guard
 
 import pandas as pd
 
@@ -365,7 +366,7 @@ def main() -> None:
         raise KeyboardInterrupt("收到终止信号")
     previous_handler = signal.signal(signal.SIGTERM, terminate_batch)
     try:
-        with release.batch_lock(root):
+        with release.batch_lock(root), batch_sleep_guard():
             sys.exit(execute_batch(root, trade_date, args.offline, resume=args.resume, restart=args.restart,
                                    require_complete=args.require_complete))
     except (ValueError, OSError) as exc:

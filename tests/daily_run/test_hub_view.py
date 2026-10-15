@@ -82,6 +82,11 @@ def test_running_waiting_blocked_and_no_unpublished_attachments(tmp_path, monkey
         assert daily_hub.view(tmp_path, now)['lastRun']['status'] == 'RUNNING'
     release.atomic_json(tmp_path / '.run_day/scheduler/20261012.json', {'status': 'blocked', 'error': '签名不一致'})
     assert daily_hub.view(tmp_path, now)['lastRun']['status'] == 'BLOCKED'
+    release.atomic_json(tmp_path / '.run_day/scheduler/20261012.json',
+                        {'status': 'blocked', 'reason': 'RESTART_REQUIRED', 'error': '签名不一致'})
+    recoverable = daily_hub.view(tmp_path, now)
+    assert recoverable['lastRun']['status'] == 'FAILED'
+    assert '先联网更新数据' in recoverable['details']['error']
 
 
 def test_missed_schedule_is_visible_and_manual_target_is_actionable(tmp_path, monkeypatch):

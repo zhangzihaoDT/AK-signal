@@ -79,6 +79,8 @@ def view(root: Path, at: datetime | None = None) -> dict:
         status = record.get('status', '')
         if state.get('status') in ('preparing', 'running', 'publishing') and release.lock_active(root):
             result['lastRun']['status'] = 'RUNNING'
+        elif status == 'blocked' and record.get('reason') == 'RESTART_REQUIRED':
+            result['lastRun']['status'] = 'FAILED'
         elif status == 'blocked':
             result['lastRun']['status'] = 'BLOCKED'
         elif status == 'missed':
@@ -96,6 +98,8 @@ def view(root: Path, at: datetime | None = None) -> dict:
                                          (record.get('error') if status in ('blocked', 'waiting', 'exhausted', 'failed', 'missed') else '') or ''),
                       reason=record.get('reason'), triggerSource=record.get('source'),
                       retryAt=record.get('next_attempt_at'))
+        if result['lastRun']['status'] in ('FAILED', 'WAITING'):
+            detail['error'] += '；点击手动运行 / 恢复：先联网更新数据，检查点不兼容时自动从头运行。'
         if result['lastRun']['status'] == 'WAITING' and not detail['error']:
             detail['error'] = '批次未发布，等待原生调度检查或恢复'
         start = state.get('started_at') or record.get('triggered_at')

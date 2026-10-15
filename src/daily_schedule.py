@@ -182,7 +182,7 @@ def scheduled_occurrence(root: Path, target: str, occurrence: datetime, *, due: 
                           error='已有 Daily Run 正在运行；等待面板检查')
             return _save(root, target, record, at)
         try:
-            checkpoint = release.read_checkpoint(root, target, True)
+            checkpoint = release.read_checkpoint(root, target, False)
         except (OSError, ValueError) as exc:
             record.update(status='blocked', reason='CHECKPOINT_INVALID', error=str(exc))
             return _save(root, target, record, at)
@@ -190,7 +190,7 @@ def scheduled_occurrence(root: Path, target: str, occurrence: datetime, *, due: 
             record.update(status='blocked', reason='RESTART_REQUIRED',
                           error='代码/config 已变化，需面板维护恢复')
             return _save(root, target, record, at)
-        return _launch(root, target, record, offline=True, source='scheduled', at=at, launch=launch)
+        return _launch(root, target, record, offline=False, source='scheduled', at=at, launch=launch)
 
 
 def actionable_target(root: Path, at: datetime | None = None) -> str:
@@ -317,13 +317,14 @@ def manual_run(root: Path, *, offline: bool = False, at: datetime | None = None,
         active = _existing_process(root, target, record, at, alive, manual=True)
         if active:
             return active
-        if record.get('status') == 'blocked' and not (
-                restart and record.get('reason') == 'RESTART_REQUIRED'):
+        if record.get('status') == 'blocked' and record.get('reason') != 'RESTART_REQUIRED':
             return _save(root, target, record, at)
         if release.lock_active(root):
             record.update(status='running', reason='BUSINESS_LOCK', error='已有 Daily Run 正在运行')
             return _save(root, target, record, at)
-        selected_offline = record.get('offline', offline) if record.get('attempts', 0) else offline
+        # Manual production runs use the requested mode, not a failed legacy
+        # occurrence's cache-only mode. Offline remains an explicit CLI option.
+        selected_offline = offline
         try:
             checkpoint = release.read_checkpoint(root, target, selected_offline)
         except (OSError, ValueError) as exc:
@@ -334,10 +335,7 @@ def manual_run(root: Path, *, offline: bool = False, at: datetime | None = None,
             record.update(status='blocked', reason='RESTART_NOT_REQUIRED',
                           error='当前没有代码/config 签名变化；普通手动恢复即可')
             return _save(root, target, record, at)
-        if signature_changed and not restart:
-            record.update(status='blocked', reason='RESTART_REQUIRED',
-                          error='代码/config 已变化；需使用单独的维护重启操作')
-            return _save(root, target, record, at)
+        restart = restart or signature_changed
         return _launch(root, target, record, offline=selected_offline,
                        source='manual_restart' if restart else 'manual', at=at,
                        launch=launch, restart=restart)

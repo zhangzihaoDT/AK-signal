@@ -15,6 +15,7 @@ import time
 from src.common.paths import project_root
 from src.common.trading_calendar import shanghai_now
 from src.daily_schedule import SCHEDULE_POLL_SECONDS, scheduled_poll
+from src.common.sleep_guard import SleepGuard, waiting_seconds
 
 LABEL = 'com.aksignal.daily-scheduler'
 AGENT_FILE = f'{LABEL}.plist'
@@ -166,9 +167,21 @@ def daemon(root: Path, *, poll_seconds: int = SCHEDULE_POLL_SECONDS) -> None:
                  started_at=shanghai_now().isoformat())
     release.atomic_json(state_path, state)
     last_logged = None
+    sleep_guard = SleepGuard()
     while not _STOP:
         try:
-            result = scheduled_poll(root, at=shanghai_now())
+            at = shanghai_now()
+            remaining = waiting_seconds(at)
+            protected = sleep_guard.start(remaining) if remaining else False
+            if not remaining:
+                sleep_guard.stop()
+            result = scheduled_poll(root, at=at)
+            current_state = json.loads(state_path.read_text())
+            current_state['sleepProtection'] = {
+                'active': protected, 'waitingWindow': '08:00–08:31 Asia/Shanghai',
+                'pid': sleep_guard.process.pid if protected else None,
+            }
+            release.atomic_json(state_path, current_state)
             occurrences = result.get('occurrences', [])
             if occurrences:
                 latest = occurrences[-1]
@@ -193,6 +206,7 @@ def daemon(root: Path, *, poll_seconds: int = SCHEDULE_POLL_SECONDS) -> None:
             if _STOP:
                 break
             time.sleep(0.1)
+    sleep_guard.stop()
     try:
         state = json.loads(state_path.read_text()) if state_path.exists() else {}
     except (OSError, ValueError, TypeError):
