@@ -228,6 +228,6 @@ themes:
       - key: adas_lidar
         label: "ADAS 车载激光雷达"
         assets:
-          - {symbol: "02510", name: "禾赛", market: HK, note: "车载激光雷达"}
+          - {symbol: "02525", name: "禾赛", market: HK, note: "车载激光雷达 · 港股代码已按港交所公告核对（2026-10-15）"}
           - {symbol: "2498", name: "速腾聚创", market: HK, note: "车载激光雷达"}
           - {symbol: "603297", name: "永新光学", market: CN, sw_industry: "801084.SI", note: "车载激光雷达光学"}

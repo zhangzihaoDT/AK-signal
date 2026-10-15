@@ -1,15 +1,19 @@
 {
-  "trade_date": "20261012",
-  "issues": [{
+  "trade_date": "20261015",
+  "issues": [],
+  "resolved_issues": [{
     "market": "HK",
     "symbol": "02510",
     "configured_name": "禾赛",
     "observed_name": "德翔海运",
     "expected_symbol": "02525",
-    "status": "IDENTITY_MISMATCH",
+    "status": "CONFIG_CORRECTED",
+    "resolved_on": "2026-10-15",
+    "resolution": "当前配置改用 HK 02525；旧 HK 02510 缓存和已发布历史保留，不作为禾赛行情。正确代码的数据覆盖与价格依据另行核验。",
     "sources": [
       "https://www.hkexnews.hk/listedco/listconews/sehk/2025/0904/2025090400550_c.pdf",
-      "https://www.hkexnews.hk/listedco/listconews/sehk/2025/1024/2025102400595_c.pdf"
+      "https://www.hkexnews.hk/listedco/listconews/sehk/2025/1024/2025102400595_c.pdf",
+      "https://www.hkexnews.hk/listedco/listconews/sehk/2025/0915/2025091501459_c.pdf"
     ]
   }]
 }

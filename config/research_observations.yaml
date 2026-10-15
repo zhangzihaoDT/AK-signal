@@ -12,9 +12,10 @@
 #
 # 当前观察组：
 #   observation_groups.scania_china_watch
-#     电驱 / 传动 / 热管理 / 智能底盘
+#     商用车产业链：电驱 / 传动 / 热管理 / 智能底盘
 #   observation_groups.auto_tier1_ai_infra    汽车热管理供应链 → AI 数据中心液冷 / Capex 外溢
 #   observation_groups.auto_tier1_embodied    汽车供应链 → Physical AI 执行器 / 丝杠 / 轴承 / 控制器
+#   observation_groups.hk_resources_shipping    AZ 仓位观察
 #   未单独上市的法士特、汉德体系以 focus_entities 保留；listed_assets 只放可直接跟踪的上市代表。
 #
 # evidence_stage 固定枚举（只表达商业化推进阶段，不混入收入/产能维度）：
@@ -31,10 +32,24 @@
 # sw_industry: 关联的申万二级行业代码（仅供研究展示参考，不注入 Layer ② 确认）。
 
 observation_groups:
-  scania_china_watch:
-    label: "斯堪尼亚中国观察组"
+  hk_resources_shipping:
+    label: "AZ 仓位观察"
     status: WATCH
-    objective: "先观察商用车电驱、传动、热管理与智能底盘产业链"
+    objective: "跟踪中国宏桥、中海油、东岳集团、中国铝业与东方海外国际的市场表现"
+    groups:
+      resources_shipping:
+        label: "资源与航运"
+        listed_assets:
+          - {symbol: "01378", name: "中国宏桥", market: HK}
+          - {symbol: "00883", name: "中国海洋石油", market: HK, note: "中海油，港股上市主体"}
+          - {symbol: "00189", name: "东岳集团", market: HK}
+          - {symbol: "02600", name: "中国铝业", market: HK}
+          - {symbol: "00316", name: "东方海外国际", market: HK}
+
+  scania_china_watch:
+    label: "商用车产业链"
+    status: WATCH
+    objective: "观察商用车电驱、传动、热管理与智能底盘产业链，保留斯堪尼亚国产化作为研究线索"
     groups:
       electric_drive:
         label: "电驱"

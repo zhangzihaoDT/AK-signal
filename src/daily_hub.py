@@ -162,6 +162,15 @@ def view(root: Path, at: datetime | None = None) -> dict:
         result['lastRun']['status'] = 'BLOCKED'
         detail['error'] = public_error(exc)
         result['artifacts'] = []
+    # Independent research receipt: never changes formal Daily status or quality.
+    try:
+        from src.research.baskets.hub_view import comparison_view
+        preview, artifact = comparison_view(root)
+        if preview:
+            detail['trendComparison'] = preview
+            result['artifacts'].append(artifact)
+    except (OSError, ValueError, KeyError, TypeError):
+        detail['trendComparisonError'] = '研究走势快照未通过核验，请重新生成；不影响正式日报状态。'
     return result
 
 

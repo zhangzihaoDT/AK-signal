@@ -9,8 +9,14 @@
 version: "1.0.0"
 
 baskets:
+  hk_resources_shipping:
+    label: "AZ 仓位观察"
+    source: {type: observation_group, key: hk_resources_shipping}
+    weighting: {method: group_equal, rebalance: buy_and_hold}
+    benchmark: sh000300
+
   scania_china_watch:
-    label: "斯堪尼亚中国观察组"
+    label: "商用车产业链"
     source: {type: observation_group, key: scania_china_watch}
     weighting: {method: group_equal, rebalance: buy_and_hold}
     benchmark: sh000300
@@ -44,21 +50,17 @@ baskets:
     benchmark: sh000300
 
   china_auto_global:
-    label: "中国汽车全球化（含 OEM）"
+    label: "中国汽车全球化（仅 OEM）"
     source:
       type: theme
       key: china_auto_global
       include_groups:
         - oem_global
-        - battery_global
-        - global_ev_components
-        - global_auto_components
-        - adas_lidar
     weighting: {method: group_equal, rebalance: buy_and_hold}
     benchmark: sh000300
 
   memory_and_storage:
-    label: "存储 / 记忆"
+    label: "半导体存储产业链"
     source:
       type: theme
       key: ai_infrastructure
