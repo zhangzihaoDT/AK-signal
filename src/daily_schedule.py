@@ -35,27 +35,57 @@ def trigger_lock(root: Path):
 
 
 def pid_alive(pid: int | None) -> bool:
-    if not pid:
+    """Reap exited children; a PID existing in the process table is not enough.
+
+    Manual controls can run outside the scheduler parent, so waitpid alone
+    cannot detect every zombie. Query process state for those foreign PIDs.
+    If inspection is unavailable, remain conservative; the business lock is
+    still the final guard against launching simultaneous native batches.
+    """
+    if not isinstance(pid, int) or pid <= 0:
         return False
     try:
+        reaped, _ = os.waitpid(pid, os.WNOHANG)
+    except ChildProcessError:
+        pass  # Not our child (or already reaped): inspect without signalling it.
+    except OSError:
+        pass
+    else:
+        # waitpid reaps zombies owned by this scheduler, avoiding accumulation.
+        return reaped == 0
+    try:
         os.kill(pid, 0)
-        return True
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
+    try:
+        result = subprocess.run(
+            ['ps', '-p', str(pid), '-o', 'stat='],
+            capture_output=True, text=True, timeout=2, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+    state = result.stdout.strip()
+    if result.returncode == 1 and not state:
+        return False  # Exited between kill(0) and ps.
+    if result.returncode != 0 or not state:
+        return True  # An inspection failure must not authorize a duplicate run.
+    return not state.startswith('Z')
 
 
 def spawn_batch(root: Path, target: str, offline: bool, log: Path, *, restart: bool = False) -> int:
-    flags = '--require-complete --restart' if restart else '--require-complete'
+    # Module-level PARTIAL is a publishable Daily product. Module freshness is
+    # checked by the batch; require-complete remains an explicit operator mode.
+    argv = ['make', 'run-day-offline' if offline else 'run-day', f'RUN_DATE={target}']
+    if restart:
+        argv.append('RUN_FLAGS=--restart')
     with log.open('ab') as stream:
         child = subprocess.Popen(
-            ['make', 'run-day-offline' if offline else 'run-day',
-             f'RUN_DATE={target}', f'RUN_FLAGS={flags}'],
+            argv,
             cwd=root, stdin=subprocess.DEVNULL, stdout=stream,
             stderr=subprocess.STDOUT, start_new_session=True)
-    # This launcher is short-lived. The native Runner owns the business lock,
-    # checkpoint and child cleanup; the Scheduler never waits for this batch.
+    # The scheduler can be long-lived. pid_alive reaps this child after exit
+    # without blocking; the native Runner owns the business lock/checkpoint.
     return child.pid
 
 
@@ -83,7 +113,8 @@ def _load(root: Path, target: str) -> dict:
     return record
 
 
-def _publication(root: Path, target: str, record: dict, at: datetime) -> dict | None:
+def _publication(root: Path, target: str, record: dict, at: datetime, *,
+                 allow_partial_retry: bool = False) -> dict | None:
     try:
         publication = release.published_batch(root, target)
     except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -91,7 +122,13 @@ def _publication(root: Path, target: str, record: dict, at: datetime) -> dict | 
         return _save(root, target, record, at)
     if not publication:
         return None
-    if publication['result'].get('status') not in ('CONFIRMED', 'COMPLETE'):
+    result = publication['result']
+    status = result.get('status')
+    publishable = result.get('ok') is True and not result.get('errors') \
+        and status in ('CONFIRMED', 'COMPLETE', 'PARTIAL')
+    if status == 'PARTIAL' and allow_partial_retry:
+        return None
+    if not publishable:
         if record.get('status') == 'blocked' and record.get('reason') == 'PUBLICATION_NOT_COMPLETE' \
                 and record.get('publication') == publication:
             return record
@@ -206,13 +243,18 @@ def actionable_target(root: Path, at: datetime | None = None) -> str:
         try:
             record = json.loads(path.read_text(encoding='utf-8'))
             target = path.stem
-            actionable = record.get('status') in ('missed', 'failed', 'waiting', 'exhausted') or (
+            actionable = record.get('status') in ('missed', 'failed', 'waiting', 'exhausted', 'published') or (
                 record.get('status') == 'blocked' and record.get('reason') == 'RESTART_REQUIRED')
             if record.get('trade_date') != target or target > calendar.complete_day(at) or not actionable:
                 continue
             publication = release.published_batch(root, target)
-            if publication and publication['result'].get('status') in ('CONFIRMED', 'COMPLETE'):
-                continue
+            if publication:
+                status = publication['result'].get('status')
+                if status in ('CONFIRMED', 'COMPLETE'):
+                    continue
+                if status == 'PARTIAL':
+                    unresolved.append((record.get('scheduled_at', ''), target))
+                    continue
             unresolved.append((record.get('scheduled_at', ''), target))
         except (OSError, ValueError, KeyError, TypeError):
             continue
@@ -307,10 +349,12 @@ def manual_run(root: Path, *, offline: bool = False, at: datetime | None = None,
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
             return {'status': 'blocked', 'trade_date': target,
                     'reason': 'TRIGGER_RECORD_INVALID', 'error': str(exc)}
-        publication = _publication(root, target, record, at)
+        publication = _publication(root, target, record, at, allow_partial_retry=True)
         if publication:
             return publication
-        if record.get('status') == 'published':
+        prior = release.published_batch(root, target)
+        if record.get('status') == 'published' and not (
+                prior and prior['result'].get('status') == 'PARTIAL'):
             record.update(status='blocked', reason='PUBLISHED_RECEIPT_MISSING',
                           error='调度记录称已发布，但正式回执缺失；请人工检查')
             return _save(root, target, record, at)

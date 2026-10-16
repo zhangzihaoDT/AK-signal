@@ -43,17 +43,17 @@ class TestPaths:
         assert data_dir() == project_root() / "data"
 
     def test_raw_dir(self):
-        assert raw_dir() == data_dir() / "raw"
+        assert raw_dir() == data_dir() / "legacy" / "raw"
 
     def test_processed_dir(self):
-        assert processed_dir() == data_dir() / "processed"
+        assert processed_dir() == data_dir() / "legacy" / "processed"
 
     def test_sw_subdirs(self):
         assert sw_industry_raw_dir() == raw_dir() / "sw_industry"
         assert sw_industry_processed_dir() == processed_dir() / "sw_industry"
 
     def test_state_dir(self):
-        assert state_dir() == data_dir() / "state"
+        assert state_dir() == data_dir() / "legacy" / "state"
 
     def test_asset_state_path(self):
         assert asset_state_path() == state_dir() / "asset_state.csv"

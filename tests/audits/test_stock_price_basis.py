@@ -1,6 +1,6 @@
 import pandas as pd
-from scripts.summarize_stock_price_basis import compare_close
-from scripts.audit_stock_price_basis import reconcile
+from scripts.audits.summarize_stock_price_basis import compare_close
+from scripts.audits.audit_stock_price_basis import reconcile
 
 
 def frame():

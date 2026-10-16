@@ -1,9 +1,7 @@
 """
-Research CLI — 历史信号研究链路命令入口。
+Research CLI — 当前独立篮子研究入口。
 
-子命令：
-  replay        历史信号重放（single / parity / range），见 src/research/replay/cli.py
-  event-study   状态转换事件的前向收益研究，见 src/research/event_study/cli.py
+研究代码不参与每日 Market Facts 主链。
 """
 
 from __future__ import annotations
@@ -15,49 +13,13 @@ def main() -> None:
     argv = sys.argv[1:]
     sub = argv[0] if argv else ""
 
-    if sub == "replay":
-        from src.research.replay.cli import main as replay_main
-        sys.argv = [sys.argv[0], *argv[1:]]
-        replay_main()
-        return
-
-    if sub in ("event-study", "event_study"):
-        from src.research.event_study.cli import main as es_main
-        sys.argv = [sys.argv[0], *argv[1:]]
-        es_main()
-        return
-
-    if sub in ("expression-regime", "expression_regime"):
-        from src.research.expression_regime.cli import main as er_main
-        sys.argv = [sys.argv[0], *argv[1:]]
-        er_main()
-        return
-
     if sub in ("basket", "baskets"):
         from src.research.baskets.cli import main as basket_main
         sys.argv = [sys.argv[0], *argv[1:]]
         basket_main()
         return
 
-    if sub in ("etf-bottom", "etf_bottom", "bottom-study"):
-        from src.research.etf_bottom.cli import main as bottom_main
-        sys.argv = [sys.argv[0], *argv[1:]]
-        bottom_main()
-        return
-
-    if sub in ("trend-transition", "trend_transition", "study3a"):
-        from src.research.trend_transition.cli import main as tt_main
-        sys.argv = [sys.argv[0], *argv[1:]]
-        tt_main()
-        return
-
-    if sub in ("leader-breakout", "leader_breakout"):
-        from src.research.leader_breakout.cli import main as lb_main
-        sys.argv = [sys.argv[0], *argv[1:]]
-        lb_main()
-        return
-
-    print("research subcommands: replay (single|parity|range), event-study, expression-regime, basket run, etf-bottom, trend-transition (study3a), leader-breakout")
+    print("research subcommands: basket compare")
     sys.exit(2)
 
 

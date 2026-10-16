@@ -1,3 +1,5 @@
+> 当前正式basket_compare（2026-10-16）：8个研究主题+高现金流，共9篮子/68只去重个股，禾赛排除。个股与沪深300仅长桥，ForwardAdjust收盘价/NoAdjust指数；固定初始权重后买入持有。入口为 `python src/main.py research basket compare --start YYYY-MM-DD --end YYYY-MM-DD --snapshot <目录> --output <目录>`，联网需显式 `--allow-online-fetch`。旧legacy-run/legacy-fetch仅历史研究，不能作为正式报告备用。详见 [切换记录](validation/BASKET_COMPARE_LONGBRIDGE_20261016.md)。下文保留研究配置和证据阶段定义。
+
 # Research Basket
 
 Research Basket 是独立于 Layer ①/②/③ 和 Portfolio Execution 的主题篮子研究模块。

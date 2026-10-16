@@ -385,4 +385,4 @@ def _print_summary(report: BackfillReport, log: Callable) -> None:
 
 
 def backfill_dir() -> Path:
-    return data_dir() / "etf_signal" / "backfill"
+    return data_dir() / "sources" / "etf_em_sina" / "state"

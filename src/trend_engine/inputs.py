@@ -48,7 +48,8 @@ STOCK_METRICS_COLUMNS = [
     "return_5d", "return_20d", "trend_score", "score_trend", "watch_level", "action", "risk_flags",
     "technical_diagnostics",
     "volatility_20d", "drawdown_20d",
-    "name", "market", "source", "data_status", "source_trade_date", "lag_days",
+    "name", "market", "source", "source_route", "adjustment_requested", "price_basis",
+    "price_basis_verified", "data_status", "source_trade_date", "lag_days",
 ]
 
 
@@ -141,6 +142,7 @@ def _normalize_row(
     row: pd.Series,
     trade_date: date,
     processed_dir: Path,
+    source_route: str = "unknown",
 ) -> dict[str, Any]:
     """把 compute_trends 的一行结果归一化为统一 schema。"""
     symbol = str(row.get("symbol", ""))
@@ -163,6 +165,17 @@ def _normalize_row(
     lag = _business_days_between(src_date, trade_date) if (data_status in ("stale", "current") and src_date is not None) else 0
 
     metrics = _processed_metrics(processed_dir / f"{row.get('market', '')}_{symbol}.csv")
+    market = str(row.get("market", "") or "")
+    if market == "CN":
+        adjustment_requested = "qfq" if source_route in {"em", "sina", "tx"} else "unknown"
+        price_basis = ("qfq_requested_unverified" if adjustment_requested == "qfq"
+                       else "cached_or_unknown_adjustment")
+    elif market == "HK":
+        adjustment_requested = "provider_default"
+        price_basis = "provider_default_adjustment_unknown"
+    else:
+        adjustment_requested = "provider_default"
+        price_basis = "provider_adjustment_unknown"
 
     def _float(v: Any) -> float | None:
         if v is None or (isinstance(v, float) and pd.isna(v)):
@@ -190,8 +203,12 @@ def _normalize_row(
         "volatility_20d": metrics["volatility_20d"],
         "drawdown_20d": metrics["drawdown_20d"],
         "name": str(row.get("name", symbol)),
-        "market": str(row.get("market", "") or ""),
+        "market": market,
         "source": source,
+        "source_route": source_route,
+        "adjustment_requested": adjustment_requested,
+        "price_basis": price_basis,
+        "price_basis_verified": False,
         "data_status": data_status,
         "source_trade_date": pd.Timestamp(src_date) if src_date is not None else pd.NaT,
         "lag_days": lag,
@@ -213,7 +230,7 @@ def build_stock_metrics(
         trade_date: 目标 trade_date YYYYMMDD（产物命名 + 行内 trade_date）
         offline: 仅用缓存（确定性，不联网）；False = 允许在线补数（轻量重试、无缓存记 missing）
         persist: False 时只返回 DataFrame，不写 parquet，也不写 processed CSV（Replay 内存调用，
-                 避免覆盖正式产物与 data/processed/CN_*.csv）
+                 避免覆盖正式产物与 data/legacy/processed/CN_*.csv）
     """
     from src.common.paths import processed_dir as common_processed_dir
 
@@ -233,7 +250,17 @@ def build_stock_metrics(
 
     trade_d = pd.Timestamp(trade_date).date()
     processed_dir = common_processed_dir()
-    rows = [_normalize_row(r, trade_d, processed_dir)
+    audit_assets = (trend_df.attrs.get("source_audit") or {}).get("assets") or []
+    source_routes = {
+        (str(item.get("market", "")), str(item.get("symbol", ""))):
+        str(item.get("source_route") or item.get("source") or "unknown")
+        for item in audit_assets
+    }
+    rows = [_normalize_row(
+                r, trade_d, processed_dir,
+                source_routes.get((str(r.get("market", "")), str(r.get("symbol", ""))),
+                                  "cache" if str(r.get("data_source", "")) == "cache" else "unknown"),
+            )
             for _, r in trend_df.iterrows()] if not trend_df.empty else []
 
     df = pd.DataFrame(rows, columns=STOCK_METRICS_COLUMNS)

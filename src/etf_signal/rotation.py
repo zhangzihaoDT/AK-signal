@@ -390,14 +390,28 @@ def compute_rotation_metrics(
 
     # 名称 / 桶信息
     if not master.empty and "fund_code" in master.columns:
-        m_cols = [c for c in ["fund_code", "fund_name", "asset_bucket"] if c in master.columns]
+        m_cols = [c for c in ["fund_code", "fund_name", "asset_bucket", "tracking_index",
+                              "tracking_index_code"] if c in master.columns]
         etf = etf.merge(master[m_cols].drop_duplicates(subset=["fund_code"]), on="fund_code", how="left")
     else:
         etf["fund_name"] = ""
         etf["asset_bucket"] = ""
+        etf["tracking_index"] = ""
+        etf["tracking_index_code"] = ""
 
     etf["asset_bucket"] = etf["asset_bucket"].fillna("").astype(str)
     etf["fund_name"] = etf["fund_name"].fillna("")
+    for column in ("tracking_index", "tracking_index_code"):
+        if column not in etf:
+            etf[column] = ""
+        etf[column] = etf[column].fillna("").astype(str).str.strip()
+    etf["tracking_index_status"] = np.where(
+        etf["tracking_index"].ne("") & etf["tracking_index_code"].ne(""),
+        "present_unverified", "missing",
+    )
+    etf["classification_status"] = np.where(
+        etf["asset_bucket"].ne(""), "classified_unverified", "unclassified",
+    )
     etf["bucket_label"] = etf["asset_bucket"].map(BUCKET_LABELS).fillna(etf["asset_bucket"])
     asset_class_map = {k: ASSET_CLASS_LABEL.get(v.get("asset_class", ""), "其他")
                        for k, v in classifier.BUCKET_DEFINITIONS.items()}

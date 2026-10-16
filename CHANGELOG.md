@@ -1,8 +1,19 @@
 # Changelog
 
+## v0.6.0 — 2026-10-16
+
+AKsignal 定位更新为 **Investment Decision System**，正式采用 Data Foundation → Market Facts → Strategy → Portfolio / Position 四层架构。本版本完成重点为 Data Foundation 与 Market Facts 稳定化；Strategy 和 Portfolio / Position 留待后续阶段重新设计。
+
+- 建立标准化 Market Facts 数据契约，显式记录证券身份、供应商、价格依据、分类版本、源交易日、快照摘要与质量状态。
+- 正式来源定界：个股长桥 ForwardAdjust，ETF 东方财富/新浪模块路由，行业 TDX Research Industry 128 个二级行业；模块间不交叉备用或拼接不同口径。
+- 按来源重组历史数据、增量更新、审计与状态存储；更新失败、目标日缺失、历史不足和不完整行业横截面分别显式处理。
+- 日报生产链路统一 trade_date、数据质量门控、模块级 PARTIAL/UNAVAILABLE 与原子发布。
+- Basket Compare 独立使用长桥同源收盘价与沪深300基准，固定初始权重后买入持有，不作为真实组合收益或策略建议。
+- Strategy 信号与 Position 仓位决策职责分离；不恢复旧 Selection、Timing、三 Lane 或旧回测作为新策略实现。
+
 ## v0.5.0 — 2026-10-13
 
-当前正式基线：Market Facts 观察系统；完整项目定位为 Market Intelligence & Portfolio Strategy System。Portfolio State 与新 Strategy 五项能力仍为后续建设方向。
+当时的正式基线为 Market Facts 观察系统，项目定位与四层职责在 v0.6.0 中更新为 Investment Decision System。
 
 - 每日主链收敛为数据获取、ETF/行业/固定池个股趋势、ETF与股票底部位置、验收和统一发布；移除旧自动推荐与研究步骤。
 - 日报固定为市场方向、趋势活跃、底部位置及独立数据质量区。

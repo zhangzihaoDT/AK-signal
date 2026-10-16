@@ -1,5 +1,5 @@
 """
-结构级测试：验证 trend_engine（引擎）与 selection（Layer ③）的包结构、导入和 CLI 路由。
+结构级测试：验证趋势计算引擎及其观察池配置依赖。
 """
 
 from __future__ import annotations
@@ -8,7 +8,7 @@ import importlib
 
 
 def test_package_imports():
-    """所有引擎/决策模块可正常导入"""
+    """趋势引擎和配置加载模块可正常导入。"""
     modules = [
         "src.trend_engine.asset",
         "src.trend_engine.data_provider",
@@ -17,9 +17,6 @@ def test_package_imports():
         "src.trend_engine.scoring",
         "src.trend_engine.engine",
         "src.selection.universe",
-        "src.selection.selection",
-        "src.selection.report",
-        "src.selection.cli",
     ]
     for mod_name in modules:
         mod = importlib.import_module(mod_name)
@@ -79,29 +76,12 @@ def test_scoring_functions(sample_ohlcv):
     assert isinstance(flags, str)
 
 
-def test_selection_cli_parser():
-    from src.selection.cli import build_arg_parser
-
-    parser = build_arg_parser()
-    args = parser.parse_args(["run", "--offline"])
-    assert args.command == "run"
-    assert args.offline is True
-
-
-def test_main_routes_select():
-    """main.py 将 select/layer3 路由到 selection"""
-    from src.main import SW_INDUSTRY_COMMANDS
-
-    assert "bootstrap" in SW_INDUSTRY_COMMANDS
-    assert "run-day" in SW_INDUSTRY_COMMANDS
-
-
 def test_no_circular_imports():
-    """engine 与 selection 之间无循环导入"""
+    """引擎与观察池配置之间无循环导入。"""
     import src.trend_engine.engine
-    import src.selection.selection
+    import src.selection.universe
     importlib.reload(src.trend_engine.engine)
-    importlib.reload(src.selection.selection)
+    importlib.reload(src.selection.universe)
     assert True
 
 
@@ -116,5 +96,5 @@ def test_project_root_resolves():
 
     root = project_root()
     assert (root / "src" / "trend_engine").exists()
-    assert (root / "src" / "selection").exists()
+    assert (root / "src" / "selection" / "universe.py").exists()
     assert (root / "config" / "selection_universe.yaml").exists()

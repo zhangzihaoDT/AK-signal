@@ -2,7 +2,7 @@
 Data 维护命令 — 独立于回测的在线数据刷新。
 
   data benchmark refresh --symbol sh000300 [--end-date YYYYMMDD]
-    刷新 HS300 指数缓存（data/raw/_benchmark_sh000300.csv）。
+    刷新 HS300 指数缓存（data/legacy/raw/_benchmark_sh000300.csv）。
     回测本身保持离线；此处为手动在线补数。
 """
 

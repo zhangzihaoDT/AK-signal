@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.research.baskets.calculator import (
+from src.research.baskets.legacy.calculator import (
     build_nav, contribution_analysis, metrics, quarterly_rebalanced_nav, rolling_analysis,
 )
 from src.research.baskets.config import basket_config_hash, expand_constituents, load_baskets
@@ -43,7 +43,7 @@ def test_nav_benchmark_anchored_at_common_start():
 
 def test_compare_report_rich_panels(tmp_path):
     """富报告渲染：nav 含指标/滚动/贡献/子组；quarterly 不带买入窗口口径面板。"""
-    from src.research.baskets.report import compare_report
+    from src.research.baskets.legacy.report import compare_report
 
     idx = pd.to_datetime(["2025-01-01", "2025-01-02", "2025-01-03"])
     nav = pd.DataFrame({"basket": [100.0, 101.0, 102.0], "benchmark": [100.0, 100.5, 101.0]}, index=idx)
@@ -89,7 +89,7 @@ def test_compare_report_rich_panels(tmp_path):
 def test_last_complete_trading_day_cutoff():
     from datetime import datetime
 
-    from src.research.baskets.calculator import last_complete_trading_day
+    from src.research.baskets.legacy.calculator import last_complete_trading_day
 
     dates = ["2026-09-23", "2026-09-24"]
     # 盘中：当日未收盘 → 退回上一交易日
@@ -104,8 +104,8 @@ def test_last_complete_trading_day_cutoff():
 
 def test_window_truncated_to_last_complete_day(tmp_path, monkeypatch):
     """盘中运行：当日未收盘 bar 被排除，nav 结束于上一完整交易日。"""
-    import src.research.baskets.calculator as calc
-    from src.research.baskets.calculator import calculate_basket
+    import src.research.baskets.legacy.calculator as calc
+    from src.research.baskets.legacy.calculator import calculate_basket
 
     dates = pd.to_datetime(["2026-09-23", "2026-09-24"])
     prices = pd.DataFrame({"group": "a", "symbol": "A", "name": "A公司",
@@ -146,8 +146,8 @@ baskets:
 
 def test_nav_and_quarterly_share_window(tmp_path, monkeypatch):
     """买入持有与季度再平衡共用同一窗口（起点一致、均 = 100）。"""
-    import src.research.baskets.calculator as calc
-    from src.research.baskets.calculator import calculate_basket
+    import src.research.baskets.legacy.calculator as calc
+    from src.research.baskets.legacy.calculator import calculate_basket
 
     dates = pd.bdate_range("2024-08-01", "2024-12-31")
     prices = pd.DataFrame({
@@ -223,7 +223,7 @@ def test_theme_baskets_exclude_etf_tiers():
 
 def test_fetch_source_keys_dedup():
     """按 (type, key) 去重：多篮子共享同一来源只抓一次。"""
-    from src.research.baskets.fetch import source_keys
+    from src.research.baskets.legacy.fetch import source_keys
 
     keys = source_keys()
     assert len(keys) == len(set(keys))
@@ -235,7 +235,7 @@ def test_fetch_source_keys_dedup():
 
 def test_fetch_collect_skips_etf_tiers():
     """collect_assets 默认跳过 ETF tier（纯配置读取，不联网）。"""
-    from src.research.baskets.fetch import DEFAULT_SKIP_TIERS, _collect_assets, _load_section
+    from src.research.baskets.legacy.fetch import DEFAULT_SKIP_TIERS, _collect_assets, _load_section
 
     for key in ("ai_infrastructure", "china_auto_global"):
         section = _load_section("theme", key)
@@ -288,7 +288,7 @@ def test_evidence_stage_follows_canonical_enum():
 
 
 def test_cross_basket_overlap_detects_common_constituent():
-    from src.research.baskets.report import cross_basket_overlap
+    from src.research.baskets.legacy.report import cross_basket_overlap
 
     results = [
         {"basket": {"key": "b1"}, "constituents": pd.DataFrame([

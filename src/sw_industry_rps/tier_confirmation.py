@@ -27,7 +27,7 @@ Layer ② Tier-level confirmation（v0.9.1/v0.9.2）— Theme → Tier basket �
       「未确认 · N 个 Tier 进入观察」。
   申万行业（confirmation parquet）保留为 Evidence，不再是确认 Gate。
 
-产物：data/processed/sw_industry/tier_confirmation_{trade_date}.parquet
+产物：data/legacy/processed/sw_industry/tier_confirmation_{trade_date}.parquet
       （含 trade_date / run_date / generated_at / data_status / source 元数据）
 """
 
@@ -388,7 +388,7 @@ def build_tier_confirmation_parquet(
         stock_metrics: stock_metrics parquet 内容；为空 → Tier 全部 unavailable（不阻塞）
         data_status: confirmed / provisional
         source: 数据来源标签
-        processed_dir: 落盘目录（默认 data/processed/sw_industry）
+        processed_dir: 落盘目录（默认 data/legacy/processed/sw_industry）
         universe_items: universe items（可空，从 selection_universe.yaml 现读）
 
     Returns:

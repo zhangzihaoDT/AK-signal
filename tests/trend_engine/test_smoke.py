@@ -5,18 +5,14 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
 from src.common.paths import project_root
 from src.trend_engine.engine import load_asset_state, build_logger
 from src.selection.universe import load_universe_items
 
-from src.selection.cli import build_arg_parser
-from src.main import SW_INDUSTRY_COMMANDS, main as main_router
 
 
 def test_project_root_resolves_to_akignal():
@@ -33,51 +29,6 @@ def test_load_universe_has_assets():
     symbols = {item.asset.symbol for item in items}
     assert "300308" in symbols, "Expected 中际旭创（AI 基础设施）in universe"
     assert "600900" in symbols, "Expected 长江电力（高现金流资产）in universe"
-
-
-def test_selection_cli_parser():
-    parser = build_arg_parser()
-    args = parser.parse_args(["run", "--offline"])
-    assert args.command == "run"
-    assert args.offline is True
-
-
-def test_main_routes_select():
-    """main.py 将 select 路由到 selection"""
-    old_argv = sys.argv.copy()
-    try:
-        sys.argv = ["main.py", "select", "--help"]
-        with pytest.raises((SystemExit, Exception)):
-            main_router()
-    finally:
-        sys.argv = old_argv
-
-
-def test_main_routes_sw_industry():
-    """验证 main.py 路由：industry 转向行业 RPS"""
-    old_argv = sys.argv.copy()
-    try:
-        sys.argv = ["main.py", "industry", "--help"]
-        with pytest.raises((SystemExit, Exception)):
-            main_router()
-    finally:
-        sys.argv = old_argv
-
-
-def test_main_routes_legacy_run_day():
-    """验证 main.py 路由：run-day 向后兼容"""
-    old_argv = sys.argv.copy()
-    try:
-        sys.argv = ["main.py", "run-day", "--help"]
-        with pytest.raises((SystemExit, Exception)):
-            main_router()
-    finally:
-        sys.argv = old_argv
-
-
-def test_sw_industry_commands_set():
-    expected = {"bootstrap", "update", "calculate", "report", "validate", "run-day", "drilldown"}
-    assert SW_INDUSTRY_COMMANDS == expected
 
 
 def test_asset_state_roundtrip(tmp_path):

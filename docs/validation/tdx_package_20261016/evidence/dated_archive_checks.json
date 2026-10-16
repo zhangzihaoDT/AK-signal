@@ -1,0 +1,86 @@
+{
+  "observed_at": "2026-10-16T06:49:41.889224+00:00",
+  "checks": [
+    {
+      "date": "20261009",
+      "url": "https://www.tdx.com.cn/products/data/data/g3day/20261009.zip",
+      "status": 200,
+      "bytes": 1898169,
+      "sha256": "b70185a53add2ef581790dbe391793bf8fa1c291aaa76baa730bf8f09bad5cb3",
+      "crc_ok": true,
+      "code_strings_found": 128,
+      "last_modified": "Fri, 09 Oct 2026 09:00:04 GMT",
+      "members": [
+        "sh261009.mdt",
+        "sz261009.mdt",
+        "sh261009.cod",
+        "sz261009.cod"
+      ]
+    },
+    {
+      "date": "20261012",
+      "url": "https://www.tdx.com.cn/products/data/data/g3day/20261012.zip",
+      "status": 200,
+      "bytes": 1899976,
+      "sha256": "ceef9221413ded6afb21ccd6f82c67e43d2fdff26d88503c837191bec8cb09ce",
+      "crc_ok": true,
+      "code_strings_found": 128,
+      "last_modified": "Mon, 12 Oct 2026 09:00:03 GMT",
+      "members": [
+        "sh261012.mdt",
+        "sz261012.mdt",
+        "sh261012.cod",
+        "sz261012.cod"
+      ]
+    },
+    {
+      "date": "20261013",
+      "url": "https://www.tdx.com.cn/products/data/data/g3day/20261013.zip",
+      "status": 200,
+      "bytes": 1908963,
+      "sha256": "595774c7a210a3a961b7a95ef33baf3d112d5f64c3f04f061a496409dd5387d9",
+      "crc_ok": true,
+      "code_strings_found": 128,
+      "last_modified": "Tue, 13 Oct 2026 09:00:03 GMT",
+      "members": [
+        "sh261013.mdt",
+        "sz261013.mdt",
+        "sh261013.cod",
+        "sz261013.cod"
+      ]
+    },
+    {
+      "date": "20261014",
+      "url": "https://www.tdx.com.cn/products/data/data/g3day/20261014.zip",
+      "status": 200,
+      "bytes": 1897311,
+      "sha256": "8af8a137888ba80b5fb2dcdd27268c9afcf27a9aacfe4699b8ffea0737e727d3",
+      "crc_ok": true,
+      "code_strings_found": 128,
+      "last_modified": "Wed, 14 Oct 2026 09:00:03 GMT",
+      "members": [
+        "sh261014.mdt",
+        "sz261014.mdt",
+        "sh261014.cod",
+        "sz261014.cod"
+      ]
+    },
+    {
+      "date": "20261015",
+      "url": "https://www.tdx.com.cn/products/data/data/g3day/20261015.zip",
+      "status": 200,
+      "bytes": 1903925,
+      "sha256": "574ab95873b194d92b960d95527cc376be2a9e635dce2df4144accf17af5c91a",
+      "crc_ok": true,
+      "code_strings_found": 128,
+      "last_modified": "Thu, 15 Oct 2026 09:00:05 GMT",
+      "members": [
+        "sh261015.mdt",
+        "sz261015.mdt",
+        "sh261015.cod",
+        "sz261015.cod"
+      ]
+    }
+  ],
+  "limitation": "Retrospective accessibility and code-string presence only; does not validate MDT prices or establish daily publication SLA."
+}

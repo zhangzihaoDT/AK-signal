@@ -71,6 +71,15 @@ class TestMarketPulseColumns:
             assert col in rot.columns
             assert pd.to_numeric(rot[col], errors="coerce").notna().any()
 
+    def test_tracking_and_classification_gaps_are_explicit(self):
+        master = _master_df()
+        master["tracking_index"] = ["", "电力指数", "", ""]
+        master["tracking_index_code"] = ["", "931991", "", ""]
+        rot = rotation.compute_rotation_metrics(_combined_df(), master).set_index("fund_code")
+        assert rot.loc["A", "tracking_index_status"] == "missing"
+        assert rot.loc["B", "tracking_index_status"] == "present_unverified"
+        assert rot.loc["A", "classification_status"] == "classified_unverified"
+
     def test_rps1_matches_cross_section(self):
         rot = rotation.compute_rotation_metrics(_combined_df(), _master_df())
         ref = _ref_rps(_combined_df(), 1, sorted(EQUITY))

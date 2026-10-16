@@ -36,6 +36,7 @@ from . import constituents as sw_constituents
 from . import contribution as sw_contribution
 from . import confirmation, ths_mapping
 from . import structure
+from .source_status import price_source_dates, verified_price_dates
 
 
 def build_logger(level: str = "INFO") -> logging.Logger:
@@ -256,15 +257,17 @@ def _build_realtime_provisional(
     """realtime 基底 → 全部 active 行业的 provisional 收盘。
 
     realtime 的 close 为申万指数真实值，覆盖全部 124 个申万二级：
-      - 目标日 < 今天（上午跑，target=T-1）：用 昨收盘（= T-1 收盘）
-      - 目标日 == 今天（收盘后跑，target=T）：用 最新价（= T 收盘）
+      - 目标日 < 今天：仅当 prev_close_trade_date 与目标日一致才用昨收盘
+      - 目标日 == 今天：仅当 close_trade_date 与目标日一致才用最新价
+    无独立字段日期时返回空，交由带日期历史源补齐，禁止按运行时间推断价格日期。
 
     Returns:
         df columns: industry_code, trade_date, close, pct_chg, data_status, source, fetched_at
     """
     logger = logging.getLogger("sw_industry_rps")
     target = pd.Timestamp(target_date_str).date()
-    today = (now or datetime.now()).date()
+    from src.common.trading_calendar import shanghai_now
+    today = (now or shanghai_now()).date()
 
     code_col = "industry_code" if "industry_code" in rt_df.columns else "指数代码"
     if code_col not in rt_df.columns:
@@ -277,8 +280,16 @@ def _build_realtime_provisional(
         return pd.DataFrame()
 
     use_latest = (target == today)
+    # Only field-specific source dates qualify; fetched_at / local target do not.
+    date_col = "close_trade_date" if use_latest else "prev_close_trade_date"
+    if date_col not in rt_df.columns:
+        logger.warning("realtime 缺少独立价格日期 %s，跳过未核验价格，尝试带日期历史源", date_col)
+        return pd.DataFrame()
     rows: list[dict[str, Any]] = []
     for _, r in rt_df.iterrows():
+        source_date = pd.to_datetime(r[date_col], errors="coerce")
+        if pd.isna(source_date) or source_date.date() != target:
+            continue
         code = str(r[code_col]).strip()
         if not code.endswith(".SI"):
             code = f"{code}.SI"
@@ -300,6 +311,7 @@ def _build_realtime_provisional(
         rows.append({
             "industry_code": code,
             "trade_date": target,
+            "source_trade_date": source_date.date(),
             "close": round(raw_close, 4),
             "pct_chg": round(pct * 100.0, 4),
             "data_status": "provisional",
@@ -408,7 +420,8 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
             )
             if not df_all.empty:
                 # 只保留 active universe 中的行业
-                df_active = df_all[df_all["industry_code"].isin(active_codes)].copy()
+                df_active = df_all[df_all["industry_code"].isin(active_codes)
+                                   & pd.to_datetime(df_all["trade_date"]).eq(pd.Timestamp(target_date_str))].copy()
                 saved, errors = storage.batch_save_industry_data(df_active, raw_dir, target_date_str)
                 logger.info("  saved: %d / %d active industries (errors=%d, fetch=%.1fs)",
                             saved, len(active_codes), errors, time.monotonic() - t0)
@@ -490,24 +503,35 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
             completed = set()
             failed_map: dict[str, int] = {}
 
+        # Revalidate checkpoints and old caches: max(date) is not target evidence.
+        def has_verified_target(code):
+            cached = storage.load_industry_raw(raw_dir, code)
+            return (not cached.empty and (
+                pd.to_datetime(cached["trade_date"]).eq(pd.Timestamp(target_date_str))
+                & verified_price_dates(cached)).any())
+
+        completed = {c for c in completed if c in active_codes and has_verified_target(c)}
         codes_to_fetch = [c for c in active_codes if c not in completed]
         random.shuffle(codes_to_fetch)
         fetch_start = time.monotonic()
         for code in codes_to_fetch:
             last_date = storage.load_industry_latest_date(raw_dir, code)
-            if last_date is not None and last_date >= pd.Timestamp(target_date_str).date():
+            if has_verified_target(code):
                 completed.add(code)
                 continue
             cached = storage.load_industry_raw(raw_dir, code)
-            inc_start = (last_date + timedelta(days=1)).strftime("%Y%m%d") if last_date is not None else "20200101"
+            inc_start = min((last_date + timedelta(days=1)).strftime("%Y%m%d"), target_date_str) if last_date is not None else "20200101"
             try:
                 time.sleep(random.uniform(0.5, 1.5))
                 df_new = data_source.fetch_industry_hist(code, start_date=inc_start, end_date=target_date_str)
                 if not df_new.empty:
                     merged = storage.merge_incremental(cached, df_new)
                     storage.save_industry_raw(merged, raw_dir, code)
-                    completed.add(code)
-                    failed_map.pop(code, None)
+                    if has_verified_target(code):
+                        completed.add(code)
+                        failed_map.pop(code, None)
+                    else:
+                        failed_map[code] = failed_map.get(code, 0) + 1
                 else:
                     failed_map.setdefault(code, 0)
                     failed_map[code] += 1
@@ -544,23 +568,32 @@ def cmd_update(args: argparse.Namespace) -> UpdateResult:
         "completed_provisional" if target_ready else "waiting_for_source"
     )
 
-    logger.info("update complete: source=%s, status=%s, covered=%d/%d",
+    verified_covered, _, _ = validate_raw_completeness(raw_dir, explicit_target, active_codes)
+    logger.info("update complete: source=%s, status=%s, verified_target_coverage=%d/%d",
                 update_source, status,
-                sum(1 for d in final_latest_dates if d is not None and d >= request_date),
+                verified_covered,
                 len(active_codes))
 
     # 汇总写入：用 target_date_str（本次目标日期），而非文件扫描的 source_latest
     confirmed_date_for_status = target_date_str if update_source in ("analysis_daily", "hist_sw") else None
-    available_date_for_status = target_date_str if target_ready else (source_latest_str or "")
+    verified_latest = []
+    for code in active_codes:
+        cached = storage.load_industry_raw(raw_dir, code)
+        if not cached.empty:
+            valid = cached.loc[verified_price_dates(cached), "trade_date"]
+            if not valid.empty:
+                verified_latest.append(pd.to_datetime(valid).max())
+    available_date_for_status = target_date_str if target_ready else (
+        max(verified_latest).strftime("%Y%m%d") if verified_latest else "")
     storage.save_update_status(raw_dir, status, available_date_for_status, update_source,
                                confirmed_date=confirmed_date_for_status)
     return UpdateResult(
         status=status,
         requested_target_date=explicit_target,
-        source_latest_common_date=source_latest_str,
+        source_latest_common_date=available_date_for_status or None,
         target_ready=target_ready,
         update_source=update_source,
-        raw_covered=len([d for d in final_latest_dates if d is not None and d >= request_date]),
+        raw_covered=verified_covered,
         active_count=len(active_codes),
     )
 
@@ -574,7 +607,8 @@ def validate_raw_completeness(raw_dir: Path, target_date: str, active_codes: lis
     missing: list[str] = []
     for code in active_codes:
         df = storage.load_industry_raw(raw_dir, code)
-        if not df.empty and (pd.to_datetime(df["trade_date"]) == pd.Timestamp(target_date)).any():
+        if not df.empty and ((pd.to_datetime(df["trade_date"]) == pd.Timestamp(target_date))
+                             & verified_price_dates(df)).any():
             covered += 1
         else:
             missing.append(code)
@@ -589,7 +623,7 @@ def _count_provisional_coverage(raw_dir: Path, target_date: str, active_codes: l
         df = storage.load_industry_raw(raw_dir, code)
         if df.empty:
             continue
-        latest = df[df["trade_date"] >= target]
+        latest = df[(df["trade_date"] == target) & verified_price_dates(df)]
         if latest.empty:
             continue
         row = latest.iloc[-1]
@@ -647,7 +681,7 @@ def cmd_calculate(args: argparse.Namespace) -> None:
                          covered, expected, prov_covered, expected, min_cov * 100)
             for c in missing[:10]:
                 logger.error("  missing: %s", c)
-            return
+            raise ValueError("行业目标日价格缺失或缺少独立源交易日证据，停止计算")
 
     # Load all active industry raw data
     all_hist: list[pd.DataFrame] = []
@@ -664,6 +698,9 @@ def cmd_calculate(args: argparse.Namespace) -> None:
     combined = pd.concat(all_hist, ignore_index=True)
     if explicit_date:
         combined = combined[pd.to_datetime(combined["trade_date"]) <= pd.Timestamp(target_date)].copy()
+    if not verified_price_dates(combined).all():
+        raise ValueError("行业历史价格缺少独立源交易日证据或日期不一致，请先补齐带日期行情后重新计算")
+    combined["source_trade_date"] = price_source_dates(combined)
     logger.info("computing metrics for %d rows across %d industries", len(combined), combined["industry_code"].nunique())
 
     result = metrics.compute_all_metrics(combined, windows=windows,
@@ -1194,12 +1231,13 @@ def _evidence_source_label(sources: list[str], provisional: bool) -> str:
 def _observation_falls_on_closed_day(target_date: pd.Timestamp) -> bool:
     """目标交易日是否为「已完整收盘」的交易日。
 
-    兜底源观测是否完整，取决于 target 对应的交易日是否已经收盘：
-      - target < 今天         → 已收盘的过去交易日（兜底源用昨收盘）→ 完整
+    仅判断目标日是否已收盘，不证明价格所属日期；消费前须另验源日期。
+      - target < 今天         → 已收盘的过去交易日
       - target == 今天        → 需在收盘点名（15:10）之后才算完整；盘前/盘中 → partial
       - target > 今天         → 未来日期，视作不完整（防御）
     """
-    now = datetime.now()
+    from src.common.trading_calendar import shanghai_now
+    now = shanghai_now()
     today = now.date()
     t = target_date.date()
     if t < today:

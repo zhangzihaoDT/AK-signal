@@ -3,19 +3,11 @@ SRC_MAIN = src/main.py
 
 .DEFAULT_GOAL = help
 
-.PHONY: help run-day run-day-offline run-day-check daily-scheduler-install daily-scheduler-start daily-scheduler-stop daily-scheduler-restart daily-scheduler-status daily-scheduler-uninstall \
-	etf-bootstrap etf-bootstrap-core etf-update etf-calculate \
-	etf-classify etf-layer1 etf-watchlist etf-account etf-account-blacklist etf-card etf-pipeline \
-	etf-refresh-v1 three-lane opportunity-radar run-day-summary \
-	etf-retry-uncovered \
-	sw-rps-run-day sw-rps-update sw-rps-calculate sw-rps-confirm sw-rps-report \
-	sw-rps-bootstrap sw-rps-validate sw-rps-drilldown sw-rps-structure \
-	select select-offline \
-	stock-metrics stock-metrics-online \
-	replay-single replay-parity replay-range event-study basket basket-refresh \
-	backtest-trades backtest-sensitivity backtest-matrix backtest-portfolio backtest-construction \
-	etf-bottom etf-bottom-price-map etf-bottom-odds etf-bottom-drilldown etf-bottom-episodes etf-bottom-context etf-bottom-context-replication etf-bottom-repair etf-bottom-current-eval etf-bottom-scan etf-bottom-v1-backtest etf-mapping-feasibility trend-transition-3a trend-transition-3b trend-transition-3c trend-transition-state leader-breakout \
-	test install clean
+.PHONY: help run-day run-day-offline run-day-check run-day-status run-day-summary \
+	daily-scheduler-install daily-scheduler-start daily-scheduler-stop daily-scheduler-restart daily-scheduler-status daily-scheduler-uninstall \
+	etf-bootstrap etf-bootstrap-core etf-update etf-calculate etf-retry-uncovered \
+	etf-preflight etf-backfill \
+	stock-metrics stock-metrics-online basket basket-refresh test install clean
 
 help: ## 显示帮助信息
 	@grep -E '^[-a-zA-Z_0-9]+:.*## ' $(MAKEFILE_LIST) | sort | \
@@ -107,59 +99,6 @@ etf-card: ## 生成 ETF 候选信息卡片
 etf-pipeline: ## 完整发现链路：watchlist → account → card → JSON+CSV+HTML
 	$(PYTHON) $(SRC_MAIN) etf pipeline
 
-etf-refresh-v1: ## [Lane2] 轻量刷新 v1_signal_daily.parquet（每日全历史重算，Lane 3 状态机输入）
-	$(PYTHON) $(SRC_MAIN) research etf-bottom --refresh-v1
-
-three-lane: ## 三 Lane 合成表（watchlist × v1_signal_daily × trend_transition_state）+ 重渲染 ETF 报告（④ 三 Lane 路径视图）
-	$(PYTHON) $(SRC_MAIN) etf three-lane $(if $(TL_DATE),--date $(TL_DATE),)
-
-opportunity-radar: ## [Observation/Discovery] Theme 外机会 Radar（消费 Layer① × Theme Mapping × Lane2/3 事实，不联网）。RADAR_DATE=YYYYMMDD 可选钉定目标日
-	$(PYTHON) $(SRC_MAIN) opportunity-radar run $(if $(RADAR_DATE),--date $(RADAR_DATE),)
-
-# ── SW-RPS 行业信号模块（ETF 子模块） ──────────────────────────
-# 结构：confirm 是 calculate 的下游，复用 calculate 产出的 RPS/指标，
-#       不维护第二套指标计算逻辑。
-
-sw-rps-run-day: ## SW-RPS 全流程：update→calculate→confirm→structure(offline enrichment,soft-fail)→report
-	$(MAKE) sw-rps-update      # 1. 获取行情（内置 freshness probe）
-	$(MAKE) sw-rps-calculate   # 2. 计算全量申万二级 RPS
-	$(MAKE) sw-rps-confirm     # 3. Layer ② 主题确认（落 confirmation parquet，下游 report 第三问消费）
-	$(MAKE) sw-rps-report      # 4. report 前置 offline structure enrichment（soft-fail），再生成报告（消费 confirmation）
-
-# SW-RPS 日期锚点：SW_DATE=YYYYMMDD 从 Makefile 一路透传到 update/calculate/confirm/report。
-# 空（默认）时各 stage 用自身最新/默认日；设置后全部按同一目标日推进（对齐 TL_DATE/SCAN_DATE/L3_DATE 写法）。
-SW_DATE ?=
-
-sw-rps-run-day-provisional: ## SW-RPS 全流程（允许 provisional 数据）
-	$(PYTHON) $(SRC_MAIN) industry run-day --allow-provisional $(if $(SW_DATE),--target-date $(SW_DATE),)
-
-sw-rps-update: ## 增量拉取行业行情（SW_DATE=YYYYMMDD 可选钉定目标日）
-	$(PYTHON) $(SRC_MAIN) industry update $(if $(SW_DATE),--target-date $(SW_DATE),)
-
-sw-rps-update-provisional: ## 增量拉取行业行情（允许 provisional）
-	$(PYTHON) $(SRC_MAIN) industry update --allow-provisional $(if $(SW_DATE),--target-date $(SW_DATE),)
-
-sw-rps-calculate: ## 计算行业 RPS（SW_DATE=YYYYMMDD 可选钉定目标日）
-	$(PYTHON) $(SRC_MAIN) industry calculate $(if $(SW_DATE),--target-date $(SW_DATE),)
-
-sw-rps-report: ## 生成行业报告（SW_DATE=YYYYMMDD 可选钉定目标日）
-	$(PYTHON) $(SRC_MAIN) industry report $(if $(SW_DATE),--target-date $(SW_DATE),)
-
-sw-rps-bootstrap: ## 初始化行业列表并拉取全部历史数据
-	$(PYTHON) $(SRC_MAIN) industry bootstrap
-
-sw-rps-validate: ## 校验行业数据质量
-	$(PYTHON) $(SRC_MAIN) industry validate
-
-sw-rps-drilldown: ## 强势区成分股贡献穿透分析
-	$(PYTHON) $(SRC_MAIN) industry drilldown
-
-sw-rps-confirm: ## [Layer ②] 主题确认（Theme Confirmation：行业证据，bucket/theme 分层）。SW_DATE=YYYYMMDD 可选钉定目标日
-	$(PYTHON) $(SRC_MAIN) industry confirm $(if $(SW_DATE),--target-date $(SW_DATE),)
-
-sw-rps-structure: ## [Layer ②] Enrichment 行业内部结构（offline 读缓存生成，soft-fail；--allow-online-fetch 做 Cache Refresh）
-	$(PYTHON) $(SRC_MAIN) industry structure
-
 # ── Layer ②/③ 个股趋势指标（Observation 层：Market Observation → Stock / Tier） ──
 
 stock-metrics: ## 构建个股趋势指标产物（Observation 层，离线读缓存确定性；--allow-online-fetch 可手工补数）
@@ -168,117 +107,18 @@ stock-metrics: ## 构建个股趋势指标产物（Observation 层，离线读�
 stock-metrics-online: ## 个股行情在线补数（手工刷新 raw 缓存；run-day 离线不抓个股）
 	$(PYTHON) $(SRC_MAIN) observation stock-metrics $(if $(RUN_DATE),--date $(RUN_DATE),) --allow-online-fetch
 
-select: ## Layer ③ 交易标的筛选（读 Layer①/② + 预计算个股趋势 → 候选对象 JSON + HTML；旧版入口，已退出每日主链，默认禁止联网）
-	$(PYTHON) $(SRC_MAIN) select run
-
-select-offline: ## Layer ③ 交易候选（强制离线，仅读缓存/产物）
-	$(PYTHON) $(SRC_MAIN) select run --offline
-
-# ── v0.5 Historical Replay ───────────────────────────────────────
-
-DATE ?= 20260803
 START ?=
 END ?=
-LAYERS ?= 123
-SIGNALS ?=
-THEME ?= ai_infrastructure
-EXIT ?= signal_exit
-
-replay-single: ## [v0.5] 单日期历史信号重放（纯离线；DATE=YYYYMMDD）
-	$(PYTHON) $(SRC_MAIN) research replay single --date $(DATE)
-
-replay-parity: ## [v0.5] 单日期重放 + 与正式产物 parity 校验（DATE=YYYYMMDD）
-	$(PYTHON) $(SRC_MAIN) research replay parity --date $(DATE)
-
-replay-range: ## [v0.5] 区间历史信号重放（START/END=YYYYMMDD, LAYERS=123|12）
-	$(PYTHON) $(SRC_MAIN) research replay range --start $(START) --end $(END) --layers $(LAYERS)
-
-event-study: ## [v0.5.1] 事件研究（SIGNALS=信号parquet, START/END可选, LAYERS=123）
-	$(PYTHON) $(SRC_MAIN) research event-study --signals $(SIGNALS) --layers $(LAYERS)
 
 # ── Research Basket（主题篮子对比，手动按需） ─────────────────────
 
-BASKETS ?= all
-DAYS ?= 800
+BASKET_OUTPUT ?= .run_day/runs/$(END)/basket-comparison/outputs/research/baskets/comparable
 
-BASKET_RUN = $(PYTHON) $(SRC_MAIN) research basket run --baskets $(BASKETS) \
-	$(if $(START),--start $(START),) $(if $(END),--end $(END),)
+basket: ## [Research] 长桥篮子离线重算（START/END/SNAPSHOT 必填）
+	$(PYTHON) $(SRC_MAIN) research basket compare --start $(START) --end $(END) --snapshot $(SNAPSHOT) --output $(BASKET_OUTPUT)
 
-basket: ## [Research] 主题篮子离线重算 + 富报告（读已落盘价格；BASKETS=all START/END 可选）
-	$(BASKET_RUN)
-
-basket-refresh: ## [Research] 刷 benchmark + 抓篮子来源行情 + 重算（联网；DAYS=800）
-	$(PYTHON) $(SRC_MAIN) data benchmark refresh --symbol sh000300
-	$(PYTHON) $(SRC_MAIN) research basket fetch --days $(DAYS) --baskets $(BASKETS)
-	$(BASKET_RUN)
-
-backtest-trades: ## [v0.5.2] 交易层逐笔模拟（THEME=主题, EXIT=退出策略, SIGNALS=信号）
-	$(PYTHON) $(SRC_MAIN) backtest trades --signals $(SIGNALS) --theme $(THEME) --entity-type etf --exit-policy $(EXIT)
-
-backtest-sensitivity: ## [v0.5.2] 退出规则稳健性（固定/MA/分年/分ETF/成本扫描）
-	$(PYTHON) $(SRC_MAIN) backtest sensitivity --signals $(SIGNALS) --theme $(THEME) --entity-type etf
-
-backtest-matrix: ## [v0.5.2] 四组对比矩阵（configured vs theme-matched）
-	$(PYTHON) $(SRC_MAIN) backtest matrix --signals $(SIGNALS)
-
-backtest-portfolio: ## [v0.6] 共享账户组合模拟（单策略 + Core+Quality）
-	$(PYTHON) $(SRC_MAIN) backtest portfolio --signals $(SIGNALS)
-
-backtest-construction: ## [v0.6] 组合构建实验（Top-N/加权/持仓/比例/现金）
-	$(PYTHON) $(SRC_MAIN) backtest construction --signals $(SIGNALS)
-
-# ── Lane 2 Research（ETF 估值/底部研究） ────────────────────────
-
-etf-bottom: ## [Lane2] Study 1 Price Bottom：729 FULL ETF 长期底部赔率（P756/DD30/MA20/MA60 恢复）
-	$(PYTHON) $(SRC_MAIN) research etf-bottom
-
-etf-bottom-price-map: ## [Lane2] Price Bottom Map：2026-08-28 横截面低位地图（60/120/360D 价格位置）
-	$(PYTHON) $(SRC_MAIN) research etf-bottom --price-map --date 2026-08-28
-
-etf-bottom-odds: ## [Lane2] Study 2 State Odds：进入底部状态后的 20/60/120D 前向收益
-	$(PYTHON) $(SRC_MAIN) research etf-bottom --state-odds
-
-etf-bottom-drilldown: ## [Lane2] Study 2A Drilldown：当前 29 只长期底部 ETF 逐只历史赔率
-	$(PYTHON) $(SRC_MAIN) research etf-bottom --drilldown
-
-etf-bottom-episodes: ## [Lane2] Study 2B Episodes：产业底部周期压缩（去同产业重复暴露）
-	$(PYTHON) $(SRC_MAIN) research etf-bottom --episodes
-
-etf-bottom-context: ## [Lane2] Study 2C Context Matching：当前底部 vs 历史 episode context 匹配
-	$(PYTHON) $(SRC_MAIN) research etf-bottom --context-match
-
-etf-bottom-context-replication: ## [Lane2] Study 2D Replication：2C 发现在大样本（13.8k entry）上的复现
-	$(PYTHON) $(SRC_MAIN) research etf-bottom --context-replication
-
-etf-bottom-repair: ## [Lane2] Study 2E Repair Structure：price_pos_120 结构验证（composition/interaction/date-weighting）
-	$(PYTHON) $(SRC_MAIN) research etf-bottom --repair
-
-etf-bottom-current-eval: ## [Lane2] 当前关注 ETF 的 Repair-Retest V1 阶段评估（读 2E 冻结 cut points）
-	$(PYTHON) $(SRC_MAIN) research etf-bottom --current-eval
-
-etf-bottom-scan: ## [Lane2] 全市场 Repair-Retest V1 每日扫描（三层：Market Map / Scanner / Odds）。SCAN_DATE=YYYY-MM-DD 可选（缺省自动取最新 raw 交易日）
-	$(PYTHON) $(SRC_MAIN) research etf-bottom --scan $(if $(SCAN_DATE),--date $(SCAN_DATE),)
-
-etf-bottom-v1-backtest: ## [Lane2] Repair-Retest V1 历史触发频率回测（Signal Incidence）。START=/END=YYYY-MM-DD 可选
-	$(PYTHON) $(SRC_MAIN) research etf-bottom --backtest-v1 --start-date $(if $(START),$(START),2022-01-01) --end-date $(if $(END),$(END),2026-08-31)
-
-etf-mapping-feasibility: ## [Lane2] Stage 1a ETF 跟踪指数 mapping 可行性抽样探测
-	$(PYTHON) -m src.research.etf_mapping.cli --sample-n 10
-
-trend-transition-3a: ## [Lane3] Study 3A Post-924 底部→趋势切换断点研究（只读缓存，不联网）
-	$(PYTHON) $(SRC_MAIN) research trend-transition study3a
-
-trend-transition-3b: ## [Lane3] Study 3B 预测 Trend Transition（walk-forward + PASS gate，只读缓存）
-	$(PYTHON) $(SRC_MAIN) research trend-transition study3b
-
-trend-transition-3c: ## [Lane3] Study 3C 状态分类研究（确定性 as-of 状态机 + C1-C5，PASS 冻结 V1）
-	$(PYTHON) $(SRC_MAIN) research trend-transition study3c
-
-trend-transition-state: ## [Lane3] Application：读冻结 YAML，输出 date-stamped 状态表（--date 缺省=最新 v1_signal_daily；L3_DATE=YYYYMMDD 可显式钉定）
-	$(PYTHON) $(SRC_MAIN) research trend-transition state $(if $(L3_DATE),--date $(L3_DATE),)
-
-leader-breakout: ## [Research] 主题未确认时龙头个股单点突破的前瞻收益研究（只读缓存，不联网）
-	$(PYTHON) $(SRC_MAIN) research leader-breakout $(if $(START),--start-date $(START),) $(if $(END),--end-date $(END),)
+basket-refresh: ## [Research] 长桥获取+篮子重算（START/END 必填）
+	$(PYTHON) $(SRC_MAIN) research basket compare --start $(START) --end $(END) --allow-online-fetch --output $(BASKET_OUTPUT)
 
 # ── 开发维护 ──────────────────────────────────────────────────
 

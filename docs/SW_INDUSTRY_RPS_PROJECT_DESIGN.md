@@ -124,8 +124,8 @@ AKsignal/
 沿用项目 CSV 存储方式。每个行业一个原始行情文件：
 
 ```
-data/raw/sw_industry/industry_master.csv
-data/raw/sw_industry/{code}.csv   # code = 801016.SI → 801016_SI.csv
+data/legacy/raw/sw_industry/industry_master.csv
+data/legacy/raw/sw_industry/{code}.csv   # code = 801016.SI → 801016_SI.csv
 ```
 
 字段定义：

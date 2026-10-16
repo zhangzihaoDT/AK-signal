@@ -65,8 +65,24 @@ class TestBuildStockMetrics:
         assert (tmp_path / "stock_metrics_20260803.parquet").exists()
         # schema 完整：统一字段 + selection 匹配列
         for col in ("asset_id", "symbol", "trend_score", "score_trend", "data_status",
-                    "source_trade_date", "lag_days"):
+                    "source_trade_date", "source_route", "adjustment_requested", "price_basis",
+                    "price_basis_verified", "lag_days"):
             assert col in df.columns
+        current = df.set_index("asset_id").loc["000001"]
+        assert current["source_route"] == "cache"
+        assert current["price_basis"] == "cached_or_unknown_adjustment"
+        assert bool(current["price_basis_verified"]) is False
+
+    def test_live_cn_route_is_recorded_without_claiming_adjustment_verified(self, tmp_path):
+        row = pd.Series({"symbol": "600900", "market": "CN", "name": "长江电力",
+                         "data_source": "online", "date": pd.Timestamp("2026-10-15"),
+                         "close": 30.0, "score_trend": 80})
+        normalized = inputs._normalize_row(row, pd.Timestamp("2026-10-15").date(), tmp_path,
+                                           source_route="sina")
+        assert normalized["source_route"] == "sina"
+        assert normalized["adjustment_requested"] == "qfq"
+        assert normalized["price_basis"] == "qfq_requested_unverified"
+        assert normalized["price_basis_verified"] is False
 
     def test_as_of_truncation_in_compute_trends(self, tmp_path, monkeypatch):
         """as_of_date 截断：上游缓存含目标日之后数据时，评分只用到目标日。"""
@@ -75,9 +91,9 @@ class TestBuildStockMetrics:
         try:
             common_paths_mod._ROOT = tmp_path
             (tmp_path / "config").mkdir()
-            (tmp_path / "data" / "raw").mkdir(parents=True)
-            (tmp_path / "data" / "processed").mkdir(parents=True)
-            (tmp_path / "data" / "state").mkdir(parents=True)
+            (tmp_path / "data" / "legacy" / "raw").mkdir(parents=True)
+            (tmp_path / "data" / "legacy" / "processed").mkdir(parents=True)
+            (tmp_path / "data" / "legacy" / "state").mkdir(parents=True)
 
             dates = pd.date_range("2026-07-01", periods=25, freq="B")
             rows = []
@@ -86,7 +102,7 @@ class TestBuildStockMetrics:
                              "low": 99 + i, "close": 100 + i, "volume": 1_000_000})
             df = pd.DataFrame(rows)
             df["date"] = pd.to_datetime(df["date"])
-            df.to_csv(tmp_path / "data" / "raw" / "CN_000001.csv", index=False, encoding="utf-8")
+            df.to_csv(tmp_path / "data" / "legacy" / "raw" / "CN_000001.csv", index=False, encoding="utf-8")
 
             from src.trend_engine.engine import compute_trends
             item = _item("000001", "leader")

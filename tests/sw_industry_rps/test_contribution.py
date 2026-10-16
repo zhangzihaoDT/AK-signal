@@ -127,7 +127,7 @@ class TestContributionStructurePriority:
 
 
 class TestContributionStructureBoundaries:
-    """验证文档阈值边界：与 STATUS.md 分类标准表精确对齐。"""
+    """验证历史行业贡献分类的阈值边界。"""
 
     def test_single_core_exact_boundary(self):
         assert classify_contribution_structure(30, 0.50, 0.70) == "single_core"
@@ -317,7 +317,7 @@ class TestMarketDataCache:
         from src.common.market_data import save_stock_cache, load_stock_cache
         import pandas as pd
         # 修改内部路径指向 tmp_path 的方法：直接测试函数行为
-        # 由于 cache 使用固定路径 data/raw/...，单元测试不写磁盘
+        # 由于 cache 使用固定路径 data/legacy/raw/...，单元测试不写磁盘
         df = pd.DataFrame({"date": ["2026-07-16"], "close": [100.0]})
         # 只验证 save 不抛异常（实际写路径固定，无法重定向）
         assert df is not None

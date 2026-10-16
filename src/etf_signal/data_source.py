@@ -634,6 +634,9 @@ def fetch_ohlcv_from_spot() -> pd.DataFrame:
             "volume": _safe_float(row, volume_c),
             "amount": _safe_float(row, amount_c),
             "fund_code": code,
+            "price_provider": "em",
+            "price_endpoint": "fund_etf_spot_em",
+            "series_price_basis": "unadjusted",
         })
 
     if skipped_no_close:
@@ -783,7 +786,8 @@ def _fetch_hist_em(
             )
             if df.empty:
                 raise SchemaChangedError(f"fund_etf_hist_em returned empty DataFrame for {fund_code}")
-            return _normalise_etf_hist(df, fund_code)
+            from src.market_facts.etf_provenance import tag_prices
+            return tag_prices(_normalise_etf_hist(df, fund_code), "em", "fund_etf_hist_em")
         except (SchemaChangedError, TransientNetworkError):
             raise
         except Exception as e:
@@ -814,7 +818,8 @@ def _fetch_hist_sina(fund_code: str, start_date: str, end_date: str) -> pd.DataF
         if df.empty:
             logger.debug("fund_etf_hist_sina empty for %s", symbol)
             return pd.DataFrame()
-        df = _normalise_etf_hist(df, fund_code)
+        from src.market_facts.etf_provenance import tag_prices
+        df = tag_prices(_normalise_etf_hist(df, fund_code), "sina", "fund_etf_hist_sina")
         if "date" in df.columns:
             df = df[
                 (df["date"] >= pd.Timestamp(start_date))

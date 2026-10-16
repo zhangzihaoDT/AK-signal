@@ -69,6 +69,32 @@ def test_publication_manifest_and_quality_readonly(tmp_path, monkeypatch):
     assert len(v['artifacts']) == 2
 
 
+def test_partial_publication_is_delivered_with_industry_unavailable_status(tmp_path, monkeypatch):
+    _, fail, now = setup(tmp_path, monkeypatch)
+    fail['enabled'] = False
+    original = daily_run.validate_release
+
+    def partial(date):
+        stage = daily_run.outputs_dir()
+        value = {**original(date), 'status': 'PARTIAL', 'data_complete': False,
+                 'industry_price_dates_verified': False,
+                 'modules': {'industry_rotation': {'status': 'unavailable',
+                                                    'verified_count': 0, 'expected_count': 124}}}
+        (stage / 'run_day' / f'final_check_{date}.json').write_text(json.dumps(value))
+        (stage / 'observation' / f'observation_{date}.json').write_text(json.dumps({'trade_date': date}))
+        pd.DataFrame({'trade_date': pd.Series(dtype='datetime64[ns]'),
+                      'industry_code': pd.Series(dtype=str)}).to_parquet(
+                          stage / 'observation' / f'industry_rotation_{date}.parquet', index=False)
+        return value
+
+    monkeypatch.setattr(daily_run, 'validate_release', partial)
+    assert daily_run.execute_batch(tmp_path, '20261012', True) == 0
+    view = daily_hub.view(tmp_path, now)
+    assert view['lastRun']['status'] == 'PUBLISHED'
+    assert view['details']['quality']['status'] == 'PARTIAL'
+    assert view['details']['metrics'] == [{'label': '行业观察', 'value': '不可用（0/124 已核验）'}]
+
+
 def test_running_waiting_blocked_and_no_unpublished_attachments(tmp_path, monkeypatch):
     _, _, now = setup(tmp_path, monkeypatch)
     assert daily_run.execute_batch(tmp_path, '20261012', True) == 1

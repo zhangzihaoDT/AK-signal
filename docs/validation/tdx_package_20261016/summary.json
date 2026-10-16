@@ -1,0 +1,40 @@
+{
+  "universe": 128,
+  "covered": 128,
+  "package_entries": 1318,
+  "archive_sha256": "ab5d9565c2da9fc3b6d7a997948d8c9d2b2da53c93fa0ac6d71e4b62f48f4cd2",
+  "official_crc_matches": 128,
+  "parse_failures": [],
+  "comparison_count": 2560,
+  "comparison_passed": 2560,
+  "return_tolerance_decimal": 1e-06,
+  "max_return_error": 2.220446049250313e-16,
+  "reference_dates": [
+    "2026-09-21",
+    "2026-09-22",
+    "2026-09-23",
+    "2026-09-24",
+    "2026-09-28"
+  ],
+  "latest_price_dates": [
+    20261015
+  ],
+  "short_histories": [
+    {
+      "code": "881479",
+      "name": "电子化学品",
+      "records": 73,
+      "first_date": 20260629,
+      "last_date": 20261015,
+      "invalid_rows": 0,
+      "unique_ordered": true,
+      "official_crc_match": true,
+      "reference_name_match": true,
+      "sha256": "2928897ec86a8c809ecf200d2a00a3dc163f9d2f36746e5f48b1560304e7a0aa",
+      "eligible_120": false,
+      "eligible_250": false
+    }
+  ],
+  "daily_stability": "NOT_ESTABLISHED",
+  "production_gate": "PENDING_DAILY_STABILITY"
+}

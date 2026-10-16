@@ -1,0 +1,75 @@
+{
+  "source": "180.153.18.170:7709/zhb.zip",
+  "bytes": 1343791,
+  "classifications": [
+    {
+      "file": "incon.dat",
+      "section": "#TDXRSHY",
+      "line": "X1301|冶钢原料"
+    },
+    {
+      "file": "incon.dat",
+      "section": "#TDXRSHY",
+      "line": "X130101|铁矿石"
+    },
+    {
+      "file": "incon.dat",
+      "section": "#TDXRSHY",
+      "line": "X130102|冶钢辅料"
+    }
+  ],
+  "config_index": [
+    {
+      "file": "tdxzs3.cfg",
+      "section": "",
+      "line": "冶钢原料|881062|12|1|0|X1301"
+    },
+    {
+      "file": "tdxzs3.cfg",
+      "section": "",
+      "line": "铁矿石|881063|12|1|1|X130101"
+    },
+    {
+      "file": "tdxzs3.cfg",
+      "section": "",
+      "line": "冶钢辅料|881064|12|1|1|X130102"
+    }
+  ],
+  "observed_kline_failures": [
+    {
+      "method": "get_index_bars",
+      "category": 9,
+      "market": 1,
+      "code": "881062",
+      "start": 0,
+      "count": 80,
+      "status": "SOURCE_ERROR",
+      "type": "TdxFunctionCallError",
+      "original": "struct.error: unpack requires a buffer of 4 bytes"
+    },
+    {
+      "method": "get_security_bars",
+      "category": 9,
+      "market": 1,
+      "code": "881062",
+      "start": 0,
+      "count": 80,
+      "status": "SOURCE_ERROR",
+      "type": "TdxFunctionCallError",
+      "original": "struct.error: unpack requires a buffer of 4 bytes"
+    },
+    {
+      "method": "get_security_bars",
+      "category": 9,
+      "market": 1,
+      "code": "881062",
+      "start": 0,
+      "count": 120,
+      "status": "SOURCE_ERROR",
+      "type": "TdxFunctionCallError",
+      "original": "struct.error: unpack requires a buffer of 4 bytes"
+    }
+  ],
+  "verdict": "DIFFERENT_INDEX_SYSTEMS",
+  "price_comparison": "NOT_VERIFIABLE"
+}

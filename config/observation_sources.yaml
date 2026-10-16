@@ -1,0 +1,26 @@
+version: observation-sources-v1
+stocks:
+  provider: longbridge
+  price_basis: Longbridge ForwardAdjust
+  cross_provider_fallback: false
+  benchmark: 000300.SH
+  excluded:
+    - market: HK
+      symbol: '02525'
+      reason: 暂不纳入本轮长桥生产接入；历史报价缺口待核查
+etfs:
+  providers: [em, sina]
+  price_basis: existing_etf_series
+  cross_module_fallback: false
+industry:
+  provider: tdx
+  classification: TDX Research Industry
+  classification_snapshot: '20261016'
+  price_status: integrated
+  history_base: data/sources/tdx/raw/day
+  update_mode: append_only
+  universe_file: config/tdx_research_industry_20261016.csv
+  expected_industries: 128
+  source_url: https://www.tdx.com.cn/products/data/data/vipdoc/tdxzs_day.zip
+  fallback: false
+  historical_research_only: SW2021

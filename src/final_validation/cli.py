@@ -13,6 +13,7 @@ Final Validation CLI — run-day 末端校验。
 """
 
 from __future__ import annotations
+from src.common.paths import etf_signal_diagnostics_dir
 
 import argparse
 import json
@@ -58,13 +59,8 @@ def evaluate(
     rotation_exists: bool = True,
     confirmation_exists: bool = True,
     transition_state_exists: bool = True,
-    lane1_lag_days: int | None = None,
 ) -> dict[str, Any]:
     """汇总各层证据，给出 run-day 校验结论。
-
-    lane1_lag_days：three_lane 的 Lane 1 实际 watchlist 日期相对 trade_date 的滞后天数。
-    None / 0 = 对齐（_watchlist_date == trade_date）；>0 = 用了上一交易日 fallback，
-    必须显式标记，避免 FIRST_EXIT × Lane 1 交叉分析把「一天时间差」误读成状态先后关系。
 
     Returns:
         {ok, trade_date, status, action, warnings, errors}
@@ -83,10 +79,6 @@ def evaluate(
 
     # Lane 1 数据日对齐：要求 _watchlist_date == trade_date；
     # 允许上一交易日 fallback 时，必须显式标记滞后，避免把时间差误读为状态先后
-    if isinstance(lane1_lag_days, int) and lane1_lag_days > 0:
-        warns.append(f"Lane 1 watchlist 滞后 {lane1_lag_days} 交易日（_watchlist_date < trade_date）"
-                     f"——FIRST_EXIT × Lane 1 交叉分析需按日错位解读，勿把滞后当状态先后")
-
     # 层证据状态（V0.1，来源/完整性分离）：
     #   confirmed = 申万官方主源完全确认 → CONFIRMED
     #   complete  = 兜底源但目标交易日已完整收盘 → COMPLETE（不再降级 PROVISIONAL）
@@ -186,35 +178,6 @@ def _fmt_date(date_str: str) -> str:
         return str(date_str)
 
 
-def _three_lane_lane1_lag_days(trade_date: str) -> int | None:
-    """three_lane_{trade_date}.parquet 的 Lane 1 实际 watchlist 日期相对 trade_date 的滞后天数。
-
-    读产物 `_watchlist_date` 列（Lane 1 watchlist 数据日）。相同时返回 0（对齐）；
-    产物缺失 / 列缺失 / 解析失败返回 None（不判滞后，避免误报）。滞后以自然日为差，
-    工程口径：只要不是同日即视为滞后，须显式标记。
-    """
-    p = outputs_dir() / "etf_signal" / f"three_lane_{trade_date}.parquet"
-    if not p.exists():
-        return None
-    try:
-        df = pd.read_parquet(p, columns=["_watchlist_date"])
-    except Exception:
-        return None
-    if "_watchlist_date" not in df.columns:
-        return None
-    dates = df["_watchlist_date"].dropna()
-    if dates.empty:
-        return None
-    eff = pd.to_datetime(dates.max()).date()
-    try:
-        target = datetime.strptime(str(trade_date), "%Y%m%d").date()
-    except ValueError:
-        return None
-    if eff > target:
-        return 0
-    return (target - eff).days
-
-
 def cmd_run_day_check(args: argparse.Namespace) -> int:
     logger = build_logger(args.log_level)
     logger.info("=" * 60)
@@ -253,7 +216,6 @@ def cmd_run_day_check(args: argparse.Namespace) -> int:
     warns = run_warnings.load_warnings(trade_date)
     quality_warnings = data_quality_warnings(trade_date)
     warns.extend(quality_warnings)
-    lane1_lag_days = _three_lane_lane1_lag_days(trade_date)
     result = evaluate(
         trade_date=trade_date,
         layers=layers,
@@ -265,7 +227,6 @@ def cmd_run_day_check(args: argparse.Namespace) -> int:
         rotation_exists=rotation_exists,
         confirmation_exists=confirmation_exists,
         transition_state_exists=transition_state_exists,
-        lane1_lag_days=lane1_lag_days,
     )
     result["data_complete"] = not quality_warnings
     result_path = outputs_dir() / "run_day" / f"final_check_{trade_date}.json"
@@ -298,7 +259,7 @@ def cmd_run_day_check(args: argparse.Namespace) -> int:
 def data_quality_warnings(trade_date: str) -> list[dict[str, Any]]:
     """Read target-date acquisition evidence; never report a missing audit as complete."""
     out: list[dict[str, Any]] = []
-    etf_path = etf_signal_raw_dir().parent / "diagnostics" / f"source_audit_{trade_date}.json"
+    etf_path = etf_signal_diagnostics_dir() / f"source_audit_{trade_date}.json"
     if etf_path.exists():
         audit = json.loads(etf_path.read_text(encoding="utf-8"))
         codes = audit.get("failed_codes") or []
@@ -318,8 +279,11 @@ def data_quality_warnings(trade_date: str) -> list[dict[str, Any]]:
     if path.exists():
         df = pd.read_parquet(path)
         if not df.empty and {"source_trade_date", "data_status", "market", "symbol", "name"}.issubset(df):
-            bad = df[(pd.to_datetime(df["source_trade_date"]) != pd.Timestamp(trade_date))
-                     | (df["data_status"] != "current")].drop_duplicates(["market", "symbol"])
+            from src.market_facts.policy import excluded_stock
+            exclusions = df.apply(lambda r: r['data_status']=='excluded' and excluded_stock(r['market'],r['symbol'])
+                                   and pd.Timestamp(r.get('trade_date'))==pd.Timestamp(trade_date),axis=1)
+            bad = df[((pd.to_datetime(df["source_trade_date"]) != pd.Timestamp(trade_date))
+                     | (df["data_status"] != "current")) & ~exclusions].drop_duplicates(["market", "symbol"])
             for _, r in bad.iterrows():
                 out.append({"category": "stock_data", "message":
                             f"股票未更新到 {trade_date}：{r['market']} {r['symbol']} {r['name']} "

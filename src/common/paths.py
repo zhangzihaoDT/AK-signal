@@ -51,11 +51,11 @@ def data_dir() -> Path:
 
 
 def raw_dir() -> Path:
-    return data_dir() / "raw"
+    return data_dir() / "legacy" / "raw"
 
 
 def processed_dir() -> Path:
-    return data_dir() / "processed"
+    return data_dir() / "legacy" / "processed"
 
 
 def sw_industry_raw_dir() -> Path:
@@ -67,7 +67,7 @@ def sw_industry_processed_dir() -> Path:
 
 
 def state_dir() -> Path:
-    return data_dir() / "state"
+    return data_dir() / "legacy" / "state"
 
 
 def asset_state_path() -> Path:
@@ -88,27 +88,27 @@ def sw_industry_rps_output_dir() -> Path:
 # ── ETF Signal ───────────────────────────────────────────────────
 
 def etf_signal_raw_dir() -> Path:
-    return data_dir() / "etf_signal" / "raw"
+    return data_dir() / "sources" / "etf_em_sina" / "raw"
 
 
 def etf_signal_master_dir() -> Path:
-    return data_dir() / "etf_signal" / "master"
+    return data_dir() / "sources" / "etf_em_sina" / "processed" / "master"
 
 
 def etf_signal_daily_dir() -> Path:
-    return data_dir() / "etf_signal" / "daily"
+    return data_dir() / "sources" / "etf_em_sina" / "processed" / "daily"
 
 
 def etf_signal_signals_dir() -> Path:
-    return data_dir() / "etf_signal" / "signals"
+    return data_dir() / "sources" / "etf_em_sina" / "processed" / "signals"
 
 
 def etf_signal_positions_dir() -> Path:
-    return data_dir() / "etf_signal" / "positions"
+    return data_dir() / "sources" / "etf_em_sina" / "processed" / "positions"
 
 
 def etf_signal_manifests_dir() -> Path:
-    return data_dir() / "etf_signal" / "manifests"
+    return data_dir() / "sources" / "etf_em_sina" / "processed" / "manifests"
 
 
 def etf_signal_output_dir() -> Path:
@@ -126,3 +126,7 @@ def docs_dir() -> Path:
 
 def manifest_path() -> Path:
     return outputs_dir() / "manifest.json"
+
+
+def etf_signal_diagnostics_dir() -> Path:
+    return data_dir() / "sources" / "etf_em_sina" / "audits"

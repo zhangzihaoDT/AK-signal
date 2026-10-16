@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
+import pandas as pd
+
 # 申万官方主源 tokens（data_source / metrics 里出现的 source 值，小写匹配）
 PRIMARY_SOURCES = frozenset({"swsresearch", "swsresearch_analysis", "analysis_daily", "hist_sw"})
 
@@ -43,3 +45,23 @@ def classify_data_status(source_status: str, is_complete: bool) -> str:
     if source_status == "primary":
         return "confirmed"
     return "complete" if is_complete else "partial"
+
+
+def price_source_dates(frame: pd.DataFrame) -> pd.Series:
+    """独立价格日期；旧主源日线的 trade_date 本身来自源端日期。
+
+    实时/未知来源不能用本地指定的 trade_date 充当源日期。显式但错误的
+    source_trade_date 不回退，避免把日期不一致洗成已验证。
+    """
+    dates = pd.to_datetime(frame.get("source_trade_date", pd.Series(pd.NaT, index=frame.index)), errors="coerce")
+    source = frame.get("source", pd.Series("", index=frame.index)).fillna("").astype(str).str.lower()
+    missing = frame.get("source_trade_date", pd.Series(pd.NA, index=frame.index)).isna()
+    primary = source.isin(PRIMARY_SOURCES) & missing
+    return dates.where(~primary, pd.to_datetime(frame["trade_date"], errors="coerce"))
+
+
+def verified_price_dates(frame: pd.DataFrame) -> pd.Series:
+    """逐行判断价格源日期是否等于分区日期，空值一律不通过。"""
+    if "trade_date" not in frame:
+        return pd.Series(False, index=frame.index)
+    return price_source_dates(frame).eq(pd.to_datetime(frame["trade_date"], errors="coerce"))

@@ -208,15 +208,15 @@ def test_seeded_old_html_does_not_count_as_this_attempts_report(tmp_path):
                                           '20261012', min(p.stat().st_mtime_ns for p in path.parent.iterdir()))
 
 
-def test_stage_root_used_by_lifecycle_consumer_in_fresh_process(tmp_path):
+def test_position_algorithm_output_root_in_fresh_process(tmp_path):
     import os
     import subprocess
     import sys
     env = {**os.environ, 'AKSIGNAL_OUTPUTS_DIR': str(tmp_path)}
     process = subprocess.run([sys.executable, '-c',
-        'from src.research.trend_transition.study3c import V1_PATH; print(V1_PATH)'],
+        'from src.research.etf_bottom import STUDY_DIR; print(STUDY_DIR)'],
         env=env, text=True, capture_output=True, check=True)
-    assert process.stdout.strip() == str(tmp_path / 'research/etf_bottom/backtest_v1/v1_signal_daily.parquet')
+    assert process.stdout.strip() == str(tmp_path / 'research/etf_bottom')
 
 
 def test_explicit_restart_can_recover_a_corrupt_checkpoint(tmp_path, monkeypatch):

@@ -46,7 +46,7 @@
 | 合并观察池（59 行，6 位代码归一；8 只已回填 0923 行情/指标） | `data/reference/ashare_stock_observation_pool_20260924.csv` |
 | 前序池（51 行） | `outputs/stock_metrics/ashare_stock_list_20260923.csv` |
 
-> `data/`、`outputs/` 均 gitignored → 变更文件本地保留；里程碑以 `docs/` + `STATUS.md` 记录。
+> 本文保留2026-09-24里程碑事实；当时的STATUS.md已因过期删除。当前业务范围见config/decisions，当前项目能力见ARCHITECTURE_MAP.md。
 
 ## 6. 校验
 

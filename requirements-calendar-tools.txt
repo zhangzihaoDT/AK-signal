@@ -1,0 +1,3 @@
+# Optional development dependency for exporting bounded rule-model calendars.
+# Production uses committed config/market_calendars/*.json.
+exchange-calendars==4.13.2

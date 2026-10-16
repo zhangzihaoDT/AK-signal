@@ -182,19 +182,19 @@ def test_corrupt_published_receipt_blocks_duplicate(tmp_path, monkeypatch):
     assert len(calls) == 6
 
 
-def test_spawn_uses_native_make_complete_offline_and_detaches(root, monkeypatch):
+def test_spawn_uses_native_make_module_partial_policy_and_detaches(root, monkeypatch):
     captured = {}
     def popen(argv, **kwargs):
         captured.update(argv=argv, **kwargs)
         return type('Child', (), {'pid': 123})()
     monkeypatch.setattr(schedule.subprocess, 'Popen', popen)
     assert schedule.spawn_batch(root, '20261013', True, root / 'trigger.log') == 123
-    assert captured['argv'] == ['make', 'run-day-offline', 'RUN_DATE=20261013', 'RUN_FLAGS=--require-complete']
+    assert captured['argv'] == ['make', 'run-day-offline', 'RUN_DATE=20261013']
     assert captured['start_new_session'] is True
     schedule.spawn_batch(root, '20261013', False, root / 'online.log')
-    assert captured['argv'] == ['make', 'run-day', 'RUN_DATE=20261013', 'RUN_FLAGS=--require-complete']
+    assert captured['argv'] == ['make', 'run-day', 'RUN_DATE=20261013']
     schedule.spawn_batch(root, '20261013', False, root / 'restart.log', restart=True)
-    assert captured['argv'] == ['make', 'run-day', 'RUN_DATE=20261013', 'RUN_FLAGS=--require-complete --restart']
+    assert captured['argv'] == ['make', 'run-day', 'RUN_DATE=20261013', 'RUN_FLAGS=--restart']
 
 
 def test_manual_run_restarts_incompatible_checkpoint(root, monkeypatch):
@@ -237,17 +237,18 @@ def test_maintenance_restart_refuses_when_signature_matches(root):
     assert result['reason'] == 'RESTART_NOT_REQUIRED'
 
 
-def test_completed_fallback_publication_retains_warnings(tmp_path, monkeypatch):
+@pytest.mark.parametrize('offline', [False, True])
+def test_completed_fallback_publication_retains_warnings(tmp_path, monkeypatch, offline):
     calls, fail = harness(tmp_path, monkeypatch)
     fail['enabled'] = False
     original = daily_run.validate_release
     def fallback(d):
         value = {**original(d), 'status': 'COMPLETE', 'warnings': ['FALLBACK_SOURCE', 'price_basis_verified=false'],
-                 'data_complete': False}
+                 'data_complete': False, 'industry_price_dates_verified': True}
         (daily_run.outputs_dir() / 'run_day' / f'final_check_{d}.json').write_text(json.dumps(value))
         return value
     monkeypatch.setattr(daily_run, 'validate_release', fallback)
-    assert daily_run.execute_batch(tmp_path, '20261012', True, require_complete=True) == 0
+    assert daily_run.execute_batch(tmp_path, '20261012', offline, require_complete=True) == 0
     receipt = release.published_batch(tmp_path, '20261012')
     assert receipt['result']['warnings'] == ['FALLBACK_SOURCE', 'price_basis_verified=false']
     assert receipt['result']['data_complete'] is False
@@ -270,7 +271,7 @@ def test_corrupt_trigger_and_checkpoint_do_not_reset_budget(root):
     assert result['occurrences'][0]['reason'] == 'CHECKPOINT_INVALID'
 
 
-def test_scheduler_rejects_preexisting_partial_release(root, monkeypatch):
+def test_scheduler_accepts_partial_release_and_manual_run_can_refresh_it(root, monkeypatch):
     calls, fail = harness(root, monkeypatch)
     fail['enabled'] = False
     original = daily_run.validate_release
@@ -282,14 +283,19 @@ def test_scheduler_rejects_preexisting_partial_release(root, monkeypatch):
     assert daily_run.execute_batch(root, '20261012', True) == 0
     result = schedule.scheduled_poll(root, at=at('2026-10-13T08:30'),
                                      launch=lambda *a: pytest.fail('partial silently reissued'))
-    assert result['occurrences'][0]['reason'] == 'PUBLICATION_NOT_COMPLETE'
-    with pytest.raises(ValueError, match='完整性门控'):
-        daily_run.execute_batch(root, '20261012', False, require_complete=True)
+    assert result['occurrences'][0]['status'] == 'published'
+    assert result['occurrences'][0]['publication']['result']['status'] == 'PARTIAL'
+    launched = []
+    refreshed = schedule.manual_run(root, at=at('2026-10-13T09:00'), trade_date='20261012',
+                                    launch=lambda *args: launched.append(args) or 321)
+    assert refreshed['status'] == 'running'
+    assert launched and launched[0][1] == '20261012'
 
 
-def test_retry_preserves_checkpoint_id_but_refreshes_online_acquisition(tmp_path, monkeypatch):
+def test_retry_preserves_checkpoint_id_but_refreshes_online_acquisition(tmp_path, monkeypatch, capsys):
     calls, fail = harness(tmp_path, monkeypatch)
     assert daily_run.execute_batch(tmp_path, '20261012', False, require_complete=True) == 1
+    assert '将从第 1 步重新获取数据并重新验收' in capsys.readouterr().out
     run_id = release.read_checkpoint(tmp_path, '20261012', False)['run_id']
     fail['enabled'] = False
     assert daily_run.execute_batch(tmp_path, '20261012', False, require_complete=True) == 0
@@ -309,15 +315,17 @@ def test_calendar_close_boundary_and_missing_year_source(root):
         TradingCalendar(path)
 
 
-def test_online_schedule_waits_for_dated_primary_without_changing_manual_policy(tmp_path, monkeypatch):
+@pytest.mark.parametrize('offline', [False, True])
+@pytest.mark.parametrize('require_complete', [False, True])
+def test_schedule_rejects_complete_without_price_date_receipt(tmp_path, monkeypatch, offline, require_complete):
     calls, fail = harness(tmp_path, monkeypatch)
     fail['enabled'] = False
     original = daily_run.validate_release
     monkeypatch.setattr(daily_run, 'validate_release', lambda d: {**original(d), 'status': 'COMPLETE'})
-    assert daily_run.execute_batch(tmp_path, '20261012', False, require_complete=True) == 1
-    assert '独立源交易日' in release.read_checkpoint(tmp_path, '20261012', False)['error']
+    assert daily_run.execute_batch(tmp_path, '20261012', offline, require_complete=require_complete) == 1
+    assert '独立源交易日' in release.read_checkpoint(tmp_path, '20261012', offline)['error']
     assert (tmp_path / 'outputs/report.txt').read_text() == 'previous complete report'
-    run_id = release.read_checkpoint(tmp_path, '20261012', False)['run_id']
+    run_id = release.read_checkpoint(tmp_path, '20261012', offline)['run_id']
     monkeypatch.setattr(daily_run, 'validate_release', original)
-    assert daily_run.execute_batch(tmp_path, '20261012', False, require_complete=True) == 0
+    assert daily_run.execute_batch(tmp_path, '20261012', offline, require_complete=require_complete) == 0
     assert release.published_batch(tmp_path, '20261012')['run_id'] == run_id

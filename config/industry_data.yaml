@@ -26,8 +26,8 @@ data_source:
   request_timeout: 30
 
 storage:
-  raw_dir: "data/raw/sw_industry"
-  processed_dir: "data/processed/sw_industry"
+  raw_dir: "data/legacy/raw/sw_industry"
+  processed_dir: "data/legacy/processed/sw_industry"
   reports_dir: "data/reports/sw_industry_rps"
   master_file: "industry_master.csv"
   metrics_file: "industry_daily_metrics.csv"

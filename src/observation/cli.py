@@ -1,13 +1,14 @@
 """Core observation product: offline facts, reports and validation."""
 from __future__ import annotations
 import argparse
+import os
 import json
 from datetime import datetime
 from pathlib import Path
 import numpy as np
 import pandas as pd
 from src.common.paths import (outputs_dir, raw_dir, stock_metrics_dir, selection_universe_path,
-    etf_signal_daily_dir, sw_industry_processed_dir)
+    etf_signal_daily_dir, sw_industry_processed_dir, sw_industry_raw_dir)
 
 WINDOWS = (60, 120, 360)
 
@@ -62,6 +63,11 @@ def position_change(current: dict, previous: dict) -> str:
 
 
 def stock_metrics(date: str, online: bool) -> None:
+    from src.market_facts.policy import source_policy
+    if source_policy().get('stocks',{}).get('provider') == 'longbridge':
+        from src.market_facts.stock_daily import build_longbridge_stocks
+        build_longbridge_stocks(date, online=online)
+        return
     from src.selection.universe import load_universe_items
     from src.trend_engine.inputs import build_stock_metrics
     frame = build_stock_metrics(load_universe_items(selection_universe_path()),
@@ -72,6 +78,22 @@ def stock_metrics(date: str, online: bool) -> None:
 
 
 def stock_positions(date: str) -> pd.DataFrame:
+    from src.market_facts.policy import source_policy
+    if source_policy().get('stocks',{}).get('provider') == 'longbridge':
+        # Consume the exact same staged batch as stock trends, never old CSVs.
+        path = stock_metrics_dir()/f'stock_position_inputs_{date}.parquet'
+        if not path.exists():
+            raise ValueError('缺少本批次长桥个股位置事实')
+        frame = pd.read_parquet(path)
+        if not (pd.to_datetime(frame.trade_date)==pd.Timestamp(date)).all() or not frame.source.eq('longbridge').all():
+            raise ValueError('长桥个股位置来源或日期不一致')
+        trends = pd.read_parquet(stock_metrics_dir()/f'stock_metrics_{date}.parquet')
+        evidence = frame.merge(trends[['market','symbol','snapshot_id','data_status']],on=['market','symbol'],
+                               how='left',suffixes=('_position','_trend'),validate='many_to_one')
+        active = evidence.reliability.ne('EXCLUDED')
+        if evidence.loc[active,'snapshot_id_position'].isna().any() or not evidence.loc[active,'snapshot_id_position'].eq(evidence.loc[active,'snapshot_id_trend']).all():
+            raise ValueError('个股趋势与位置未消费同一长桥快照')
+        return frame
     from src.selection.universe import load_universe_items
     from src.trend_engine.inputs import stock_items
     from src.trend_engine.engine import _raw_cache_path, _load_cached_raw
@@ -150,9 +172,25 @@ def build(date: str) -> None:
     rotation = pd.read_parquet(etf_signal_daily_dir()/f'rotation_{date}.parquet')
     indicators = pd.read_parquet(etf_signal_daily_dir()/f'daily_indicators_{date}.parquet')
     stocks = pd.read_parquet(stock_metrics_dir()/f'stock_metrics_{date}.parquet')
-    industries = storage.load_metrics(sw_industry_processed_dir())
-    industries = industries[pd.to_datetime(industries.trade_date) == pd.Timestamp(date)].copy()
-    if any(d.empty for d in (rotation, indicators, stocks, industries)):
+    from src.market_facts.policy import source_policy
+    industry_policy = source_policy().get('industry',{})
+    tdx_pending = industry_policy.get('provider') == 'tdx'
+    industry_error = ''
+    if tdx_pending:
+        industries = pd.DataFrame(columns=['industry_code','industry_name','parent_industry','RPS15','RPS5',
+                                          'trend_stage','source_status','data_status','close','source_trade_date','source'])
+        try:
+            from src.market_facts.tdx_industry import load
+            industries = load(date, online=os.environ.get('AKSIGNAL_OFFLINE') == '0')
+        except Exception as exc:
+            industry_error = f'{type(exc).__name__}: {exc}'
+    else:
+        try:
+            industries = storage.load_metrics(sw_industry_processed_dir())
+            industries = industries[pd.to_datetime(industries.trade_date) == pd.Timestamp(date)].copy()
+        except (OSError, ValueError, KeyError, TypeError):
+            industries = pd.DataFrame()
+    if any(d.empty for d in (rotation, indicators, stocks)):
         raise ValueError('核心观察输入为空')
     from src.observation.report import mark_identity
     stocks=mark_identity(stocks,date)
@@ -169,13 +207,61 @@ def build(date: str) -> None:
         assets['active_ratio'] = assets.direction.map(trend.groupby(direction).trend_active.mean())
     from src.sw_industry_rps.source_status import classify_source_status, classify_data_status
     from src.sw_industry_rps.cli import _observation_falls_on_closed_day
-    industries['source_status'] = industries.source.map(lambda source: classify_source_status([source]))
-    industries['data_status'] = industries.source_status.map(lambda status: classify_data_status(status, _observation_falls_on_closed_day(pd.Timestamp(date))))
-    industries['generated_at'] = pd.Timestamp.now(tz='UTC').isoformat()
-    industries['trend_stage'] = industries.apply(classify_trend_stage, axis=1)
-    industries['strength_level'] = np.where(industries.RPS15 >= 80, '观察', '—')
-    industry_directions = pd.DataFrame(cross_industry_direction(industries))
-    industries.drop(columns=['strength_level'], inplace=True)
+    from src.sw_industry_rps.source_status import price_source_dates, verified_price_dates
+    try:
+        active_codes = [] if tdx_pending else storage.compute_active_codes(sw_industry_raw_dir())[0]
+    except (OSError, ValueError, KeyError, TypeError):
+        active_codes = []
+    if tdx_pending:
+        from src.market_facts.tdx_industry import universe
+        expected_codes = set(universe().tdx_code)
+    else:
+        expected_codes = set(active_codes)
+    actual_codes = set(industries.get('industry_code', pd.Series(dtype=str)).dropna().astype(str))
+    verified_rows = verified_price_dates(industries) if not industries.empty else pd.Series(dtype=bool)
+    industry_available = bool(
+        expected_codes
+        and actual_codes == expected_codes
+        and not industries.get('industry_code', pd.Series(dtype=str)).duplicated().any()
+        and len(verified_rows) == len(industries)
+        and bool(verified_rows.all())
+    )
+    valid_codes = set(
+        industries.loc[verified_rows, 'industry_code'].dropna().astype(str)
+    ) & expected_codes if not industries.empty and 'industry_code' in industries else set()
+    industry_module = {
+        'status': 'available' if industry_available else 'unavailable',
+        'trade_date': date,
+        'verified_count': len(valid_codes),
+        'expected_count': len(expected_codes),
+        'missing_count': max(0, len(expected_codes) - len(valid_codes)),
+        'reason': '' if industry_available else (
+            'industry_master_missing' if not expected_codes else 'target_date_missing_or_unverified'
+        ),
+    }
+    if tdx_pending:
+        industry_module.update(provider='tdx', classification='TDX Research Industry',
+                               classification_version=industry_policy.get('classification_snapshot'),
+                               reason=industry_error or industry_module['reason'], no_cross_provider_fallback=True,
+                               status_code='AVAILABLE' if industry_available else 'UNAVAILABLE')
+    if industry_available:
+        industries['source_trade_date'] = price_source_dates(industries)
+        industries['source_status'] = 'primary' if tdx_pending else industries.source.map(lambda source: classify_source_status([source]))
+        industries['data_status'] = industries.source_status.map(lambda status: classify_data_status(status, _observation_falls_on_closed_day(pd.Timestamp(date))))
+        industries['generated_at'] = pd.Timestamp.now(tz='UTC').isoformat()
+        industries['trend_stage'] = industries.apply(classify_trend_stage, axis=1)
+        industries['strength_level'] = np.where(industries.RPS15 >= 80, '观察', '—')
+        industry_directions = pd.DataFrame(cross_industry_direction(industries))
+        industries.drop(columns=['strength_level'], inplace=True)
+    else:
+        # An industry cross-section is all-or-nothing: never rank a partial universe
+        # or let a previous trade_date masquerade as today's industry observation.
+        industries = industries.iloc[0:0].copy()
+        industry_directions = pd.DataFrame(columns=[
+            'parent_industry', 'industry_count', 'median_rps15', 'median_rps1',
+            'median_delta_rps15_5d', 'active_count', 'active_ratio',
+            'representative_industry', 'direction_state',
+        ])
     for frame, stem in ((trend,'etf_trends'), (assets,'asset_directions'),
                         (industries,'industry_rotation'), (industry_directions,'industry_directions'),
                         (mark_identity(stock_positions(date),date),'stock_positions'), (etf_positions(date),'etf_positions')):
@@ -183,13 +269,36 @@ def build(date: str) -> None:
     folder = outputs_dir()/'observation'
     from src.observation.report import render_html, quality_lines, REPORT_LAYOUT_VERSION, PRODUCT_VERSION
     quality = quality_lines(date, trend, industries, stocks)
+    if tdx_pending:
+        quality.append('行业数据契约：通达信官方 .day · TDX Research Industry 20261016 · 128 个二级行业；未复权指数；AKsignal 独立收益率及 RPS；不使用申万替代。')
+        if industry_available:
+            quality.append(f'行业历史门控：120日有效 {int(industries.valid_count_120d.iloc[0])}/128；250日有效 {int(industries.valid_count_250d.iloc[0])}/128；历史不足指标标记 INSUFFICIENT_HISTORY。')
+    if not industry_available:
+        quality.append(
+            f"行业轮动模块降级：目标日价格已核验 {industry_module['verified_count']}/"
+            f"{industry_module['expected_count']}；本批隐藏行业结论，不使用旧日期或不完整横截面。"
+        )
     html = render_html(date, assets, industries, trend, stocks,
                        pd.read_parquet(folder/f'etf_positions_{date}.parquet'),
-                       pd.read_parquet(folder/f'stock_positions_{date}.parquet'), quality)
+                       pd.read_parquet(folder/f'stock_positions_{date}.parquet'), quality,
+                       module_status={'industry_rotation': industry_module})
     (folder/f'observation_{date}.html').write_text(html)
+    modules = {
+        'market_direction': {'status': 'available', 'rows': len(assets)},
+        'etf_trends': {'status': 'available', 'rows': len(trend)},
+        'industry_rotation': industry_module,
+        'stock_trends': {'status': 'available', 'rows': int(stocks.drop_duplicates(['market','symbol']).shape[0]),
+                         'provider': source_policy().get('stocks',{}).get('provider'),
+                         'excluded_count': int(stocks.drop_duplicates(['market','symbol']).get('data_status',pd.Series(dtype=str)).eq('excluded').sum())},
+        'etf_positions': {'status': 'available', 'rows': len(pd.read_parquet(folder/f'etf_positions_{date}.parquet'))},
+        'stock_positions': {'status': 'available', 'rows': len(pd.read_parquet(folder/f'stock_positions_{date}.parquet'))},
+    }
     summary = {'trade_date':date, 'scope':'observation_only','generated_at':datetime.now().isoformat(),
                'etf_count':len(trend),'active_etf_count':int(trend.trend_active.sum()),'industry_count':len(industries),
-               'stock_count':len(stocks.drop_duplicates(['market','symbol'])), 'missing':[],
+               'stock_count':len(stocks.drop_duplicates(['market','symbol'])),
+               'missing':['industry_rotation'] if not industry_available else [],
+               'modules': modules,
+               'data_sources': source_policy(),
                'regions':['market_direction','active_trends','bottom_position'],
                'data_quality':quality, 'report_layout_version':REPORT_LAYOUT_VERSION, 'product_version':PRODUCT_VERSION}
     (folder/f'observation_{date}.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
@@ -200,31 +309,56 @@ def build(date: str) -> None:
 
 
 def validate(date: str) -> dict:
+    from src.market_facts.policy import aligned_stock_rows
     folder = outputs_dir()/'observation'
     errors = []
+    summary_path = folder/f'observation_{date}.json'
+    summary = json.loads(summary_path.read_text(encoding='utf-8')) if summary_path.exists() else {}
+    modules = summary.get('modules') or {}
+    industry_module = modules.get('industry_rotation')
+    industry_unavailable = isinstance(industry_module, dict) and industry_module.get('status') == 'unavailable'
+    warnings = []
     for stem in ('etf_trends','asset_directions','industry_rotation','industry_directions','stock_positions','etf_positions'):
         p = folder/f'{stem}_{date}.parquet'
         if not p.exists():
             errors.append(f'缺少 {p.name}')
             continue
         d = pd.read_parquet(p)
-        if d.empty:
+        if d.empty and not (industry_unavailable and stem in ('industry_rotation', 'industry_directions')):
             errors.append(f'{p.name} 为空')
+        if industry_unavailable and stem in ('industry_rotation', 'industry_directions') and not d.empty:
+            errors.append(f'{p.name} 含行业模块降级前的旧事实')
         if stem not in ('asset_directions','industry_directions') and ('trade_date' not in d or not (pd.to_datetime(d.trade_date)==pd.Timestamp(date)).all()):
             errors.append(f'{p.name} 日期未对齐')
     from src.final_validation.cli import data_quality_warnings
-    warnings = [x['message'] for x in data_quality_warnings(date)]
-    warnings.append('观察池股票位置基于缓存价格；全池复权口径尚未统一，不标为已验证')
+    warnings.extend(x['message'] for x in data_quality_warnings(date))
+    warnings.append('观察池个股价格依据独立记录；供应商复权算法未独立认证，不标为已验证')
     from src.observation.report import identity_issues
     for issue in identity_issues(date):
         warnings.append(f'IDENTITY_MISMATCH: {issue["market"]} {issue["symbol"]} 配置名 {issue["configured_name"]}，实际 {issue["observed_name"]}；正文已排除')
     industries = pd.read_parquet(folder/f'industry_rotation_{date}.parquet') if (folder/f'industry_rotation_{date}.parquet').exists() else pd.DataFrame()
     states = set(industries.get('data_status',pd.Series(dtype=str)).dropna())
-    status = 'PARTIAL' if 'partial' in states else 'COMPLETE' if states & {'complete','provisional'} else 'CONFIRMED' if states == {'confirmed'} else 'UNKNOWN'
+    status = 'PARTIAL' if industry_unavailable else ('PARTIAL' if 'partial' in states else 'COMPLETE' if states & {'complete','provisional'} else 'CONFIRMED' if states == {'confirmed'} else 'UNKNOWN')
+    if industry_unavailable:
+        if not industries.empty:
+            errors.append('行业模块标记 unavailable 但事实产物仍含行业行')
+        warnings.append(
+            f"行业轮动模块不可用：目标日已核验 {industry_module.get('verified_count', 0)}/"
+            f"{industry_module.get('expected_count', 0)}；其余观察模块已独立验收"
+        )
     if not industries.empty:
+        from src.sw_industry_rps.source_status import verified_price_dates
+        if not verified_price_dates(industries).all():
+            errors.append('行业价格缺少独立源交易日证据或日期未对齐')
+            status = 'UNKNOWN'
         from src.sw_industry_rps import storage
-        history = storage.load_metrics(sw_industry_processed_dir())
-        expected = set(history.industry_code.dropna().astype(str))
+        from src.market_facts.policy import source_policy
+        if source_policy()['industry']['provider'] == 'tdx':
+            from src.market_facts.tdx_industry import universe
+            expected = set(universe().tdx_code)
+        else:
+            history = storage.load_metrics(sw_industry_processed_dir())
+            expected = set(history.industry_code.dropna().astype(str))
         actual = set(industries.industry_code.dropna().astype(str))
         if actual != expected or industries.industry_code.duplicated().any():
             errors.append('行业覆盖不完整或有重复代码')
@@ -235,20 +369,23 @@ def validate(date: str) -> dict:
         stocks = pd.read_parquet(stocks_path)
         if stocks.empty or not {'trade_date','source_trade_date','data_status'}.issubset(stocks.columns):
             errors.append('个股趋势缺少日期证据')
-        elif not ((pd.to_datetime(stocks.trade_date)==pd.Timestamp(date)) & (pd.to_datetime(stocks.source_trade_date)==pd.Timestamp(date)) & (stocks.data_status=='current')).all():
+        elif not aligned_stock_rows(stocks,date).all():
             errors.append('个股趋势未对齐')
     for stem in ('stock_positions','etf_positions'):
         path=folder/f'{stem}_{date}.parquet'
         if path.exists():
             frame=pd.read_parquet(path)
-            n=int(frame.bottom_change.eq('UNKNOWN').sum())
+            eligible=frame[frame.reliability.ne('EXCLUDED')] if 'reliability' in frame else frame
+            n=int(eligible.bottom_change.eq('UNKNOWN').sum())
             if n:
                 warnings.append(f'{stem}: {n} 条位置变化未知（历史不足、缺口或无适用位置）')
     if status == 'UNKNOWN':
         errors.append('行业来源完整性状态未知')
     if status == 'COMPLETE':
         warnings.append('FALLBACK_SOURCE')
-    result = {'ok':not errors,'trade_date':date,'scope':'observation_only','status':status,'warnings':warnings,'errors':errors,'data_complete':not warnings}
+    result = {'ok':not errors,'trade_date':date,'scope':'observation_only','status':status,'warnings':warnings,'errors':errors,'data_complete':not warnings,
+              'modules': modules,
+              'industry_price_dates_verified':not industries.empty and bool(verified_price_dates(industries).all())}
     target=outputs_dir()/'run_day'; target.mkdir(parents=True,exist_ok=True)
     (target/f'final_check_{date}.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
     if errors:

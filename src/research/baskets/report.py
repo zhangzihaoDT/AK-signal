@@ -1,319 +1,69 @@
-"""主题篮子研究报告（zihao raccoon 视觉体系）。
-
-`compare_report` 把 `calculate_basket` 已算好的事实（净值/指标/滚动/贡献/子组）渲染成
-单文件 HTML；本模块**不制造新事实**，只排版：
-
-  图 + 指标汇总表（含季度再平衡两列）+ 每篮子明细（滚动/贡献/子组）+ Cross-Basket 重叠
-"""
-
+"""Offline HTML renderer for the reviewed comparable-basket dataset."""
 from __future__ import annotations
-
 import html
 import json
 from pathlib import Path
-from typing import Any
+from plotly.offline import get_plotlyjs
 
-import pandas as pd
-import plotly.graph_objects as go
-
-_BENCHMARK_LABEL = "沪深300"
-_COLORS = ["#174A7C", "#D79A36", "#7ECDEB", "#7A4A24", "#6B7C8F", "#06213D", "#B45309"]
-
-_CSS = """
-:root{--zh-blue:#174A7C;--zh-deep-blue:#06213D;--zh-cyan:#7ECDEB;--zh-light-blue:#DDEFF8;
---zh-cream:#FFF9EF;--zh-raccoon-gold:#D79A36;--zh-brown:#7A4A24;--zh-text:#1F2D3D;
---zh-muted:#6B7C8F;--zh-card:#FFFFFF;--zh-line:#D9E2EC;}
-*{box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans SC",sans-serif;
-background:var(--zh-cream);color:var(--zh-text);line-height:1.6;margin:0;padding:36px 20px}
-.wrap{max-width:1180px;margin:0 auto}
-h1{color:var(--zh-deep-blue);font-size:24px;margin:0 0 4px}
-h2{color:var(--zh-blue);font-size:18px;margin:30px 0 12px;border-left:4px solid var(--zh-raccoon-gold);padding-left:10px}
-.sub{color:var(--zh-muted);font-size:13px;margin:0 0 6px}
-.badge{display:inline-block;background:var(--zh-blue);color:#fff;border-radius:6px;font-size:12px;
-padding:2px 8px;margin-left:8px;vertical-align:middle}
-.card{background:var(--zh-card);border:1px solid var(--zh-line);border-radius:12px;padding:16px 18px;margin:14px 0;
-box-shadow:0 1px 2px rgba(23,74,124,.05)}
-.note{background:var(--zh-light-blue);border-radius:8px;padding:10px 14px;font-size:12.5px;color:var(--zh-blue);margin:10px 0}
-table{border-collapse:collapse;width:100%;font-size:13px;margin:6px 0}
-th,td{border-bottom:1px solid var(--zh-line);padding:7px 10px;text-align:right;white-space:nowrap}
-th{background:var(--zh-light-blue);color:var(--zh-blue);font-weight:600}
-th:first-child,td:first-child{text-align:left}
-td.name{text-align:left;color:var(--zh-text)}
-tr:hover td{background:#F7FBFF}
-.pos{color:#B45309}.neg{color:var(--zh-blue)}
-details.card summary{cursor:pointer;font-weight:600;color:var(--zh-blue);font-size:14px;list-style:none}
-details.card summary::marker{content:""}
-details.card summary::-webkit-details-marker{display:none}
-details.card summary::before{content:"▶ ";color:var(--zh-raccoon-gold);font-size:11px}
-details.card[open] summary::before{content:"▼ "}
-.mini{color:var(--zh-muted);font-size:12px;margin:2px 0 8px}
-.footer{color:var(--zh-muted);font-size:11.5px;margin-top:28px;border-top:1px dashed var(--zh-line);padding-top:10px}
-"""
+COLORS = ['#FF7A2F', '#2878A9', '#437C68', '#174A7C', '#8A6BA8', '#7F743E', '#279EAD', '#9D5965', '#596C34']
 
 
-def _fmt(v: Any, digits: int = 2) -> str:
-    if v is None:
-        return "—"
-    try:
-        f = float(v)
-    except (TypeError, ValueError):
-        return "—"
-    if f != f:  # NaN
-        return "—"
-    return f"{f:+.{digits}f}"
+def _static_svg(series, dates, limits):
+    lo, hi = limits
+    pad = max((hi - lo) * .06, 1)
+    lo, hi = lo - pad, hi + pad
+    x = lambda i: 60 + i / max(len(dates) - 1, 1) * 880
+    y = lambda v: 300 - (float(v) - lo) / (hi - lo) * 270
+    grid = ''.join(f'<line x1="60" x2="940" y1="{y(lo+(hi-lo)*i/4):.2f}" y2="{y(lo+(hi-lo)*i/4):.2f}" stroke="#e6edf1"/><text x="50" y="{y(lo+(hi-lo)*i/4)+4:.2f}" text-anchor="end" font-size="12" fill="#556270">{lo+(hi-lo)*i/4:.0f}</text>' for i in range(5))
+    lines = []
+    for label, values, color, dashed in series:
+        path = ' '.join(f'{"M" if i == 0 else "L"}{x(i):.2f},{y(v):.2f}' for i, v in enumerate(values))
+        lines.append(f'<path d="{path}" fill="none" stroke="{color}" stroke-width="2" stroke-dasharray="{7 if dashed else 0}"><title>{html.escape(label)}</title></path>')
+    return '<svg class="chart-fallback" viewBox="0 0 960 340" role="img" aria-label="离线静态走势预览" style="width:100%;height:100%">' + grid + ''.join(lines) + f'<text x="60" y="330" font-size="12">{dates[0]}</text><text x="940" y="330" font-size="12" text-anchor="end">{dates[-1]}</text></svg>'
 
 
-def _cls(v: Any) -> str:
-    try:
-        return "pos" if float(v) > 0 else ("neg" if float(v) < 0 else "")
-    except (TypeError, ValueError):
-        return ""
-
-
-def save_result(result: dict[str, Any], out_dir: Path) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    key = result["basket"]["key"]
-    result["nav"].to_csv(out_dir / f"{key}_nav.csv", index_label="date")
-    result["constituents"].to_csv(out_dir / f"{key}_constituents.csv", index=False)
-    result["group_metrics"].to_csv(out_dir / f"{key}_groups.csv", index=False)
-    result["rolling"].to_csv(out_dir / f"{key}_rolling.csv", index=False)
-    result["contributions"].to_csv(out_dir / f"{key}_contributions.csv", index=False)
-    result["quarterly_nav"].to_csv(out_dir / f"{key}_quarterly_nav.csv", index_label="date")
-    (out_dir / f"{key}_metrics.json").write_text(
-        json.dumps(result["metrics"], ensure_ascii=False, indent=2), encoding="utf-8")
-    (out_dir / f"{key}_manifest.json").write_text(
-        json.dumps(result["provenance"], ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def cross_basket_overlap(results: list[dict[str, Any]]) -> pd.DataFrame:
-    """找出多个篮子之间的共同成分及其各自的证据阶段与收益贡献。
-
-    目的：当一只共同成分（如拓普）同时驱动多个篮子上涨时，避免把
-    「单一成分拉动」误读为「两条主题同时成立」。
-    """
-    keys = [r["basket"]["key"] for r in results]
-    constituents = {r["basket"]["key"]: r["constituents"] for r in results}
-    contributions = {r["basket"]["key"]: r["contributions"] for r in results}
-    rows: list[dict[str, Any]] = []
-    for i in range(len(keys)):
-        for j in range(i + 1, len(keys)):
-            ka, kb = keys[i], keys[j]
-            common = sorted(set(constituents[ka]["symbol"]) & set(constituents[kb]["symbol"]))
-            for symbol in common:
-                ra = constituents[ka][constituents[ka]["symbol"] == symbol].iloc[0]
-                rb = constituents[kb][constituents[kb]["symbol"] == symbol].iloc[0]
-
-                def _contribution(basket_key: str, sym: str) -> float | None:
-                    sub = contributions[basket_key]
-                    hit = sub[sub["symbol"] == sym]
-                    if hit.empty:
-                        return None
-                    return round(float(hit["contribution_pct_points"].sum()), 4)
-
-                rows.append({
-                    "symbol": symbol,
-                    "name": str(ra.get("name", symbol)),
-                    "basket_a": ka,
-                    "basket_b": kb,
-                    "evidence_stage_a": str(ra.get("evidence_stage", "")),
-                    "evidence_stage_b": str(rb.get("evidence_stage", "")),
-                    "group_a": str(ra.get("group", "")),
-                    "group_b": str(rb.get("group", "")),
-                    "contribution_pct_a": _contribution(ka, symbol),
-                    "contribution_pct_b": _contribution(kb, symbol),
-                })
-    return pd.DataFrame(rows)
-
-
-def _overlap_html(overlap: pd.DataFrame) -> str:
-    """把跨篮子共同成分表渲染成 HTML 片段（注入报告页）。"""
-    if overlap.empty:
-        return ""
-    head = ["成分", "篮子A", "A 证据阶段", "A 组", "A 贡献(pt)",
-            "篮子B", "B 证据阶段", "B 组", "B 贡献(pt)"]
-    from .stage_log import evidence_stage_cn
-    rows = []
-    for _, row in overlap.iterrows():
-        cells = [
-            html.escape(f"{row['name']}（{row['symbol']}）"),
-            html.escape(str(row["basket_a"])),
-            html.escape(evidence_stage_cn(str(row["evidence_stage_a"]))) or "—",
-            html.escape(str(row["group_a"])),
-            _fmt(row["contribution_pct_a"]),
-            html.escape(str(row["basket_b"])),
-            html.escape(evidence_stage_cn(str(row["evidence_stage_b"]))) or "—",
-            html.escape(str(row["group_b"])),
-            _fmt(row["contribution_pct_b"]),
-        ]
-        rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
-    return (
-        '<h2>Cross-Basket 共同成分</h2>'
-        '<div class="card"><p class="mini">同一成分同时出现在多个篮子时，避免把「单一成分拉动」误读为「两条主题同时成立」。</p>'
-        "<table><thead><tr>" + "".join(f"<th>{c}</th>" for c in head) + "</tr></thead><tbody>"
-        + "".join(rows) + "</tbody></table></div>"
-    )
-
-
-def _metrics_table(results: list[dict[str, Any]]) -> str:
-    cols = [
-        ("收益%", "return_pct"), ("超额%", "excess_pct"), ("年化%", "annualized_return_pct"),
-        ("最大回撤%", "max_drawdown_pct"), ("Sharpe", "sharpe"), ("波动%", "annualized_volatility_pct"),
-        ("胜率%", "win_rate_pct"), ("Top1贡献", "top1_contribution_pct_points"),
-        ("Top3贡献", "top3_contribution_pct_points"),
-        ("季度收益%", "quarterly_rebalance_return_pct"), ("季度超额%", "quarterly_rebalance_excess_pct"),
-    ]
-    head = ["篮子"] + [c[0] for c in cols]
+def render_comparison(results, receipt, output: Path):
     rows = []
     for r in results:
-        key = r["basket"]["key"]
-        label = r["basket"].get("label", key)
-        m = r["metrics"]
-        cells = [f'<td class="name">{html.escape(str(label))}</td>']
-        for _, field in cols:
-            v = m.get(field)
-            cells.append(f'<td class="{_cls(v)}">{_fmt(v)}</td>' if field != "sharpe" else f'<td>{_fmt(v)}</td>')
-        rows.append("<tr>" + "".join(cells) + "</tr>")
-    return (
-        '<h2>指标汇总</h2><div class="card"><table><thead><tr>'
-        + "".join(f"<th>{c}</th>" for c in head) + "</tr></thead><tbody>"
-        + "".join(rows) + "</tbody></table></div>"
-    )
-
-
-def _rolling_table(rolling: pd.DataFrame) -> str:
-    if rolling.empty:
-        return '<p class="mini">无滚动数据</p>'
-    last = rolling.iloc[-1]
-    windows = [20, 60, 120]
-    head = ["窗口", "滚动超额%", "滚动 Sharpe", "窗口最大回撤%"]
-    rows = []
-    for w in windows:
-        e = last.get(f"excess_return_{w}d_pct")
-        s = last.get(f"sharpe_{w}d")
-        d = last.get(f"drawdown_{w}d_pct")
-        rows.append("<tr>"
-                    f'<td class="name">{w}D</td><td class="{_cls(e)}">{_fmt(e)}</td>'
-                    f"<td>{_fmt(s)}</td><td class=\"{_cls(d)}\">{_fmt(d)}</td></tr>")
-    return ("<table><thead><tr>" + "".join(f"<th>{c}</th>" for c in head)
-            + "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
-
-
-def _contributions_table(contributions: pd.DataFrame, top_n: int = 12) -> str:
-    if contributions.empty:
-        return '<p class="mini">无贡献数据</p>'
-    head = ["标的", "组", "权重%", "区间收益%", "贡献(pt)"]
-    sub = contributions.sort_values("contribution_pct_points", ascending=False)
-    if len(sub) > top_n:
-        shown = pd.concat([sub.head(top_n), sub.tail(3)]).drop_duplicates(subset=["symbol"])
-    else:
-        shown = sub
-    rows = []
-    for _, r in shown.iterrows():
-        rows.append(
-            "<tr>"
-            f'<td class="name">{html.escape(str(r.get("name", r["symbol"])))}（{r["symbol"]}）</td>'
-            f'<td>{html.escape(str(r.get("group", "")))}</td>'
-            f'<td>{_fmt(r.get("weight_pct"), 2)}</td>'
-            f'<td class="{_cls(r.get("return_pct"))}">{_fmt(r.get("return_pct"))}</td>'
-            f'<td class="{_cls(r.get("contribution_pct_points"))}">{_fmt(r.get("contribution_pct_points"))}</td>'
-            "</tr>")
-    return ("<table><thead><tr>" + "".join(f"<th>{c}</th>" for c in head)
-            + "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
-
-
-def _groups_table(group_metrics: pd.DataFrame) -> str:
-    if group_metrics.empty:
-        return ""
-    head = ["子组", "标的数", "子组收益%"]
-    rows = []
-    for _, r in group_metrics.iterrows():
-        n = r.get("n_assets", 0)
-        n_str = "—" if n is None or pd.isna(n) else str(int(n))
-        rows.append("<tr>"
-                    f'<td class="name">{html.escape(str(r.get("group")))}</td>'
-                    f'<td>{n_str}</td>'
-                    f'<td class="{_cls(r.get("return_pct"))}">{_fmt(r.get("return_pct"))}</td></tr>')
-    return ("<table><thead><tr>" + "".join(f"<th>{c}</th>" for c in head)
-            + "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
-
-
-def _basket_cards(results: list[dict[str, Any]]) -> str:
-    blocks = []
+        m = r['metrics']
+        rows.append('<tr><td>' + html.escape(r['label']) + '</td>' +
+                    ''.join(f'<td>{v:+.2f}{u}</td>' for v, u in [
+                        (m['return_pct'], '%'), (m['excess_pp'], ' pp'), (m['max_drawdown_pct'], '%')]) +
+                    f'<td>{m["assets"]}</td></tr>')
+    payload = {'dates': results[0]['nav'].index.strftime('%Y-%m-%d').tolist(),
+               'benchmark': results[0]['nav'].benchmark.tolist(),
+               'series': [{'key': r['key'], 'label': r['label'], 'values': r['nav'].basket.tolist(),
+                           'weights': r['weights'], 'color': COLORS[i], 'short': {'hk_resources_shipping':'AZ 仓位观察','scania_china_watch':'商用车产业链','china_auto_global_ex_oem':'汽车全球化 · 剔除 OEM','ai_capex':'AI Capex','china_auto_global':'汽车全球化 · 仅 OEM','memory_and_storage':'半导体存储','auto_tier1_ai_infra':'汽车供应链 → AI 液冷','auto_tier1_embodied':'汽车供应链 → Physical AI','high_cashflow':'高现金流资产'}.get(r['key'],r['label'])} for i, r in enumerate(results)]}
+    limits = (min(min(r['nav'].min()) for r in results), max(max(r['nav'].max()) for r in results))
+    bm = ('沪深300', payload['benchmark'], '#374957', True)
+    static_main = _static_svg([(r['label'], r['nav'].basket.tolist(), COLORS[i], False) for i, r in enumerate(results)] + [bm], payload['dates'], limits)
+    cards = ''.join(f'<section class="card small"><h3>{html.escape(r["label"])}</h3><div id="small-{i}" class="small-chart">{_static_svg([(r["label"], r["nav"].basket.tolist(), COLORS[i], False), bm], payload["dates"], (min(r["nav"].min()), max(r["nav"].max())))}</div></section>' for i, r in enumerate(results))
+    weights = []
     for r in results:
-        key = r["basket"]["key"]
-        label = r["basket"].get("label", key)
-        inner = ['<p class="mini">滚动指标（最新一日）</p>' + _rolling_table(r["rolling"]),
-                 '<p class="mini">个股贡献（按贡献排序，含尾部负贡献）</p>' + _contributions_table(r["contributions"])]
-        g = _groups_table(r["group_metrics"])
-        if g:
-            inner.append('<p class="mini">子组收益</p>' + g)
-        blocks.append(
-            f'<details class="card"><summary>{html.escape(str(label))}（{key}）</summary>'
-            + "".join(inner) + "</details>")
-    return "".join(blocks)
-
-
-def compare_report(
-    results: list[dict[str, Any]], out_dir: Path,
-    filename: str = "basket_compare.html",
-) -> Path:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    overlap = cross_basket_overlap(results)
-    if not overlap.empty:
-        overlap.to_csv(out_dir / "basket_overlap.csv", index=False)
-
-    fig = go.Figure()
-    for i, result in enumerate(results):
-        key = result["basket"]["key"]
-        label = result["basket"].get("label", key)
-        nav = result["nav"]
-        fig.add_trace(go.Scatter(
-            x=nav.index, y=nav["basket"], mode="lines", name=label,
-            line={"color": _COLORS[i % len(_COLORS)], "width": 2.8},
-        ))
-    benchmark_name = _BENCHMARK_LABEL
-    if results:
-        nav = results[0]["nav"]
-        fig.add_trace(go.Scatter(
-            x=nav.index, y=nav["benchmark"], mode="lines", name=benchmark_name,
-            line={"color": "#9AA8B5", "width": 2, "dash": "dash"},
-        ))
-    fig.update_layout(
-        title=f"Research Basket vs {benchmark_name}",
-        xaxis_title="交易日", yaxis_title="净值（起点 = 100）", template="plotly_white",
-        hovermode="x unified", font={"color": "#1F2D3D"},
-        legend={"orientation": "h", "y": 1.08, "x": 0}, margin={"t": 60},
-    )
-    chart_html = fig.to_html(include_plotlyjs="cdn", full_html=False)
-
-    metrics = results[0]["metrics"] if results else {}
-    title = f"Research Basket vs {benchmark_name}"
-    sub = (f"窗口 {metrics.get('start_date', '—')} .. {metrics.get('end_date', '—')}"
-           f" ｜ {len(results)} 个篮子 ｜ 基准 {benchmark_name}")
-
-    sections = [
-        f"<h1>{html.escape(title)}</h1>",
-        f'<p class="sub">{html.escape(sub)}<span class="badge">{len(results)} baskets</span></p>',
-        '<div class="note">净值均以共同首个有效交易日 = 100；窗口已截到「最近完整交易日」（盘中排除当日未收盘 bar）。'
-        "HTML 仅为 renderer，事实源为各篮子 <code>_nav/_metrics/_rolling/_contributions</code> 文件。</div>",
-        '<div class="card">' + chart_html + "</div>",
-        _metrics_table(results),
-    ]
-    cards = _basket_cards(results)
-    if cards:
-        sections.append("<h2>每篮子明细</h2>" + cards)
-    overlap_section = _overlap_html(overlap)
-    if overlap_section:
-        sections.append(overlap_section)
-    sections.append('<div class="footer">Research Basket ｜ 口径 group_equal + buy_and_hold ｜ AKSignal · zihao raccoon</div>')
-
-    page = (
-        "<!DOCTYPE html><html lang='zh'><head><meta charset='utf-8'>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        f"<title>{html.escape(title)}</title><style>{_CSS}</style></head>"
-        "<body><div class='wrap'>" + "".join(sections) + "</div></body></html>"
-    )
-    path = out_dir / filename
-    path.write_text(page, encoding="utf-8")
-    return path
+        items = ''.join('<tr><td>' + html.escape(a['name']) + f'</td><td>{html.escape(a["market"])} {html.escape(a["symbol"])}</td>' +
+                        f'<td>{a["initial_weight"]*100:.2f}%</td><td>{a["first_price_date"]}</td><td>{a["contribution_pp"]:+.2f} pp</td></tr>' for a in r['weights'])
+        weights.append(f'<details><summary>{html.escape(r["label"])} · 成分与初始权重</summary><div class="scroll"><table><thead><tr><th>股票</th><th>代码</th><th>初始权重</th><th>窗口首个价格日</th><th>区间贡献</th></tr></thead><tbody>{items}</tbody></table></div></details>')
+    document = '''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>观察篮子 · 长期走势</title><style>
+:root{--bg:#F8F6F0;--text:#253746;--muted:#556270;--line:#dce4e8;--accent:#FF7A2F}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}.wrap{max-width:1360px;margin:auto;padding:38px 28px 64px}.eyebrow{font-size:12px;letter-spacing:.15em;color:var(--muted)}h1{font-size:32px;margin:8px 0}h2{font-size:21px;margin:32px 0 12px}h3{font-size:15px;font-weight:600;margin:2px 10px}.muted{color:var(--muted)}.meta{display:flex;gap:24px;flex-wrap:wrap;margin:16px 0 22px;font-variant-numeric:tabular-nums}.meta strong{display:block;font-size:22px}.card{background:white;border:1px solid var(--line);border-radius:10px;padding:20px;margin:16px 0}.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}button{background:white;border:1px solid var(--line);border-radius:6px;padding:8px 13px;color:var(--text);font:inherit;cursor:pointer}button.active{background:#e7f1f8;border-color:#2878A9}button:focus-visible{outline:2px solid #FF7A2F;outline-offset:3px}.caption{font-size:13px;color:var(--muted);margin:10px 0}.main-chart{height:560px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.small{min-width:0;margin:0;padding:14px 8px}.small-chart{height:265px}.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:right;padding:12px 14px;border-bottom:1px solid var(--line);white-space:nowrap}td:first-child,th:first-child{text-align:left;white-space:normal;min-width:180px}th{background:#f0f6fa;color:var(--muted)}details{margin:12px 0;border-top:1px solid var(--line);padding-top:12px}summary{cursor:pointer;font-weight:600}.note{border-left:3px solid var(--accent);padding:8px 16px;background:#fff}li{margin:8px 0}footer{font-size:12px;color:var(--muted);margin-top:28px}@media(max-width:700px){.wrap{padding:22px 14px}h1{font-size:26px}.card{padding:12px}.grid{grid-template-columns:1fr}.main-chart{height:650px}.meta{gap:18px}.meta strong{font-size:19px}}
+</style><script>__PLOTLY__</script></head><body><main class="wrap"><div class="eyebrow">AKSIGNAL / RESEARCH BASKETS</div><h1>观察篮子 · 长期走势</h1><p class="muted">__COUNT__ 个观察篮子与沪深300，从同一起点比较价格表现。</p><div class="meta"><div><span class="muted">完整研究窗口</span><strong>__START__ — __END__</strong></div><div><span class="muted">观察范围</span><strong>__COUNT__ 篮子 / __ASSETS__ 只股票</strong></div><div><span class="muted">比较交易日</span><strong>__ROWS__ 日</strong></div></div><p class="note">当前观察名单的历史重建，按初始固定权重买入持有。AZ 为研究篮子，未使用实际仓位。使用各资产本币前复权价格，不计汇率、交易费用；不宣称为经验证的含息总回报或历史可执行策略。</p><section class="card"><div class="controls" aria-label="图表区间"><button class="active" data-range="all">完整区间</button><button data-range="1y">近一年</button><button data-range="ytd">2026 年</button><button data-range="3m">近三个月</button><button id="mode">切换：超额走势</button><button id="reset">显示全部篮子</button></div><p class="caption" id="window-caption"></p><div id="main-chart" class="main-chart">__STATIC__</div><p class="caption">沪深300为深灰虚线。单击图例隐藏曲线，双击单独查看；悬停查看同一日期。切换区间后将已有篮子净值重新归一化，保持原持仓路径。</p></section><h2>完整区间比较</h2><p class="caption">下表固定为完整研究窗口，不随图表筛选改变。超额 = 篮子涨幅 − 沪深300涨幅（百分点）。沪深300同期涨幅：__BENCHMARK__。</p><section class="card scroll"><table><thead><tr><th>观察篮子</th><th>区间涨幅</th><th>相对沪深300超额</th><th>最大回撤</th><th>股票数</th></tr></thead><tbody>__TABLE__</tbody></table></section><h2>逐篮子对比</h2><p class="caption">与主图使用相同区间和口径；各小图默认展开，纵轴按该篮子与沪深300自动缩放。</p><div class="grid">__CARDS__</div><h2>计算口径与数据质量</h2><section class="card"><ul><li>子组等权、组内等权，初始权重固定；随后买入持有，权重自然漂移，不做日度或季度再平衡。</li><li>晚上市成分预留资金作零收益现金，在首个真实收盘价投入。联芸科技自2024-11-29、禾赛自2025-09-16参与；上市前没有股票价格。</li><li>禾赛代码已由02510纠正为02525。2026年7月临时柜台02983的十条实际日线补齐缺口；一拆八通过供应商复权因子处理，不制造暴跌。</li><li>以沪深300交易日展示，港股独有交易日的价格变动计入下一展示日；已核验的休市和普冉股份停牌期间沿用最近价格，仅作估值，不补造原始行情。</li><li>54只股票重新获取供应商前复权序列或复权因子，独立保存。当前供应商调整不是历史时点证据，CN/HK复权方法仍有差异，不能视为经独立验证的总回报。</li><li>原始窗口内东岳集团1条、东方海外国际2条OHLC关系异常已记录；本图只读取收盘价，未篡改供应商开高低收。跨篮子持有同一股票时分别计入各自篮子，八个篮子不是互斥投资组合。</li></ul><details><summary>数据来源与公司行动依据</summary><p>CN：AKShare 多源前复权日线（每只成功来源记入快照）；HK：新浪原始日线 × 供应商前复权因子；基准：已有沪深300指数缓存。</p><p><a href="https://www.hkexnews.hk/listedco/listconews/sehk/2025/0915/2025091501459_c.pdf">禾赛上市及代码公告</a> · <a href="https://www.hkexnews.hk/listedco/listconews/sehk/2026/0526/2026052601791_c.pdf">禾赛股份拆细公告</a> · <a href="https://static.cninfo.com.cn/finalpage/2025-12-02/1224839861.PDF">普冉股份停牌进展</a></p><p>可复核文件：comparison_nav.csv、comparison_manifest.json、各篮子_weights.csv。完整参考快照及来源：data/audits/research_baskets/20261014/adjusted_references/manifest.json。</p></details>__WEIGHTS__</section><footer>研究观察 / 静态名单重建 / 价格表现不等于真实组合收益 · 数据截至 __END__</footer></main><script id="reviewed-data" type="application/json">__DATA__</script><script>
+document.querySelectorAll('.chart-fallback').forEach(el=>el.remove());const data=JSON.parse(document.getElementById('reviewed-data').textContent);let range='all',mode='nav';
+const config={responsive:true,displaylogo:false,modeBarButtonsToRemove:['select2d','lasso2d']};
+function seriesWindow(){const last=data.dates.at(-1);let start=data.dates[0];if(range==='ytd')start=last.slice(0,4)+'-01-01';if(range==='1y'){let d=new Date(last+'T00:00:00Z');d.setUTCFullYear(d.getUTCFullYear()-1);start=d.toISOString().slice(0,10)}if(range==='3m'){let d=new Date(last+'T00:00:00Z');d.setUTCMonth(d.getUTCMonth()-3);start=d.toISOString().slice(0,10)}let i=data.dates.findIndex(d=>d>=start);let bm=data.benchmark.slice(i).map(v=>v/data.benchmark[i]*100);let s=data.series.map(x=>({...x,values:x.values.slice(i).map((v,k)=>v/x.values[i]*100-(mode==='excess'?bm[k]:0))}));return {dates:data.dates.slice(i),bm:mode==='excess'?bm.map(()=>0):bm,s}}
+function draw(){const w=seriesWindow();document.getElementById('window-caption').textContent=w.dates[0]+' — '+w.dates.at(-1)+' · '+(mode==='excess'?'区间相对沪深300超额（百分点），起点=0':'区间起点=100，篮子沿用原持仓，不重新等权');const trace=x=>({x:w.dates,y:x.values,name:x.short,mode:'lines',line:{color:x.color,width:x.key==='hk_resources_shipping'?3:2},hovertemplate:'%{y:.2f}<extra>%{fullData.name}</extra>'});const bt={x:w.dates,y:w.bm,name:'沪深300',mode:'lines',line:{color:'#374957',width:2.6,dash:'dash'},hovertemplate:'%{y:.2f}<extra>沪深300</extra>'};let narrow=document.documentElement.clientWidth<700;let layout={width:document.getElementById('main-chart').clientWidth,height:document.getElementById('main-chart').clientHeight,autosize:true,paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{family:'-apple-system, PingFang SC, sans-serif',size:13,color:'#556270'},margin:{l:62,r:20,t:15,b:narrow?230:105},hovermode:'x unified',legend:{orientation:'h',y:-.2,x:0,font:{size:12}},xaxis:{gridcolor:'#edf1f4',nticks:7,tickformat:'%Y-%m'},yaxis:{title:{text:mode==='nav'?'归一化净值':'超额（百分点）'},gridcolor:'#e6edf1'},uirevision:mode+range};Plotly.react('main-chart',[...w.s.map(trace),bt],layout,config);w.s.forEach((s,i)=>Plotly.react('small-'+i,[trace(s),bt],{...layout,width:document.getElementById('small-'+i).clientWidth,height:265,margin:{l:55,r:16,t:12,b:40},showlegend:false,yaxis:{...layout.yaxis,title:undefined,autorange:true,range:undefined},xaxis:{...layout.xaxis,nticks:4}},config))}
+document.querySelectorAll('[data-range]').forEach(b=>b.onclick=()=>{range=b.dataset.range;document.querySelectorAll('[data-range]').forEach(x=>x.classList.toggle('active',x===b));draw()});document.getElementById('mode').onclick=()=>{mode=mode==='nav'?'excess':'nav';document.getElementById('mode').textContent=mode==='nav'?'切换：超额走势':'切换：净值走势';draw()};document.getElementById('reset').onclick=()=>{Plotly.restyle('main-chart',{visible:true})};window.addEventListener('resize',draw);draw();
+</script></body></html>'''
+    if receipt.get('source') == 'longbridge':
+        begin=document.index('<h2>计算口径与数据质量</h2>')
+        finish=document.index('__WEIGHTS__',begin)
+        policy='<h2>计算口径与数据质量</h2><section class="card"><ul><li>数据来源：个股全部为长桥 OpenAPI · Longbridge ForwardAdjust；沪深300同样来自长桥，使用未复权指数值。</li><li>八个研究主题加高现金流资产，共九类；禾赛按当前观察政策排除，剔除后按子组等权、组内等权确定初始权重，随后买入持有，不做日度再平衡。跨篮子同股分别计入，篮子不是互斥组合。</li><li>联芸科技上市前保留初始资金作现金；其他晚起行情不得冒充上市前现金。价格为本币，不换汇、不计费用，供应商前复权不等同于独立验证的含息总回报。</li><li>仅使用源端收盘价，独立快照标记 close_only；不使用、修复或认证供应商 OHLC。东方海外国际日报因 OHLC 异常采用短窗口，本报告为收盘价研究另外获取完整窗口，二者用途与校验不同。</li><li>以沪深300交易日展示，港股独有交易日计入下一展示日；缺报价仅以前一个真实价格估值，不补造原始行情，也不把缺口全部认定为已核实停牌。各资产缺口记录在快照审计中。</li></ul><details><summary>来源与复核文件</summary><p>comparison_nav.csv、comparison_manifest.json、各篮子_weights.csv；快照目录：'+html.escape(receipt['source_snapshot'])+'。</p></details>'
+        document=document[:begin]+policy+document[finish:]
+    for key,value in {'__COUNT__':str(len(results)),'__ASSETS__':str(len({(a['market'],a['symbol']) for r in results for a in r['weights']}))}.items():
+        document=document.replace(key,value)
+    for key, value in {'__START__': receipt['start'], '__END__': receipt['end'], '__ROWS__': str(receipt['rows']),
+                       '__BENCHMARK__': f'{results[0]["metrics"]["benchmark_return_pct"]:+.2f}%', '__TABLE__': ''.join(rows),
+                       '__STATIC__': static_main, '__CARDS__': cards, '__WEIGHTS__': ''.join(weights), '__DATA__': json.dumps(payload, ensure_ascii=False).replace('<', '\\u003c'),
+                       '__PLOTLY__': get_plotlyjs()}.items():
+        document = document.replace(key, value)
+    output = Path(output)
+    output.write_text(document, encoding='utf-8')
+    return output

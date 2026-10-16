@@ -11,16 +11,13 @@ Layer ③ 分层资产池 — universe 加载与行业确认注入
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 import yaml
 
 from src.common import themes as themes_cfg
-from src.common.paths import research_observations_path
 from src.trend_engine.asset import Asset
 
 logger = logging.getLogger("selection.universe")
@@ -132,121 +129,3 @@ def load_universe_items(path: Path) -> list[UniverseItem]:
 
     logger.info("universe loaded: %d assets across %d themes", len(items), len(themes))
     return items
-
-
-def detect_unregistered_themes(path: Path) -> list[str]:
-    """返回 selection_universe.yaml 中存在但未在 config/theme_registry.yaml 注册的 theme 键。
-
-    未注册 theme = 配置关系不完整：其资产不会进入任何主题候选。
-    展示层允许继续运行（bucket 为空），正式发布应由调用方决定阻止或标记 degraded。
-    """
-    cfg = load_universe(path)
-    registered = set(themes_cfg.load_themes())
-    return [k for k in (cfg.get("themes", {}) or {}) if k not in registered]
-
-
-def load_observation_evidence(group_key: str) -> dict[str, dict[str, str]]:
-    """加载研究观察组的商业化阶段事实（config/research_observations.yaml）。
-
-    monitor-only tier 通过 evidence_source 指向观察组 key；本函数按 symbol 返回
-    该组 listed_assets 的阶段字段（evidence_stage / revenue_evidence / capacity_stage /
-    subgroup_label / note），供「核心资产监控」展示商业化阶段。
-
-    单一事实源纪律：阶段字段只在 research_observations.yaml 维护（stage log 守护），
-    selection_universe 不重复登记；本函数只做只读联接，不制造新事实。
-    """
-    out: dict[str, dict[str, str]] = {}
-    if not group_key:
-        return out
-    path = research_observations_path()
-    if not path.exists():
-        logger.warning("research_observations.yaml not found: %s", path)
-        return out
-    with open(path, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f) or {}
-    group = (cfg.get("observation_groups") or {}).get(group_key) or {}
-    for sub_key, sub in (group.get("groups") or {}).items():
-        for a in (sub.get("listed_assets") or []):
-            symbol = str(a.get("symbol", "")).strip()
-            if not symbol:
-                continue
-            out[symbol] = {
-                "evidence_stage": str(a.get("evidence_stage", "")).strip(),
-                "revenue_evidence": str(a.get("revenue_evidence", "")).strip(),
-                "capacity_stage": str(a.get("capacity_stage", "")).strip(),
-                "subgroup_label": str(sub.get("label", sub_key)).strip(),
-                "note": str(a.get("note", "")).strip(),
-            }
-    return out
-
-
-def cross_theme_assets(path: Path) -> dict[str, list[str]]:
-    """同一资产（code）出现在多个 theme 的归属清单。
-
-    允许同一资产在多个主题注册（多主题属性），但需要在报告/组合层明确主归属语义：
-      primary 归属 = 首个 bucket 顺序（core < quality < tactical），
-      Position 权重归属属于 Layer 4（v0.4.3 不做）。
-
-    Returns:
-        {asset_key: [theme_key, ...]}（仅返回出现 ≥2 个 theme 的资产）
-    """
-    cfg = load_universe(path)
-    code_themes: dict[str, list[str]] = {}
-    for theme_key, theme_cfg in (cfg.get("themes", {}) or {}).items():
-        for tier_cfg in theme_cfg.get("tiers", []):
-            for a in tier_cfg.get("assets", []):
-                symbol = str(a.get("symbol", "")).strip()
-                if symbol:
-                    code_themes.setdefault(symbol, [])
-                    if theme_key not in code_themes[symbol]:
-                        code_themes[symbol].append(theme_key)
-    return {code: themes for code, themes in code_themes.items() if len(themes) > 1}
-
-
-# ── Layer ② 行业确认注入 ─────────────────────────────────────────
-
-def load_latest_confirmation(processed_dir: Path) -> pd.DataFrame:
-    """读取最新一份 confirmation_{date}.parquet。"""
-    files = sorted(processed_dir.glob("confirmation_*.parquet"))
-    if not files:
-        return pd.DataFrame()
-    latest = files[-1]
-    try:
-        df = pd.read_parquet(latest)
-        logger.info("confirmation loaded: %s (%d industries)", latest.name, len(df))
-        return df
-    except Exception as e:
-        logger.warning("failed to load confirmation %s: %s", latest, e)
-        return pd.DataFrame()
-
-
-def build_confirmation_map(confirmation: pd.DataFrame) -> dict[str, dict[str, Any]]:
-    """industry_code → 行业确认信号。"""
-    if confirmation.empty or "industry_code" not in confirmation.columns:
-        return {}
-    out: dict[str, dict[str, Any]] = {}
-    for _, r in confirmation.iterrows():
-        code = str(r.get("industry_code", "")).strip()
-        if not code:
-            continue
-        out[code] = {
-            "sw_industry_name": str(r.get("industry_name", "")),
-            "sw_confirm_level": str(r.get("strength_level", "")),
-            "sw_drive_pattern": str(r.get("drive_pattern", "")),
-            "sw_theme": str(r.get("theme_label", "")),
-            "sw_rps15": r.get("RPS15"),
-            "sw_theme_key": str(r.get("theme", "")),
-        }
-    return out
-
-
-def inject_confirmation(items: list[UniverseItem], processed_dir: Path) -> tuple[list[UniverseItem], dict[str, dict[str, Any]]]:
-    """将行业确认信号挂到每个标的。
-
-    Returns:
-        (enriched_items, confirm_map)  — confirm_map 由调用方在报告阶段合并
-    """
-    confirmation = load_latest_confirmation(processed_dir)
-    confirm_map = build_confirmation_map(confirmation)
-    logger.info("industry confirmation map: %d industries", len(confirm_map))
-    return items, confirm_map

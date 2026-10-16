@@ -7,13 +7,11 @@ AKSignal 顶层命令路由
 
 用法：
   python src/main.py                        → 观察系统每日批次（默认）
-  python src/main.py select [run]           → Layer ③ 交易候选
   python src/main.py final-check            → 观察产物验收
   python src/main.py run-summary run        → 观察日报摘要
-  python src/main.py industry <command>     → 申万行业 RPS（Layer ② 确认）
-  python src/main.py etf <command>          → ETF 趋势信号（Layer ①）
+  python src/main.py etf <command>          → ETF 行情与指标
   python src/main.py run-day                → 观察系统每日批次
-  python src/main.py bootstrap|update|calculate|report|validate → 申万行业 RPS（向后兼容）
+  python src/main.py research basket compare → 独立篮子研究
 """
 
 from __future__ import annotations
@@ -27,17 +25,6 @@ _project_root = str(Path(__file__).resolve().parent.parent)
 for p in [_project_root, _this_dir]:
     if p not in sys.path:
         sys.path.insert(0, p)
-
-SW_INDUSTRY_COMMANDS = {
-    "bootstrap", "update", "calculate", "report", "validate", "run-day", "drilldown",
-}
-
-ETF_COMMANDS = {
-    "bootstrap", "bootstrap-core", "update", "classify", "layer1", "screen",
-    "watchlist", "account", "card", "pipeline",
-    "calculate", "signal", "report", "backtest", "run-day",
-}
-
 
 def main() -> None:
     argv = sys.argv[1:]
@@ -63,24 +50,6 @@ def main() -> None:
             etf_main()
             return
 
-        if cmd in SW_INDUSTRY_COMMANDS:
-            from src.sw_industry_rps.cli import main as sw_main
-            sys.argv = [sys.argv[0], *argv]
-            sw_main()
-            return
-
-        if cmd == "industry":
-            from src.sw_industry_rps.cli import main as sw_main
-            sys.argv = [sys.argv[0], *argv[1:]]
-            sw_main()
-            return
-
-        if cmd in ("select", "layer3"):
-            from src.selection.cli import main as selection_main
-            sys.argv = [sys.argv[0], *argv[1:]]
-            selection_main()
-            return
-
         if cmd in ("final-check", "run-day-check"):
             from src.observation.cli import main as observation_main
             sys.argv = [sys.argv[0], "check", *argv[1:]]
@@ -93,22 +62,10 @@ def main() -> None:
             research_main()
             return
 
-        if cmd == "backtest":
-            from src.backtest.cli import main as backtest_main
-            sys.argv = [sys.argv[0], *argv[1:]]
-            backtest_main()
-            return
-
         if cmd == "data":
             from src.data_refresh.cli import main as data_main
             sys.argv = [sys.argv[0], *argv[1:]]
             data_main()
-            return
-
-        if cmd in ("opportunity-radar", "radar"):
-            from src.opportunity_radar.cli import main as radar_main
-            sys.argv = [sys.argv[0], *argv[1:]]
-            radar_main()
             return
 
         if cmd in ("run-summary", "run-day-summary"):
@@ -116,12 +73,6 @@ def main() -> None:
             tail = argv[2:] if len(argv) > 1 and argv[1] == "run" else argv[1:]
             sys.argv = [sys.argv[0], "summary", *tail]
             observation_main()
-            return
-
-        if cmd == "replay":  # 兼容别名：research replay
-            from src.research.cli import main as research_main
-            sys.argv = [sys.argv[0], *["replay", *argv[1:]]]
-            research_main()
             return
 
     # Default entry is the observation-only daily batch.

@@ -33,6 +33,9 @@ def _make_mock_raw(raw_dir: Path, code: str, last_date: str = "2026-07-15") -> N
     df = pd.DataFrame({
         "trade_date": dates,
         "close": [float(100 + i) for i in range(len(dates))],
+        # Completeness now requires independent source-date evidence.
+        "source": "swsresearch",
+        "source_trade_date": dates,
     })
     storage.save_industry_raw(df, raw_dir, code)
 
@@ -242,22 +245,3 @@ class TestManifestProtection:
             assert result is None
         finally:
             p._ROOT = original
-
-
-# ---------------------------------------------------------------------------
-# 5. CLI entry
-# ---------------------------------------------------------------------------
-
-class TestCliEntry:
-    def test_script_entry_imports(self):
-        """python src/main.py 可导入"""
-        from src.main import main, SW_INDUSTRY_COMMANDS
-        assert callable(main)
-        assert "run-day" in SW_INDUSTRY_COMMANDS
-
-    def test_module_entry_imports(self):
-        """python -m src.main 可导入"""
-        import importlib
-        mod = importlib.import_module("src.main")
-        assert hasattr(mod, "main")
-        assert hasattr(mod, "SW_INDUSTRY_COMMANDS")

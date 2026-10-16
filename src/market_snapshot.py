@@ -27,11 +27,17 @@ def snapshot(root: Path, stage: Path, receipt: dict) -> dict:
         state.append(f"A股宽基：{r.direction_state}；趋势活跃 {r.active_ratio:.1%}。")
     else:
         state.append('宽基环境事实缺失，不能判断整体市场状态。')
-    established = int(industries.trend_stage.eq('已形成趋势').sum())
-    emerging = int(industries.trend_stage.eq('正在启动').sum())
-    fading = int(industries.trend_stage.eq('正在退潮').sum())
+    industry_module = (receipt.get('result') or {}).get('modules', {}).get('industry_rotation') or {}
+    industry_unavailable = industry_module.get('status') == 'unavailable'
+    established = int(industries.trend_stage.eq('已形成趋势').sum()) if not industry_unavailable else 0
+    emerging = int(industries.trend_stage.eq('正在启动').sum()) if not industry_unavailable else 0
+    fading = int(industries.trend_stage.eq('正在退潮').sum()) if not industry_unavailable else 0
     active = int(etfs.trend_active.eq(True).sum())
-    state.append(f"行业：{established}/{len(industries)} 已形成趋势，{emerging} 正在启动，{fading} 正在退潮；ETF 活跃 {active}/{len(etfs)}。")
+    if industry_unavailable:
+        state.append(f"行业轮动模块不可用（目标日核验 {industry_module.get('verified_count', 0)}/"
+                     f"{industry_module.get('expected_count', 0)}）；不形成行业方向结论。ETF 活跃 {active}/{len(etfs)}。")
+    else:
+        state.append(f"行业：{established}/{len(industries)} 已形成趋势，{emerging} 正在启动，{fading} 正在退潮；ETF 活跃 {active}/{len(etfs)}。")
     # Editorial priority: broad participation first, then strength, stable name tie-break.
     # Only existing published strong direction labels qualify; no new trading signal.
     eligible = directions[directions.direction_state.eq('强势上行') & directions.active_count.ge(2)]

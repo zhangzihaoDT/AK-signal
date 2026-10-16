@@ -1,39 +1,37 @@
+> 2026-10-16 行业正式集成：TDX Research Industry 固定 128 二级行业；官方 .day → 独立价格库 → 自算收益/RPS → Daily Observation。SW2021 仅历史研究，无备用回退；更新失败 UNAVAILABLE，窗口不足 INSUFFICIENT_HISTORY。详见 docs/TDX_INDUSTRY_INTEGRATION.md。
+
 # AKsignal Canonical Architecture Map
 
-> 当前能力的 canonical 状态图。基线版本：v0.5.0。更新：2026-10-13。
+> 当前能力的 canonical 状态图。基线版本：v0.6.0。更新：2026-10-16。
 
 ## 完整定位与项目目标
 
-**AKsignal = Market Intelligence & Portfolio Strategy System。**
+**AKsignal = Investment Decision System（投资决策系统）。**
 
-目标是通过量化方法辅助管理一个真实的投资组合，而不是只生成市场观察报告。
+目标是通过可追溯的市场事实、策略信号和真实组合约束，辅助管理投资组合；投资者保留最终决策权。
 
 ```text
 AKsignal
-├── Facts
-│   ├── Market Facts       市场事实
-│   └── Portfolio State    组合状态
-└── Strategy
-    ├── Selection          选筹
-    ├── Entry              买入建议
-    ├── Allocation         单项资产仓位建议
-    ├── Exit               卖出建议
-    └── Portfolio Advice   整个组合的综合调整建议
+├── 04 · Portfolio / Position
+│   └── 仓位管理 · 持仓监控 · 风险暴露 · 调仓决策
+├── 03 · Strategy
+│   └── 机会识别 · 信号生成 · 策略验证 · 买卖规则
+├── 02 · Market Facts
+│   └── 市场日报 · 行业趋势 · 篮子 Compare
+└── 01 · Data Foundation
+    └── 数据源 · 历史行情 · 增量更新 · 数据质量
 ```
 
-| 部分 | 回答的问题 | 边界 |
+数据流自下而上：Data Foundation → Market Facts → Strategy → Portfolio / Position。持仓约束与执行反馈经明确接口传递，不回写或伪装底层市场事实。
+
+| 层级 | 回答的问题 | 核心产出与边界 |
 |---|---|---|
-| Market Facts | 市场发生了什么？ | 行情、趋势、位置等量化事实，不把策略结论写成事实 |
-| Portfolio State | 目前实际持有什么、现金和风险暴露是多少？ | 实际持仓、数量、现金、估值与暴露；派生量标注价格时点、来源与计算口径，不包含建议仓位 |
-| Selection | 应该买什么？ | 将事实压缩为候选标的及选择依据 |
-| Entry | 何时买？ | 给出买入条件、触发与当前是否满足的建议 |
-| Allocation | 单项资产建议配置多少？ | 输出单项资产目标仓位建议，显式说明占组合净资产等分母及假设 |
-| Exit | 何时卖？ | 给出退出、减持条件与依据 |
-| Portfolio Advice | 整个组合应该如何调整？ | 消费市场事实、实际组合与各项策略建议，综合现金、集中度、主题暴露等约束，给出组合层面的最终调整建议 |
+| Data Foundation | 数据是否完整、可信？ | 标准化行情、来源与质量证据；不生成市场信号 |
+| Market Facts | 市场正在发生什么？ | 市场事实与比较结果；不感知 Strategy，不编码策略语义或输出买卖建议 |
+| Strategy | 根据事实应该采取什么行动？ | 买卖信号及独立验证依据；消费版本化事实，不维护或重算行情 |
+| Portfolio / Position | 结合实际持仓应该如何执行？ | 仓位建议、风险与调仓计划；消费实际持仓和策略信号，不自行生成市场信号 |
 
-**Allocation 与 Portfolio Advice 不混同。** 例如 Allocation 建议某资产目标权重10%，Portfolio Advice 结合该资产已有仓位和同主题暴露，可以建议本次只增加3个百分点，或暂不增持。目标权重、当前权重、建议调整量、调整后权重必须分别记录，不能用一个 weight 字段混合表达。Portfolio Advice 保留原始单项建议与约束原因，不覆盖它们或篡改实际持仓；建议调整不等于已发生交易。真实交易/账户记录确认后，才更新 Portfolio State。
-
-建议数据流：Market Facts + Portfolio State → 各项 Strategy 建议 → Portfolio Advice 综合协调 → 人工决策。策略可读取组合约束；五项能力不是必须严格串行的流水线。Strategy 消费版本化事实快照，不自行联网制造行情事实；不同策略可消费同一 Facts 给出不同建议。
+**策略信号不等于仓位决策。** Strategy 判断 ETF 出现机会后，Portfolio / Position 可根据实际持仓、行业集中度和风险约束拒绝或调整执行建议。事实、信号、实际仓位、目标仓位和调整量分别记录，互不覆盖。
 
 ## 必须坚持的原则
 
@@ -41,11 +39,15 @@ AKsignal
 
 该原则约束最终投资决策的责任与事实/建议分离，不排斥 Strategy 提供量化建议。系统辅助真实组合管理；投资者保留最终决策权。
 
+## 模块数据来源更新（2026-10-16，优先于后文旧来源描述）
+
+个股生产入口已指定长桥 OpenAPI / ForwardAdjust，趋势、收益率和价格位置共用长桥快照，沪深300基准同源，禾赛暂排除；不使用旧EM/Sina个股CSV回退。ETF继续独立使用东方财富/新浪，逐序列记录实际来源与价格口径。行业轮动指定TDX Research Industry，官方.day历史基座与增量已接通，固定128个二级行业，AKsignal独立计算收益率和RPS；申万仅作历史研究，不再由Daily执行或替代TDX。三个模块不跨来源备份，不强制分类对齐。配置及运行边界见 [OBSERVATION_DATA_SOURCES.md](OBSERVATION_DATA_SOURCES.md)。
+
 ## 当前实现阶段
 
-当前每日主链实现的是 **Market Facts** 的八项基础能力：观察全市场 ETF、全行业及固定池个股的趋势与底部位置。每日报告是事实交付入口，不是整个项目的最终产品定位。
+v0.6.0 完成重点是 **Data Foundation 与 Market Facts 稳定化**。当前每日主链观察全市场 ETF、128 个 TDX 研究行业及固定池个股，并发布日报；独立 Basket Compare 提供比较结果。Strategy 与 Portfolio / Position 尚未作为正式能力实现。
 
-**Portfolio State 与新 Strategy 架构尚未作为正式核心能力实现。** 旧 Selection、Timing、研究代码的存在不等于这五项策略能力已完成；目前仍不由 daily-run 自动输出买入推荐。后续建设应基于这棵整体架构，而不是恢复已退出主链的旧功能拼装。
+**当前正式实现限于 Data Foundation 与 Market Facts。** 后续 Strategy 将重新定义策略、信号与独立回测机制；Portfolio / Position 将接入实际持仓、风险约束与调仓决策。旧 Selection、Timing、研究或回测实现不代表新层能力已完成，也不作为新设计基础。
 
 主题和 tier 当前仅保留观察分组与注册身份；同一股票多个身份不压成单标签。
 
@@ -53,20 +55,20 @@ AKsignal
 
 - **Data Foundation｜数据基础**：①固定池股票 · ②全市场 ETF · ③全行业指数。
 - **Trend｜趋势观察**：④行业轮动 · ⑤大类资产 · ⑥ETF 趋势 · ⑦个股趋势。
-- **Position｜位置观察**：⑧ETF 与个股底部位置。
+- **Price Position｜价格位置观察**：⑧ETF 与个股历史价格位置；这属于 Market Facts，不是 Portfolio / Position 仓位管理。
 - **Daily Observation Report**：统一日期 · 统一数据质量 · 统一发布，消费上述事实，不新增投资决策。
 
 ## 保留的八项能力
 
 | # | 能力 | 模块 / 输入 | 产物 |
 |---|---|---|---|
-| 1 | 固定观察池个股数据获取与整理 | trend_engine；selection_universe.yaml 作为现有观察池配置 | data/raw/{market}_{symbol}.csv；stock_update_audit_{date}.json |
-| 2 | 全市场 ETF 数据获取与整理 | etf_signal 数据获取 / 分类 / 缓存 | data/etf_signal/raw、master、diagnostics |
-| 3 | 全行业指数数据获取与整理 | sw_industry_rps 数据获取 / 兜底 / 缓存 | data/processed/sw_industry |
-| 4 | 全行业轮动观察 | 行业 metrics，保留 RPS / delta / 趋势阶段 | observation/industry_rotation、industry_directions |
+| 1 | 固定观察池个股数据获取与整理 | market_facts.stock_daily；长桥；selection_universe.yaml观察池 | data/sources/longbridge/raw/daily；stock_update_audit_{date}.json |
+| 2 | 全市场 ETF 数据获取与整理 | etf_signal 数据获取 / 分类 / 缓存 | data/sources/etf_em_sina/raw、master、diagnostics |
+| 3 | 行业指数数据获取与整理 | TDX Research Industry固定128二级行业；官方.day基座+增量 | 精确目标日门控；申万仅历史研究 |
+| 4 | 全行业轮动观察 | 独立收益/RPS已接通；不以申万替代 | observation/industry_rotation、industry_directions；失败显式unavailable |
 | 5 | 大类资产趋势观察 | ETF 分类与横截面聚合；通过 ETF 代理观察 | observation/asset_directions |
 | 6 | ETF 趋势识别与活跃池 | RPS 原值、价格 / MA20 / MA60 / 斜率 | observation/etf_trends |
-| 7 | 观察池个股趋势评估 | stock-metrics，只发布趋势事实，移除 action / watch_level | stock_metrics/stock_metrics_{date}.parquet |
+| 7 | 观察池个股趋势评估 | 长桥快照 → 现有趋势纯计算，不输出action | stock_metrics/stock_metrics_{date}.parquet |
 | 8 | ETF 与观察池个股底部位置判断 | ETF 复用 price_map；股票独立 stock_position_v1 | observation/etf_positions、stock_positions |
 
 上述 observation 文件均按 trade_date 输出 parquet + CSV。位置只描述历史收盘价区间位置，不断言未来不会继续下跌。股票口径与可靠性限制见 [POSITION_OBSERVATION.md](POSITION_OBSERVATION.md)。
@@ -78,14 +80,14 @@ ETF 活跃的观察定义：price > MA20、price > MA60、MA20_slope > 0、MA60_
 唯一完整每日入口为 `make run-day`，由 src/daily_run.py 编排：
 
 ```text
-etf update → industry update → etf calculate → industry calculate
-  → observation stock-metrics → observation build → observation check
+etf update → etf calculate
+  → observation stock-metrics（长桥个股与基准，同批位置）→ observation build → observation check
   → validate_release → 统一发布
 ```
 
 `make run-day-offline` 跳过在线 update，个股仅读缓存。所有步骤固定目标 trade_date；核心股票与基准未对齐时停止发布。ETF 缺口显式列入审计。
 
-每日只有一个报告入口：`outputs/observation/observation_{date}.html`，附同名 JSON 摘要与 Markdown。正文只保留三个主要观察区域：**市场方向**（大类资产与行业轮动）、**趋势活跃**（ETF 与固定池个股）、**底部位置**（ETF 与固定池个股的状态、变化、窗口可靠性）。数据覆盖、复权验证、缓存与来源状态集中在独立的数据质量区域；不占用投资观察正文。机器事实全量落盘。ETF 活跃定义沿用均线条件，个股活跃展示趋势分≥70，完整固定池可展开；这只是展示范围，不创造推荐资格。
+每日只有一个报告入口：`outputs/observation/observation_{date}.html`，附同名 JSON 摘要与 Markdown。正文按大类资产、行业轮动、ETF、个股观察四个板块组织，趋势和位置归入对应资产；个股按8个研究主题加高现金流分类，各板块注明来源。数据覆盖、复权验证、缓存与来源状态集中在独立的数据质量区域；不占用投资观察正文。机器事实全量落盘。ETF 活跃定义沿用均线条件，个股活跃展示趋势分≥70，完整固定池可展开；这只是展示范围，不创造推荐资格。
 
 最终验收为 `outputs/run_day/final_check_{date}.json`，发布回执为 `outputs/run_day/publication.json`。结果包含 scope=observation_only、status、warnings、errors；不再包含投资 action。
 
@@ -93,15 +95,22 @@ etf update → industry update → etf calculate → industry calculate
 
 trade_date 为信号分区；run_date / generated_at 仅为审计时间。CONFIRMED / COMPLETE / PARTIAL 是来源与完整性状态，不是推荐状态。本产品不写新的 *_latest 报告别名。
 
+申万历史研究链的价格日期验收（2026-10-16；不再作为Daily来源）：日线主源的源端 trade_date 可作为日期证据；实时兜底必须提供对应价格字段的独立交易日期（最新价 close_trade_date / 昨收盘 prev_close_trade_date），匹配目标日后才允许落盘，并保存 source_trade_date。当前无日期的实时接口不能用于补齐目标日价格，转带日期历史源；历史源也缺数则 updater 停止并报告已核验数量。旧实时缓存、检查点及指标不能仅凭本地分区日期通过验收。更新摘要的覆盖及可用日期均排除未核验实时缓存。计算、Observation 构建与最终验收均检查日期证据；带日期行情的趋势/RPS 数值口径不变。
+
+在线 --require-complete 人工恢复保留原 run_id，但从第 1 步重新获取数据与验收；其他模式按有效检查点恢复。失败不会自动重试，数据就绪后需面板手动恢复；代码/config 签名变化需 --restart。
+
+模块级降级交付（2026-10-16）：ETF/固定池股票等有效观察可独立交付；TDX更新或质量门控失败时，行业事实分区为空，Daily不执行申万industry calculate，并在日报 summary/final_check 中标记 `modules.industry_rotation.status=unavailable`、总体 `status=PARTIAL`、`data_complete=false`。不混入旧日期、不以部分行业横截面计算 RPS。手动重跑 PARTIAL 日期可在源数据恢复后原子升级；Scheduler 接受 PARTIAL 发布但不自动重试。`--require-complete` 保留为显式严格门控。
+
+
 ### AKsignal Daily Scheduler / Run Control
 
-AKsignal 自己的 macOS LaunchAgent（`com.aksignal.daily-scheduler`）拥有 08:30 Asia/Shanghai 定时任务；Service Scheduler 只管理 Service 域任务，不再触发 AKsignal。Scheduler 在计划分钟启动离线 Daily Run；若 Mac 错过计划时点，或批次失败/退出未发布，只记录 `MISSED` / `FAILED` 并等待 AKsignal 面板手动 Run/Resume，不自动补跑、不自动重试。每个交易日继续复用原生 Runner、互斥锁、checkpoint、代码/config 签名与正式发布门控。Scheduler 进程重启与 Daily 批次恢复是独立控制。
+AKsignal 自己的 macOS LaunchAgent（`com.aksignal.daily-scheduler`）拥有 08:30 Asia/Shanghai 定时任务；Service Scheduler 只管理 Service 域任务，不再触发 AKsignal。Scheduler 在计划分钟启动在线 Daily Run；若 Mac 错过计划时点，或批次失败/退出未发布，只记录 `MISSED` / `FAILED` 并等待 AKsignal 面板手动 Run/Resume，不自动补跑、不自动重试。每个交易日继续复用原生 Runner、互斥锁、checkpoint、代码/config 签名与正式发布门控。Scheduler 进程重启与 Daily 批次恢复是独立控制。
 
 `src/daily_scheduler.py` 安装/管理 LaunchAgent，`src/daily_schedule.py` 分离定时检查与人工运行入口，`src/daily_hub.py` 只读提供 Scheduler 与批次状态；Hub Worker 在 AKsignal 域分别暴露 Scheduler 服务控制与 Daily Run 人工操作。首次部署仍需显式安装/启动 AKsignal LaunchAgent；源码存在或面板可见不等于生产定时已启用。字段、操作和切换步骤见 [AKsignal Daily Scheduler](DAILY_SCHEDULER.md)。
 
 ## 退出核心产品的能力
 
-主题 Tier 确认、Selection 推荐与 Timing、行业结构穿透、独立 Radar、三 Lane 合成、迁移生命周期状态机、历史赔率研究均已从每日主链和发布验收移除。旧模块与显式研究/legacy 命令暂保留供历史重放；其输出不属于当前核心产品，不由每日自动执行。price_map 的基础位置算法继续被 Observation 使用。
+主题 Tier 确认、Selection 推荐与 Timing、行业结构穿透、独立 Radar、三 Lane 合成、迁移生命周期状态机、历史赔率与策略回测已退出当前产品实现并清理对应入口。独立篮子比较研究仍保留；`price_map` 及位置契约继续由 Observation 复用，不产生投资建议。
 
 `docs/ARCHITECTURE.md` 与 AGENTS.md 中旧 Layer / Lane 叙述为历史背景，当前范围以本状态图为准。
 
@@ -121,3 +130,7 @@ AKsignal 自己的 macOS LaunchAgent（`com.aksignal.daily-scheduler`）拥有 0
 UI v3：页面最大宽度1120px；压缩标题、卡片和行间距。取消表格纵向高度限制与内部纵向滚动，使用页面主滚动；小屏仅保留必要的表格横向滚动。展开与排序规则保持不变。
 
 已知身份错配的跨日保护源为 config/observation_identity_issues.json；当日审计可补充覆盖，但不依赖本地审计快照存在。
+
+## 统一事实契约与迁移验证（2026-10-16）
+
+`src/market_facts/` 提供快照、独立日历、试运行审计及已接入Daily的长桥个股入口。历史pilot产物保留production_eligible=false，不追认已完成独立身份/复权审计；生产接入按新的模块来源契约运行，价格依据验证状态继续独立记录。早期试运行记录是历史证据，当前来源边界以 [OBSERVATION_DATA_SOURCES.md](OBSERVATION_DATA_SOURCES.md) 为准。

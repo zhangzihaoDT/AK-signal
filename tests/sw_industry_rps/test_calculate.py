@@ -63,6 +63,7 @@ def _append_provisional(raw_dir, codes, target="2026-07-31"):
             "close": [prev_close * 1.05],
             "source": ["realtime"],
             "data_status": ["provisional"],
+            "source_trade_date": pd.to_datetime([target]),
         })
         storage.save_industry_raw(storage.merge_incremental(df, row), raw_dir, code)
 
@@ -103,3 +104,17 @@ def test_calculate_refreshes_prior_max_partition(monkeypatch, tiny_universe):
     m3 = storage.load_metrics(processed_dir)
     assert m3["trade_date"].max() == pd.Timestamp("2026-07-31")
     assert m3[m3["trade_date"] == "2026-07-31"]["industry_code"].nunique() == 3
+
+
+def test_calculate_rejects_undated_legacy_target_without_reusing_old_metrics(monkeypatch, tiny_universe):
+    codes, raw_dir, processed_dir, apply = tiny_universe
+    apply(monkeypatch)
+    cmd_calculate(argparse.Namespace(full=False, target_date="20260730", log_level="INFO"))
+    before = storage.load_metrics(processed_dir)
+    _append_provisional(raw_dir, codes)
+    for code in codes[:2]:
+        frame = storage.load_industry_raw(raw_dir, code).drop(columns="source_trade_date")
+        storage.save_industry_raw(frame, raw_dir, code)
+    with pytest.raises(ValueError, match="独立源交易日"):
+        cmd_calculate(argparse.Namespace(full=False, target_date="20260731", log_level="INFO"))
+    pd.testing.assert_frame_equal(before, storage.load_metrics(processed_dir))

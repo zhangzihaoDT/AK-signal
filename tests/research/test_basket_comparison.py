@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-from src.research.baskets.comparison import fixed_weight_nav
+from src.research.baskets.nav import fixed_weight_nav
 
 
 def frame(dates, values):
@@ -49,7 +49,7 @@ def test_duplicate_and_zero_prices_are_rejected():
 def test_hub_preview_pins_report_and_rejects_tampered_data(tmp_path):
     import json
     import hashlib
-    from src.research.baskets.hub_view import pin_comparison, comparison_view
+    from src.hub.baskets import pin_comparison, comparison_view
     folder = tmp_path / '.run_day/runs/20261014/example/outputs/research/baskets'
     folder.mkdir(parents=True)
     curves = pd.DataFrame({'date': ['2024-07-16', '2026-10-14'],
@@ -72,6 +72,43 @@ def test_hub_preview_pins_report_and_rejects_tampered_data(tmp_path):
 
 
 def test_hub_does_not_expand_existing_attachment_scope(tmp_path):
-    from src.research.baskets.hub_view import pin_comparison
+    from src.hub.baskets import pin_comparison
     with pytest.raises(ValueError):
         pin_comparison(tmp_path, tmp_path / 'untrusted')
+
+
+def test_longbridge_baskets_include_cashflow_and_exclude_hesai():
+    from src.research.baskets.comparison import comparison_baskets, constituents
+    baskets=comparison_baskets()
+    assert len(baskets)==9
+    included=set();excluded=set()
+    for key,basket in baskets.items():
+        rows,omitted=constituents({**basket,'key':key})
+        included.update((r['market'],r['symbol']) for r in rows)
+        excluded.update((r['market'],r['symbol']) for r in omitted)
+    assert len(included)==68
+    assert ('HK','02525') in excluded
+    assert ('HK','02525') not in included
+    assert ('HK','02498') in included
+
+
+def test_longbridge_fetch_uses_shanghai_benchmark_and_close_only(tmp_path,monkeypatch):
+    from src.research.baskets import comparison as lb
+    from datetime import datetime,timezone
+    from types import SimpleNamespace
+    import json
+    calls=[]
+    class Context:
+        def history_candlesticks_by_date(self,symbol,*args):
+            calls.append(symbol)
+            return [SimpleNamespace(timestamp=datetime(2026,10,15,tzinfo=timezone.utc),close=10,volume=1,turnover=10)]
+    monkeypatch.setattr(lb,'project_root',lambda:tmp_path)
+    monkeypatch.setattr(lb,'quote_context',lambda _:Context())
+    monkeypatch.setattr(lb.time,'sleep',lambda _:None)
+    monkeypatch.setattr(lb,'comparison_baskets',lambda:{'test':{}})
+    monkeypatch.setattr(lb,'constituents',lambda _:([{'market':'CN','symbol':'600900','name':'test'}],[]))
+    folder=lb.fetch_prices('2026-10-15','2026-10-15')
+    assert calls==['600900.SH','000300.SH']
+    snapshot=json.loads((folder/'benchmark.json').read_text())
+    assert snapshot['identity']['price_basis']=='index_level'
+    assert snapshot['bars'][0]['bar_kind']=='close_only'

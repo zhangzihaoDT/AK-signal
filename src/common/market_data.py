@@ -159,7 +159,7 @@ def compute_return(prices: pd.Series, window: int) -> float | None:
 
 
 # ---------------------------------------------------------------------------
-# 逐股票缓存（data/raw/cn_stock_returns/）
+# 逐股票缓存（data/legacy/raw/cn_stock_returns/）
 # 缓存键：symbol + target_date + window + adjust + source
 # ---------------------------------------------------------------------------
 

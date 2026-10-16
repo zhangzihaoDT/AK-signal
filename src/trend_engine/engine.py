@@ -397,7 +397,10 @@ def load_or_fetch_daily(
             if session is not None:
                 session.record(source or asset.market, True)
                 session.assets.append({"market": asset.market, "symbol": asset.symbol,
-                                       "source": source or "default", "result": "online", "errors": errors})
+                                       "source": source or "default", "source_route": source or "default",
+                                       "result": "online", "errors": errors,
+                                       "adjustment_requested": "qfq" if asset.market == "CN" else "provider_default",
+                                       "price_basis_verified": False})
             logger.info("fetch online success: %s (source=%s)", asset_key, source or "default")
             if merge_with_cache and cache_path.exists():
                 df_cached = _load_cached_raw(cache_path)
@@ -422,7 +425,10 @@ def load_or_fetch_daily(
 
     if session is not None:
         session.assets.append({"market": asset.market, "symbol": asset.symbol,
-                               "result": "cache_fallback" if cache_path.exists() else "failed", "errors": errors})
+                               "result": "cache_fallback" if cache_path.exists() else "failed",
+                               "source_route": "cache" if cache_path.exists() else "unknown",
+                               "adjustment_requested": "unknown", "price_basis_verified": False,
+                               "errors": errors})
     if cache_path.exists():
         logger.warning("fetch failed, using cached raw data: %s", asset_key)
         return _load_cached_raw(cache_path), "cache"
@@ -550,7 +556,7 @@ def compute_trends(
                （selection.universe.UniverseItem 满足该鸭子类型）
         as_of_date: 把行情截断到该日期（YYYY-MM-DD / YYYYMMDD）再计算，
                     避免使用目标日期之后的盘中/最新数据（look-ahead）。
-        persist_processed: 是否写 data/processed/{market}_{symbol}.csv（Replay 传 False 避免副作用）。
+        persist_processed: 是否写 data/legacy/processed/{market}_{symbol}.csv（Replay 传 False 避免副作用）。
 
     Returns:
         排序后的趋势 DataFrame（含 name/symbol/score_trend/watch_level/action 等）

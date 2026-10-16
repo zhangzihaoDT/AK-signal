@@ -8,10 +8,10 @@ import sys
 from pathlib import Path
 
 from src.common.paths import outputs_dir
-from .calculator import calculate_basket
+from .legacy.calculator import calculate_basket
 from .config import load_baskets
-from .fetch import DEFAULT_SKIP_TIERS, fetch_all_basket_sources
-from .report import compare_report, cross_basket_overlap, save_result
+from .legacy.fetch import DEFAULT_SKIP_TIERS, fetch_all_basket_sources
+from .legacy.report import compare_report, cross_basket_overlap, save_result
 from .stage_log import evidence_stage_cn
 
 
@@ -70,40 +70,24 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0 if results else 1
 
 
-def cmd_compare(args: argparse.Namespace) -> int:
-    from .comparison import build_comparison
-    from .comparison_report import render_comparison
-    results, receipt = build_comparison(Path(args.snapshot), Path(args.output), args.start, args.end)
-    path = render_comparison(results, receipt, Path(args.output) / "basket_compare.html")
-    from src.common.paths import project_root
-    from .hub_view import pin_comparison
-    try:
-        Path(args.output).resolve().relative_to(project_root().resolve() / '.run_day/runs')
-    except ValueError:
-        pass  # Custom export directories are not shared with the Hub Worker.
-    else:
-        pin_comparison(project_root(), Path(args.output))
-    print(f"report: {path}")
-    print(f"{len(results)} baskets | {receipt['rows']} dates | {receipt['start']} .. {receipt['end']}")
-    return 0
-
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Research Layer 主题篮子研究")
     sub = p.add_subparsers(dest="command")
 
-    compare = sub.add_parser("compare", help="使用核验后的独立前复权快照生成固定权重对比报告（纯离线）")
-    compare.add_argument("--snapshot", required=True, help="包含 manifest.json 的价格快照目录")
-    compare.add_argument("--output", default=str(_out_dir() / "comparable"))
-    compare.add_argument("--start", required=True, help="起始日期 YYYY-MM-DD")
-    compare.add_argument("--end", required=True, help="截止日期 YYYY-MM-DD")
+    compare = sub.add_parser('compare', aliases=['compare-longbridge'], help='长桥独立收盘价快照：八个研究主题+高现金流')
+    compare.add_argument('--start', required=True)
+    compare.add_argument('--end', required=True)
+    compare.add_argument('--snapshot', help='离线快照目录')
+    compare.add_argument('--allow-online-fetch', action='store_true')
+    compare.add_argument('--output', required=True)
 
-    run = sub.add_parser("run", help="计算篮子、输出指标并生成对比报告")
+    run = sub.add_parser("legacy-run", help="计算篮子、输出指标并生成对比报告")
     run.add_argument("--baskets", default="all", help="篮子 key，逗号分隔，默认 all")
     run.add_argument("--start", default="", help="起始日期 YYYY-MM-DD")
     run.add_argument("--end", default="", help="结束日期 YYYY-MM-DD")
 
-    fetch = sub.add_parser("fetch", help="按篮子来源抓取行情（在线）")
+    fetch = sub.add_parser("legacy-fetch", help="按篮子来源抓取行情（在线）")
     fetch.add_argument("--baskets", default="all", help="篮子 key，逗号分隔，默认 all")
     fetch.add_argument("--days", type=int, default=400, help="近 N 自然日（默认 400）")
     fetch.add_argument("--skip-tiers", default="", help="逗号分隔的 tier 键（默认主题 ETF 层）")
@@ -113,11 +97,27 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_arg_parser().parse_args()
-    if args.command == "run":
+    if args.command == "legacy-run":
         sys.exit(cmd_run(args))
-    if args.command == "fetch":
+    if args.command == "legacy-fetch":
         sys.exit(cmd_fetch(args))
-    if args.command == "compare":
-        sys.exit(cmd_compare(args))
+    if args.command in ('compare','compare-longbridge'):
+        from .comparison import fetch_prices, build_longbridge_comparison
+        from .report import render_comparison
+        snapshot=fetch_prices(args.start,args.end) if args.allow_online_fetch else args.snapshot
+        if not snapshot:
+            raise ValueError('离线比较必须提供 --snapshot；联网需显式 --allow-online-fetch')
+        results,receipt=build_longbridge_comparison(Path(snapshot),Path(args.output),args.start,args.end)
+        path=render_comparison(results,receipt,Path(args.output)/'basket_compare.html')
+        from src.common.paths import project_root
+        from src.hub.baskets import pin_comparison
+        try:
+            Path(args.output).resolve().relative_to(project_root().resolve()/'.run_day/runs')
+        except ValueError:
+            pass
+        else:
+            pin_comparison(project_root(),Path(args.output))
+        print(f'report: {path}')
+        return
     build_arg_parser().print_help()
     sys.exit(2)

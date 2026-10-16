@@ -1,0 +1,3 @@
+/*modified at 2026-10-15 16:20:01*/
+window.HSJDAY_SOFT_SIZE="526.86MB";
+window.HSJDAY_SOFT_TIME="2026-10-15 15:58:54";

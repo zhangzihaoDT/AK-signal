@@ -1,3 +1,5 @@
+> 定位：config是业务架构，不只是运行参数。来源/对象/分类/策略调整的思考与取舍记录在[decisions](decisions/README.md)；docs负责工程项目架构，data/README.md负责数据存储架构。
+
 # config/ — 策略知识与可实验参数的事实源
 
 > v0.6.1 Strategy Specification：**可研究、可扫描、可比较、可能按主题变化的内容进 config；

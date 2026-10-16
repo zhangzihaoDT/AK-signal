@@ -1,27 +1,48 @@
-# AKsignal — Market Intelligence & Portfolio Strategy System
+# AKsignal — Investment Decision System
 
-当前基线：**v0.5.0**（2026-10-13）。版本源为 `VERSION`，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前基线：**v0.6.0**（2026-10-16）。版本源为 `VERSION`，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
-通过量化方法辅助管理一个真实的投资组合，而不是只生成市场观察报告。
+AKsignal 通过可追溯的市场事实、策略信号和真实组合约束，辅助管理投资组合。投资者保留最终决策权。
 
-整体架构为 **Facts + Strategy**：Facts 包含 Market Facts（市场事实）与 Portfolio State（实际持仓、现金、风险暴露）；Strategy 包含 Selection、Entry、Allocation、Exit、Portfolio Advice。
+## 四层架构
 
-Allocation 给出单项资产的目标仓位建议；Portfolio Advice 结合真实组合与现金、主题集中度等约束，给出综合调整建议。实际仓位、目标仓位与本次调整量分别记录。
+```text
+04 · Portfolio / Position
+仓位管理 · 持仓监控 · 风险暴露 · 调仓决策
+            ↑ 决策约束与执行反馈
+03 · Strategy
+机会识别 · 信号生成 · 策略验证 · 买卖规则
+            ↑ 标准化市场事实
+02 · Market Facts
+市场日报 · 行业趋势 · 篮子 Compare
+            ↑ 行情数据与质量验证
+01 · Data Foundation
+数据源 · 历史行情 · 增量更新 · 数据质量
+```
 
-**当前实现阶段**是 Market Facts：观察全市场 ETF、全行业及固定池个股的趋势与底部位置，daily-run 尚不自动给出投资建议。Portfolio State 和五项 Strategy 能力是后续建设方向。
+| 层级 | 回答的问题 | 核心产出 |
+|---|---|---|
+| Data Foundation | 数据是否完整、可信？ | 标准化行情及质量证据 |
+| Market Facts | 市场正在发生什么？ | 市场事实与比较结果 |
+| Strategy | 根据事实应该采取什么行动？ | 买卖信号及其独立验证依据 |
+| Portfolio / Position | 结合实际持仓应该如何执行？ | 仓位建议、风险与调仓计划 |
 
-保留八项能力：固定池个股数据、全市场 ETF 数据、全行业指数数据、行业轮动、大类资产趋势、ETF 趋势活跃池、个股趋势、ETF 与个股底部位置。覆盖范围随配置和行情质量变化，固定池个股不等于 A 股全量。
+**层间约束：** Facts 不知道 Strategy 的存在，也不编码策略语义；Strategy 不直接维护或重算底层行情；Position 不自行生成市场信号。Strategy 信号不等于仓位决策：Position 可以基于实际持仓和风险暴露拒绝或调整策略建议，但不能篡改市场事实。
 
-**必须坚持：AKsignal 负责发现和量化市场事实，你负责理解这些事实并作出投资决策。**
+**v0.6.0 完成重点：Data Foundation 与 Market Facts 的稳定化。** Strategy 与 Portfolio / Position 是后续建设阶段，将按新架构重新设计；不以旧 Selection、Timing、回测或仓位代码作为实现蓝本。
+
+当前 Market Facts 保留八项能力：固定池个股数据、全市场 ETF 数据、全行业指数数据、行业轮动、大类资产趋势、ETF 趋势活跃池、个股趋势、ETF 与个股底部位置。覆盖范围随配置和行情质量变化，固定池个股不等于 A 股全量。
+
+**必须坚持：数据质量与市场事实可追溯；策略信号不等于持仓决策；投资者保留最终决策权。**
 
 ## 当前 Market Facts 与日报
 
 Data Foundation（数据基础）：固定池股票、全市场 ETF、全行业指数。
 Trend（趋势观察）：行业轮动、大类资产、ETF 趋势、个股趋势。
-Position（位置观察）：ETF 与固定池个股底部位置。
+Price Position（价格位置观察）：ETF 与固定池个股的历史价格位置。
 Daily Observation Report：统一日期、统一数据质量、统一发布。
 
-日报正文只有市场方向、趋势活跃、底部位置三个观察区域。覆盖、复权审计、缓存及来源状态放在独立数据质量区域。
+日报按大类资产、行业轮动、ETF、个股观察四个板块展示，每部分标明来源；趋势和位置归入各资产板块，审计放数据质量区。个股按8个研究主题加高现金流分类，目前68只有效、禾赛1只排除。正式来源见 [模块来源契约](docs/OBSERVATION_DATA_SOURCES.md)。
 
 ## 每日运行
 
@@ -36,9 +57,9 @@ make run-day-check
 make run-day-summary
 ```
 
-主链：ETF / 行业更新 → ETF / 行业计算 → 观察池个股行情与趋势 → 趋势与位置观察 → 验收 → 统一发布。启动时固定最近完整交易日，失败从检查点恢复；代码或配置变化需 --restart。离线模式不联网补数。
+主链：ETF更新/计算 → 长桥观察池个股事实 → Observation构建（含通达信增量/收益/RPS）→ 验收 → 统一发布。启动时固定最近完整交易日，失败从检查点恢复；代码或配置变化需 --restart。离线模式不联网补数。
 
-当前产品不运行主题 Tier 确认、Selection 推荐与 Timing、结构穿透、Radar、三 Lane、迁移状态机或历史赔率。旧代码和显式历史研究入口不属于核心每日产品。
+当前每日产品只发布市场事实，不输出买入推荐或投资 action。未来 Strategy 与 Portfolio / Position 将分别建设，不能把事实层、信号层和仓位层合并。
 
 ## 交付
 
@@ -50,7 +71,7 @@ make run-day-summary
 
 批次 outputs 从空目录建立，验收后一次切换发布指针。失败保持上一完整日报；历史批次仍保存在 `.run_day/runs`，首次旧目录保存在 `.run_day/legacy`，不随新批次重复复制。
 
-底部只描述历史价格位置。个股口径独立实现；历史缓存已逐只核对当前参考，但全池口径尚未统一，price_basis_verified=false。缺历史与数据洞保持未知，不伪造离底。
+底部只描述历史价格位置。个股统一使用长桥ForwardAdjust，price_basis_verified=false表示供应商复权未独立认证。缺历史与数据洞保持未知，不伪造离底。
 
 ## 安装
 
@@ -61,3 +82,7 @@ pip install -r requirements.txt
 ```
 
 能力与边界见 [canonical 状态图](docs/ARCHITECTURE_MAP.md)；位置口径见 [POSITION_OBSERVATION.md](docs/POSITION_OBSERVATION.md)。
+
+独立 [篮子研究报告](docs/RESEARCH_BASKETS.md) 使用9篮子/68只个股与长桥同源基准。数据源探索旧材料见 [历史归档](docs/archive/source_migration_20261016/README.md)。
+
+目录职责：[业务架构与决策](config/decisions/README.md) · [项目工程结构](docs/PROJECT_STRUCTURE.md) · [数据存储架构](data/README.md) · [手动工具](scripts/README.md)。

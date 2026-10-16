@@ -3,12 +3,16 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.env
 
 .venv/
 .python-version
 
-data/
+data/*
+!data/README.md
 outputs/
 outputs
 .outputs-*
 .run_day/
+
+.pytest_cache/
