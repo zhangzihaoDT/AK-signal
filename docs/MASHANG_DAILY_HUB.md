@@ -58,10 +58,18 @@ Hub/Worker 的业务入口与独立 Scheduler 属于不同部署动作。Hub/Wor
 
 ## 观察篮子走势（2026-10-15，本地源码已接入）
 
-`research basket compare` 生成独立价格表现研究报告，并将文件哈希和已解析的批次内路径写入 `data/hub/basket_comparison.json`。`src/research/baskets/hub_view.py` 仅读取该指针、核验报告/manifest/曲线摘要，再通过通用 `details.trendComparison` 提供九条日频走势和独立研究日期；不运行抓取、重算或 Daily 发布，不改变正式日报状态。文件只能位于既有 Worker 的 `.run_day/runs` 附件范围，不能扩大为任意本地目录。自定义目录导出不自动注册 Hub。
+`research basket compare` 生成独立价格表现研究报告，并将文件哈希和已解析的批次内路径写入 `data/hub/basket_comparison.json`。`src/hub/baskets.py` 仅读取该指针、核验报告/manifest/曲线摘要，再通过通用 `details.trendComparison` 提供走势摘要和独立研究日期；不运行抓取、重算或 Daily 发布，不改变正式日报状态。文件只能位于既有 Worker 的 `.run_day/runs` 附件范围，不能扩大为任意本地目录。自定义目录导出不自动注册 Hub。
 
-Hub 将研究图放在主面板的每日摘要后方，显示研究窗口和价格口径，匹配附件摘要后提供预览与交互 HTML 下载。正式日报 HTML 仍单独识别，研究报告不能冒充正式发布。受限预览保留静态 SVG，下载后可使用完整筛选和悬停交互。当前研究快照截至 2026-10-14；此接入不代表研究数据已经配置每日自动刷新。线上 Hub/Worker 尚需单独部署；本地源码接入和线上可见不是同一状态。
+Hub 将研究图放在主面板的 Market Facts 摘要之后，显示研究区间和价格口径，匹配附件摘要后提供完整报告入口。正式日报 HTML 仍单独识别，研究报告不能冒充正式发布。受限预览保留静态 SVG，下载后可使用完整筛选和悬停交互。研究快照由独立指针管理，不按日自动刷新。
+
+## On-demand Compare refresh (local preview)
+
+Worker 暴露 `aksignal-comparison-update` 通用运行操作，由 AKsignal 的 `python -m src.research.baskets.hub_update` 执行。该入口按官方日历选择最近完整交易日，沿用当前已核验 Compare 的起始日期（无既有快照时使用正式基线），显式获取 Longbridge 收盘快照并重算独立比较；完成报告后才原子更新 Hub 指针。行情日期未就绪或报告核验失败时保留上一份有效 Compare，不触发 Daily，也不自动重试。Hub 只展示 inline operation 的状态和已有摘要/附件；UI 与 Worker 变更目前为本地预览，未推送或部署 Docker。
+
+Daily 状态 provider 还会在 `details.logLines` 中提供目标批次日志的最近 20 行（单行最多 500 字符、去除本地路径），供折叠诊断使用；日志不可读或不在 `.run_day/scheduler` 下时不返回。
 
 2026-10-15 线上生效核验：镜像 `0.3.2-a156054` 的 `runtime-ui.js`、`trend-comparison.js` 已与线上文件 SHA256 比对一致。**本次上线需要重启本地 Worker**：虽然 `src.daily_hub` 每轮启动新 Python 进程，Worker 的 `runtime/protocol.mjs` 在启动时导入共享的 `server/operation-details.mjs`，旧 Node 进程会过滤新增字段，不能仅等待下一次快照。确认无未完成任务后仅重启 Worker，线上主摘要后已观察到9条走势和两个报告入口。后续仅改 Python 产物可随下一轮刷新；改 Worker 导入的 JS、共享协议过滤器、registry 或环境配置时必须重启 Worker。
 
 2026-10-15 交互预览修正：旧附件响应的 CSP 禁止全部脚本，完整报告按钮因此仅在下载后有效。Hub 修复版对内嵌脚本使用精确 SHA256，并以不含 `allow-same-origin` 的 CSP 沙箱运行，仍禁止网络、表单、外部脚本与框架。只更新 Hub 镜像即可，本次不涉及 Worker 导入模块变更。研究报告八张小图已按用户要求默认展开、各自 Autoscale，切换区间后重新缩放；主图保留共同纵轴。报告已重新生成，附件哈希和 Hub 指针随之更新，需从 Hub 最新入口打开。
+
+2026-10-18 本地呈现调整：Hub 运行控制改为居中模态框，桌面约 700px 宽、手机近全屏并保留安全边距，内容内部滚动；只含当前任务、自动调度、默认折叠的诊断详情。Compare 仍按需更新，正式日报发布、Daily 运行、正式数据质量三类状态继续分离。本轮只改 Hub 呈现，不改 Worker / AKsignal 业务逻辑，不构建或推送 Docker 镜像。

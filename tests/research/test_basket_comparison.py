@@ -112,3 +112,55 @@ def test_longbridge_fetch_uses_shanghai_benchmark_and_close_only(tmp_path,monkey
     snapshot=json.loads((folder/'benchmark.json').read_text())
     assert snapshot['identity']['price_basis']=='index_level'
     assert snapshot['bars'][0]['bar_kind']=='close_only'
+
+
+def test_hub_update_preserves_pinned_start_and_pins_only_after_render(tmp_path, monkeypatch):
+    from datetime import datetime
+    from pathlib import Path
+    from src.research.baskets import hub_update
+
+    events = []
+    class Calendar:
+        def complete_day(self, at):
+            assert at == datetime(2026, 10, 16)
+            return "20261015"
+
+    monkeypatch.setattr(hub_update, "default_calendar", lambda root: Calendar())
+    monkeypatch.setattr(hub_update, "comparison_view", lambda root: ({"startDate": "2024-07-16"}, {}))
+    monkeypatch.setattr(hub_update.comparison, "fetch_prices", lambda start, end: events.append(("fetch", start, end)) or tmp_path / "snapshot")
+    def build(snapshot, output, start, end):
+        events.append(("build", start, end))
+        assert output.is_relative_to(tmp_path / ".run_day/runs/20261015")
+        return ([{"key": "example"}], {"start": start, "end": end})
+    monkeypatch.setattr(hub_update.comparison, "build_longbridge_comparison", build)
+    def render(results, receipt, report):
+        events.append(("render", receipt["end"]))
+        return report
+    monkeypatch.setattr(hub_update, "render_comparison", render)
+    monkeypatch.setattr(hub_update, "pin_comparison", lambda root, output: events.append(("pin", output)))
+
+    result = hub_update.update(tmp_path, datetime(2026, 10, 16))
+
+    assert result["startDate"] == "2024-07-16"
+    assert result["endDate"] == "2026-10-15"
+    assert [event[0] for event in events] == ["fetch", "build", "render", "pin"]
+
+
+def test_hub_update_failure_keeps_existing_pointer(tmp_path, monkeypatch):
+    from datetime import datetime
+    from src.research.baskets import hub_update
+
+    class Calendar:
+        def complete_day(self, at):
+            return "20261015"
+
+    pinned = []
+    monkeypatch.setattr(hub_update, "default_calendar", lambda root: Calendar())
+    monkeypatch.setattr(hub_update, "comparison_view", lambda root: ({"startDate": "2024-07-16"}, {}))
+    monkeypatch.setattr(hub_update.comparison, "fetch_prices", lambda start, end: (_ for _ in ()).throw(ValueError("source not ready")))
+    monkeypatch.setattr(hub_update, "pin_comparison", lambda *args: pinned.append(args))
+
+    with pytest.raises(ValueError, match="source not ready"):
+        hub_update.update(tmp_path, datetime(2026, 10, 16))
+
+    assert pinned == []

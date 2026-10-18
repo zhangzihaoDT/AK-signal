@@ -15,13 +15,44 @@ def public_error(value: str) -> str:
     return re.sub(r'/[^\s；，]+', '[local log]', str(value))[:2000]
 
 
+def public_log_line(value: str) -> str:
+    return re.sub(r'(?<!\w)/(?:Users|private|tmp|var|home|opt|Volumes)/[^\s；，]+',
+                  '[local log]', str(value))[:500]
+
+
+def diagnostic_log_lines(root: Path, record: dict, *, max_lines: int = 20) -> list[str]:
+    """Return a small, path-scrubbed tail from the registered batch log only."""
+    raw_path = record.get('log')
+    if not isinstance(raw_path, str) or not raw_path:
+        return []
+    root = root.resolve()
+    allowed = (root / '.run_day' / 'scheduler').resolve()
+    path = Path(raw_path)
+    if not path.is_absolute():
+        path = root / path
+    try:
+        path = path.resolve(strict=True)
+        path.relative_to(allowed)
+        if not path.is_file():
+            return []
+        lines = path.read_bytes()[-16_384:].decode('utf-8', errors='replace').splitlines()
+    except (OSError, ValueError):
+        return []
+    clean = []
+    for line in lines[-max_lines:]:
+        value = public_log_line(line).replace('\x00', '')
+        if value.strip():
+            clean.append(value)
+    return clean
+
+
 def view(root: Path, at: datetime | None = None) -> dict:
     at = at or shanghai_now()
     result = {'lastRun': {'status': 'IDLE', 'startedAt': None, 'finishedAt': None},
               'details': {}, 'artifacts': []}
     detail = result['details']
     detail['timezone'] = 'Asia/Shanghai'
-    target, state = None, {}
+    target, state, record = None, {}, {}
     try:
         calendar = default_calendar(root)
         scheduled_target, occurrence = calendar.scheduled_target(at)
@@ -119,6 +150,8 @@ def view(root: Path, at: datetime | None = None) -> dict:
             detail.update(phase=phase(steps[index]['command']) if index < len(steps) else '统一发布日报',
                           completedSteps=sum(s['status'] == 'completed' for s in steps)
                           + int(state.get('status') == 'published'), totalSteps=len(steps) + 1)
+
+        detail['logLines'] = diagnostic_log_lines(root, record)
 
     except (OSError, ValueError, KeyError, TypeError) as exc:
         result['lastRun']['status'] = 'BLOCKED'

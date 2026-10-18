@@ -134,3 +134,21 @@ def test_missed_schedule_is_visible_and_manual_target_is_actionable(tmp_path, mo
     assert view['details']['schedule']['enabled'] is True
     assert view['details']['schedule']['manualPendingCount'] == 1
     assert view['details']['schedule']['missedPolicy'] == 'manual_only'
+
+
+def test_diagnostic_log_tail_is_bounded_and_paths_are_scrubbed(tmp_path):
+    from src.hub.daily import diagnostic_log_lines
+
+    scheduler = tmp_path / '.run_day/scheduler'
+    scheduler.mkdir(parents=True)
+    log = scheduler / '20261015-attempt-1.log'
+    log.write_text('\n'.join([f'line {i}' for i in range(25)] + [f'failed at {tmp_path}/private/module.py']))
+
+    lines = diagnostic_log_lines(tmp_path, {'log': str(log)})
+    assert len(lines) == 20
+    assert lines[-1] == 'failed at [local log]'
+    assert all(str(tmp_path) not in line for line in lines)
+
+    outside = tmp_path.parent / 'outside.log'
+    outside.write_text('do not expose')
+    assert diagnostic_log_lines(tmp_path, {'log': str(outside)}) == []
