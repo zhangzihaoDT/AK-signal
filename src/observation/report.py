@@ -5,17 +5,18 @@ from pathlib import Path
 import pandas as pd
 
 PRODUCT_VERSION = (Path(__file__).resolve().parents[2] / 'VERSION').read_text().strip()
-REPORT_LAYOUT_VERSION = 'daily_observation_modules_v5'
+REPORT_LAYOUT_VERSION = 'daily_observation_modules_v6'
 PREVIEW_LIMIT = 20
 
 PRINCIPLE = 'AKsignal 负责发现和量化市场事实，你负责理解这些事实并作出投资决策。'
-LABELS = {'rps1':'当日 RPS','RPS1':'当日 RPS','daily_return':'当日涨幅','direction':'资产方向','median_rps15':'中位 RPS15','change_5d':'排名变化中位数','active_ratio':'趋势活跃比例',
+LABELS = {'rps1':'当日 RPS','RPS1':'当日 RPS','daily_return':'当日涨幅','direction':'资产方向','median_rps15':'RPS15 中位','median_rps5':'RPS5 中位','median_rps1':'当日 RPS 中位','change_5d':'排名变化中位数','active_ratio':'趋势活跃比例',
           'direction_state':'方向状态','industry_name':'行业','RPS15':'RPS15','RPS5':'RPS5','trend_stage':'阶段',
           'fund_code':'代码','fund_name':'ETF','rps15':'RPS15','price':'价格','ma20':'MA20','ma60':'MA60',
+          'market_session_status':'市场状态','source_trade_date':'实际行情日',
           'market':'市场','symbol':'代码','name':'股票','trend_score':'趋势分','return_5d':'5日收益','return_20d':'20日收益',
           'bottom_state':'底部状态','price_pos_60':'60日位置','price_pos_120':'120日位置','price_pos_360':'360日位置',
           'bottom_change':'底部变化','reliability':'窗口可靠性','position_reliability':'窗口可靠性'}
-STATES = {'EXCLUDED':'暂不观察','DEEP_BOTTOM':'长期深底','RECOVERING_FROM_BOTTOM':'低位恢复','LONG_TERM_LOW':'长期低位',
+STATES = {'closed':'休市','open':'开市','EXCLUDED':'暂不观察','DEEP_BOTTOM':'长期深底','RECOVERING_FROM_BOTTOM':'低位恢复','LONG_TERM_LOW':'长期低位',
           'RECENT_BOTTOM':'近期低位','NORMAL':'非低位','UNAVAILABLE':'未知','UNRELIABLE':'未知',
           'ENTERED_BOTTOM':'进入底部','LEFT_BOTTOM':'离开底部','UNCHANGED':'未变化','UNKNOWN':'变化未知',
           'OK':'有效','DATA_GAP':'报价缺口','INSUFFICIENT_HISTORY':'历史不足','FLAT_WINDOW':'无波动',
@@ -63,13 +64,15 @@ def _cell(value,column,row):
         market=row.get('market','')
         sub=' · '.join(str(v) for v in (market,code) if v is not None and pd.notna(v) and str(v))
         return '<div class="asset-name">'+escape(text)+'<span class="asset-code">'+escape(sub)+'</span></div>'
-    if column in ('bottom_state','bottom_change','reliability','position_reliability','trend_stage','direction_state'):
+    if column == 'source_trade_date':
+        return escape(pd.Timestamp(value).date().isoformat())
+    if column in ('market_session_status','bottom_state','bottom_change','reliability','position_reliability','trend_stage','direction_state'):
         label=STATES.get(text,text)
         cool=text in ('OK','DEEP_BOTTOM','LONG_TERM_LOW','已形成趋势','强势','增强')
         warm=text in ('ENTERED_BOTTOM','LEFT_BOTTOM','RECOVERING_FROM_BOTTOM','正在启动','DATA_GAP','CORPORATE_ACTION','MISSING_TARGET')
         tone='cool' if cool else 'warm' if warm else 'quiet'
         return f'<span class="badge {tone}">'+escape(label)+'</span>'
-    if column in ('rps1','RPS1','rps15','RPS15','RPS5','median_rps15','trend_score','price_pos_60','price_pos_120','price_pos_360'):
+    if column in ('rps1','RPS1','rps15','RPS15','RPS5','median_rps15','median_rps5','median_rps1','trend_score','price_pos_60','price_pos_120','price_pos_360'):
         number=float(value);width=max(0,min(100,number))
         low=column.startswith('price_pos_') and number<=20
         return f'<span class="score{ " low" if low else ""}"><span class="score-track" aria-hidden="true"><i class="score-fill" style="width:{width:.2f}%"></i></span><span>{number:.1f}</span></span>'
@@ -87,7 +90,7 @@ def table(frame,columns,preview_count=PREVIEW_LIMIT,remainder_label="展开其�
     if 'fund_name' in columns and 'fund_code' in columns:columns.remove('fund_code')
     if 'name' in columns:
         columns=[c for c in columns if c not in ('symbol','market')]
-    numeric={'rps1','RPS1','daily_return','rps15','RPS15','RPS5','median_rps15','trend_score','price_pos_60','price_pos_120','price_pos_360','active_ratio','return_5d','return_20d','price','ma20','ma60','change_5d'}
+    numeric={'rps1','RPS1','daily_return','rps15','RPS15','RPS5','median_rps15','median_rps5','median_rps1','trend_score','price_pos_60','price_pos_120','price_pos_360','active_ratio','return_5d','return_20d','price','ma20','ma60','change_5d'}
     def markup(rows):
         head=''.join('<th scope="col"'+(' class="numeric"' if c in numeric else '')+'>'+escape(LABELS.get(c,c))+'</th>' for c in columns)
         body=''
@@ -129,7 +132,7 @@ def positions(frame,stock=False):
 def render_html(date,assets,industries,etfs,stocks,etf_positions,stock_positions,quality,module_status=None):
     def panel(title,body,rule=''):
         return '<article class="panel"><h3>'+escape(title)+'</h3>'+('<p class="section-note">'+escape(rule)+'</p>' if rule else '')+body+'</article>'
-    direction_cols=['direction','median_rps15','change_5d','active_ratio','direction_state']
+    direction_cols=['direction','median_rps15','median_rps5','median_rps1','change_5d','active_ratio','direction_state']
     industry_cols=['industry_name','RPS15','RPS5','RPS1','daily_return','trend_stage']
     stock_cols=['market','symbol','name','trend_score','return_5d','return_20d']
     if 'identity_status' in stocks:
@@ -162,6 +165,16 @@ def render_html(date,assets,industries,etfs,stocks,etf_positions,stock_positions
     if industry_state.get('provider')=='tdx' and industry_unavailable:
         industry_rule='UNAVAILABLE：通达信目标日更新或质量门控未通过；本批不展示旧行情，不使用申万替代。'
     from src.research.baskets.config import load_baskets, expand_constituents
+    from src.market_facts.policy import source_policy
+    policy_excluded={(str(r['market']),str(r['symbol']).zfill(5 if str(r['market'])=='HK' else 6))
+                     for r in source_policy().get('stocks',{}).get('excluded',[])}
+    def coverage_note(subset, identities, tail):
+        valid=identities-policy_excluded
+        excluded=identities&policy_excluded
+        note=f'已有行情 {len(subset)}/{len(valid)} 个有效配置成分；'
+        if excluded:
+            note+=f'另有 {len(excluded)} 个按观察政策排除；'
+        return note+tail
     def identity(frame):
         return frame.apply(lambda r: (str(r.market), str(r.symbol).zfill(5 if str(r.market)=='HK' else 6)), axis=1) if not frame.empty else pd.Series(dtype=object)
     stock_all=stock_all.copy()
@@ -170,21 +183,22 @@ def render_html(date,assets,industries,etfs,stocks,etf_positions,stock_positions
     position_view['_identity']=identity(position_view)
     position_fields=[c for c in ('_identity','bottom_state','price_pos_120','price_pos_360','bottom_change','reliability') if c in position_view]
     stock_view=stock_all.merge(position_view[position_fields],on='_identity',how='left',validate='one_to_one')
-    stock_columns=['name','trend_score','return_5d','return_20d','bottom_state','price_pos_120','price_pos_360','reliability']
+    stock_columns=['name','market_session_status','source_trade_date','trend_score','return_5d','return_20d','bottom_state','price_pos_120','price_pos_360','reliability']
     stock_panels=[]
-    covered=set()
-    for key,basket in load_baskets().items():
+    covered=set(policy_excluded)
+    baskets=load_baskets()
+    for key,basket in baskets.items():
         members=expand_constituents({**basket,'key':key})
         identities={(str(r['market']),str(r['symbol']).zfill(5 if r['market']=='HK' else 6)) for r in members}
-        subset=stock_view[stock_view['_identity'].isin(identities)]
+        subset=stock_view[stock_view['_identity'].isin(identities-policy_excluded)]
         covered.update(subset['_identity'])
         stock_panels.append(panel(basket['label'],table(subset,stock_columns),
-            f'已有行情 {len(subset)}/{len(identities)} 个配置成分；按趋势分降序，同股可跨主题展示。未覆盖成分不补造行情。'))
+            coverage_note(subset,identities,'按趋势分降序，同股可跨篮子展示。未覆盖成分不补造行情。')))
     from src.selection.universe import load_universe_items
     from src.common.paths import selection_universe_path
     cashflow={(i.asset.market,i.asset.symbol.zfill(5 if i.asset.market=='HK' else 6)) for i in load_universe_items(selection_universe_path()) if i.theme=='high_cashflow' and i.asset.category not in ('theme_etf','sub_industry_etf','watch_etf')}
-    cashflow_view=stock_view[stock_view['_identity'].isin(cashflow)]
-    stock_panels.append(panel('高现金流资产',table(cashflow_view,stock_columns),f'已有行情 {len(cashflow_view)}/{len(cashflow)} 个配置成分；水电核电、运营商、公路、港口及周期电力观察。'))
+    cashflow_view=stock_view[stock_view['_identity'].isin(cashflow-policy_excluded)]
+    stock_panels.append(panel('高现金流资产',table(cashflow_view,stock_columns),coverage_note(cashflow_view,cashflow,'水电核电、运营商、公路、港口及周期电力观察。')))
     covered.update(cashflow_view['_identity'])
     remainder=stock_view[~stock_view['_identity'].isin(covered)]
     if not remainder.empty:
@@ -196,12 +210,12 @@ def render_html(date,assets,industries,etfs,stocks,etf_positions,stock_positions
         providers=sorted(set(etfs.price_provider.dropna().astype(str)))
         etf_source+=' 本批记录：'+(' / '.join(providers) if providers else '来源待核验')+'。'
     sections=[
-        section('market-direction','01 大类资产','数据来源：东方财富 / 新浪 ETF 行情；AKsignal 按资产方向聚合。',panel('资产方向',table(assets,direction_cols),'固定资产顺序；展示相对强度与趋势广度')),
+        section('market-direction','01 大类资产','数据来源：东方财富 / 新浪 ETF 行情；AKsignal 按资产方向聚合。',panel('资产方向',table(assets,direction_cols),'固定资产顺序；RPS 为方向内 ETF 横截面百分位的中位数；展示相对强度与趋势广度')),
         section('industry-rotation','02 行业轮动','数据来源：通达信官方 .day；TDX Research Industry · 128 个二级行业；AKsignal 独立计算收益率与 RPS。',panel(industry_title,table(industry_view,industry_cols),industry_rule)),
         section('etf-observation','03 ETF',etf_source,
                 panel('趋势活跃 ETF',table(etf_view,['fund_code','fund_name','rps15','rps1','daily_return','price','ma20','ma60']),'RPS15 降序 → 流动性降序 → ETF 代码；当日指报告交易日，RPS1 为单日收益横截面排名')+
                 panel('ETF 位置观察',table(positions(etf_positions),['fund_code','fund_name','bottom_state','price_pos_60','price_pos_120','price_pos_360','bottom_change','position_reliability']),'位置变化优先；覆盖与窗口可靠性见数据质量')),
-        section('stock-observation','04 个股观察','数据来源：长桥 OpenAPI · Longbridge ForwardAdjust；趋势与位置使用同一行情序列。按研究主题及高现金流资产分组，仅作观察分类。',''.join(stock_panels)),
+        section('stock-observation','04 个股观察',f'数据来源：长桥 OpenAPI · Longbridge ForwardAdjust；趋势与位置使用同一行情序列。按 {len(baskets)} 个研究篮子及高现金流资产分组，仅作观察分类。',''.join(stock_panels)),
     ]
     body=f'<main><header><div class="kicker">AKsignal v{escape(PRODUCT_VERSION)} · DAILY OBSERVATION REPORT · {escape(date)}</div><h1>市场观察日报</h1><p class="principle">{escape(PRINCIPLE)}</p></header><nav aria-label="日报区域"><a href="#market-direction">大类资产</a><a href="#industry-rotation">行业轮动</a><a href="#etf-observation">ETF</a><a href="#stock-observation">个股观察</a><a href="#data-quality">数据质量</a></nav>'+''.join(sections)
     body+='<section id="data-quality" class="quality"><h2>数据质量</h2><div class="panel"><ul>'
@@ -235,6 +249,10 @@ def quality_lines(date,etfs,industries,stocks):
     if 'data_status' in stocks:
         excluded=int(stocks.drop_duplicates(['market','symbol']).data_status.eq('excluded').sum())
         if excluded: lines.append(f'固定池个股：{excluded}只按配置暂时排除，不参与趋势和底部位置判断。')
+    if 'market_session_status' in stocks:
+        closed=stocks[stocks.market_session_status.eq('closed')].drop_duplicates(['market','symbol'])
+        for (market, source_date), group in closed.groupby(['market','source_trade_date']):
+            lines.append(f'市场休市：{market}，报告目标日 {date}，最近实际行情日 {pd.Timestamp(source_date).date()}，{len(group)}只；趋势与位置截至该实际交易日，相对强度基准同日；未补造休市日行情。日历依据为有界独立规则模型。')
     if 'price_basis' in stocks:
         basis_counts=stocks.price_basis.fillna('unknown').astype(str).value_counts().to_dict()
         route_counts=stocks.get('source_route',pd.Series('unknown',index=stocks.index)).fillna('unknown').astype(str).value_counts().to_dict()

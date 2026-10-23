@@ -58,7 +58,7 @@ Hub/Worker 的业务入口与独立 Scheduler 属于不同部署动作。Hub/Wor
 
 ## 观察篮子走势（2026-10-15，本地源码已接入）
 
-`research basket compare` 生成独立价格表现研究报告，并将文件哈希和已解析的批次内路径写入 `data/hub/basket_comparison.json`。`src/hub/baskets.py` 仅读取该指针、核验报告/manifest/曲线摘要，再通过通用 `details.trendComparison` 提供走势摘要和独立研究日期；不运行抓取、重算或 Daily 发布，不改变正式日报状态。文件只能位于既有 Worker 的 `.run_day/runs` 附件范围，不能扩大为任意本地目录。自定义目录导出不自动注册 Hub。
+`research basket compare` 生成独立的主线结构观察报告（季度再平衡默认，买入持有对照，高现金流为参照），并将文件哈希和已解析的批次内路径写入 `data/hub/basket_comparison.json`。`src/hub/baskets.py` 仅读取该指针、核验报告/manifest/曲线摘要，再通过通用 `details.trendComparison` 提供走势摘要和独立研究日期；不运行抓取、重算或 Daily 发布，不改变正式日报状态。文件只能位于既有 Worker 的 `.run_day/runs` 附件范围，不能扩大为任意本地目录。自定义目录导出不自动注册 Hub。
 
 Hub 将研究图放在主面板的 Market Facts 摘要之后，显示研究区间和价格口径，匹配附件摘要后提供完整报告入口。正式日报 HTML 仍单独识别，研究报告不能冒充正式发布。受限预览保留静态 SVG，下载后可使用完整筛选和悬停交互。研究快照由独立指针管理，不按日自动刷新。
 

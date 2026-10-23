@@ -98,3 +98,34 @@ def test_position_reader_rejects_other_snapshot(tmp_path,monkeypatch):
     d.to_parquet(p,index=False)
     with pytest.raises(ValueError,match='同一长桥快照'):
         cli.stock_positions('20261015')
+
+
+@pytest.mark.parametrize('drop_last', [False, True])
+def test_hk_holiday_keeps_real_date_and_rejects_missing_last_session(tmp_path, monkeypatch, drop_last):
+    items,_=setup_root(tmp_path,monkeypatch)
+    items.append(SimpleNamespace(asset=Asset('00883','中国海洋石油','HK',currency='HKD',category='hydro_nuclear'),
+                                 theme='theme',tier='energy',participation='monitor_only'))
+    def fetch(ctx,identity,target,*args):
+        name='XHKG' if identity.market=='HK' else 'XSHG'
+        cal=stock_daily.SessionCalendar.load(tmp_path/f'config/market_calendars/{name}.json')
+        days=[d for d in cal.days if d<=target][-450:]
+        if identity.market=='HK' and drop_last: days=days[:-1]
+        rows=[dict(source_trade_date=d.isoformat(),date_evidence='source_dated_daily',
+                   open=20.,high=21.,low=19.,close=20.,volume=1000.,turnover=20000.) for d in days]
+        return build_snapshot(identity,rows,target,datetime(2026,10,20,tzinfo=timezone.utc))
+    monkeypatch.setattr(stock_daily,'fetch_snapshot',fetch)
+    df=stock_daily.build_longbridge_stocks('20261019',online=True,items=items)
+    hk=df[df.symbol.eq('00883')].iloc[0]
+    from src.market_facts.policy import aligned_stock_rows
+    assert hk.trade_date==pd.Timestamp('20261019')
+    assert hk.expected_source_trade_date=='2026-10-16'
+    assert hk.market_session_status=='closed'
+    assert hk.data_status==('missing' if drop_last else 'market_closed')
+    assert aligned_stock_rows(df,'20261019').all()==(not drop_last)
+    if not drop_last:
+        assert hk.source_trade_date==pd.Timestamp('20261016')
+        forged=df.copy();forged.loc[forged.symbol.eq('00883'),'calendar_sha256']='wrong'
+        assert not aligned_stock_rows(forged,'20261019').all()
+        assert not aligned_stock_rows(df,'20261020').all()
+        pos=pd.read_parquet(tmp_path/'outputs/stock_metrics/stock_position_inputs_20261019.parquet')
+        assert pos[pos.symbol.eq('00883')].iloc[0].snapshot_id==hk.snapshot_id

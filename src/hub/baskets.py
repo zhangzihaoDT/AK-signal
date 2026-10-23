@@ -46,13 +46,25 @@ def comparison_view(root: Path):
     dates = curves.date.astype(str).tolist()
     if dates[0] != manifest['start'] or dates[-1] != manifest['end']:
         raise ValueError('research date mismatch')
-    series = [{'id': b['key'], 'label': b['label'], 'values': curves[b['key']].round(3).tolist()}
+    series = [{'id': b['key'], 'label': b['label'], 'values': curves[b['key']].round(3).tolist(),
+               'reference': b.get('role') == 'reference'}
               for b in manifest['baskets']]
     series.append({'id': 'benchmark', 'label': '沪深300', 'benchmark': True,
-                   'values': curves.hs300.round(3).tolist()})
-    preview = {'title': '观察篮子 · 长期走势', 'startDate': manifest['start'],
+                   'reference': False, 'values': curves.hs300.round(3).tolist()})
+    methodology = manifest.get('methodology_version', 'basket_compare_v1')
+    is_v2 = methodology == 'basket_compare_v2'
+    method = manifest.get('default_method', 'quarterly' if is_v2 else 'buy_and_hold')
+    title = '观察篮子 · 主线强弱' if is_v2 else '观察篮子 · 长期走势'
+    note = (
+        '独立研究快照 · 本币前复权价格 · 季度再平衡结构指数（买入持有对照）· 高现金流为参照 · 非实际仓位收益，不含费用，未验证含息总回报。'
+        if is_v2 else
+        '独立研究快照 · 本币前复权价格 · 固定初始权重买入持有，晚上市资金先留作现金；非实际仓位收益，未验证含息总回报。'
+    )
+    preview = {'title': title, 'startDate': manifest['start'],
                'endDate': manifest['end'], 'unit': '起点=100', 'dates': dates, 'series': series,
-               'note': '独立研究快照 · 本币前复权价格 · 固定初始权重，晚上市资金先留作现金；非实际仓位收益，未验证含息总回报。',
+               'method': method,
+               'methodologyVersion': methodology,
+               'note': note,
                'artifactDigest': p['report_sha256']}
     artifact = {'file': str(report), 'name': report.name, 'extension': '.html',
                 'mimeType': 'text/html', 'size': report.stat().st_size, 'digest': p['report_sha256'],

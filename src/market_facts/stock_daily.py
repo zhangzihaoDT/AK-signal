@@ -15,7 +15,7 @@ from uuid import uuid4
 import pandas as pd
 
 from src.common.paths import project_root, stock_metrics_dir
-from .contract import validate_snapshot
+from .contract import validate_snapshot, build_snapshot, SeriesIdentity
 from .calendar import SessionCalendar
 from .consume import observe_snapshot, snapshot_frame
 from .longbridge_source import fetch_snapshot, identity_for, quote_context
@@ -98,32 +98,47 @@ def build_longbridge_stocks(trade_date, online=False, items=None):
     cs={m:SessionCalendar.load(root/f'config/market_calendars/{name}.json') for m,name in [('CN','XSHG'),('HK','XHKG')]}
     rows=[];positions=[];audit_assets=[]
     for key,asset in assets.items():
+        calendar=cs[asset.market]
+        expected=calendar.expected_session(target)
+        closed=expected != target
+        evidence={'expected_source_trade_date':expected.isoformat(),
+                  'market_session_status':'closed' if closed else 'open',
+                  'calendar_version':calendar.version,'calendar_sha256':calendar.digest,
+                  'calendar_authority':calendar.authority}
         base={'symbol':asset.symbol,'asset_id':asset.symbol,'market':asset.market,'name':asset.name,
               'trade_date':pd.Timestamp(target),'source':'longbridge','source_route':'longbridge',
               'price_basis':'Longbridge ForwardAdjust','adjustment_requested':'ForwardAdjust',
               'price_basis_verified':False,'snapshot_id':None,'source_trade_date':pd.NaT,
               'trend_score':None,'score_trend':None,'data_status':'missing','lag_days':None,
-              'history_limitation':limitations.get(asset.symbol,'')}
+              'history_limitation':limitations.get(asset.symbol,''),**evidence}
         position={'market':asset.market,'symbol':asset.symbol,'name':asset.name,'trade_date':pd.Timestamp(target),
                   'source':'longbridge','price_basis':'Longbridge ForwardAdjust','price_basis_verified':False,
                   'rule_version':'stock_position_v1','calendar_basis':'independent_rule_model',
                   'bottom_state':'UNAVAILABLE','long_term_bottom':None,'bottom_change':'UNKNOWN',
-                  'reliability':'MISSING_TARGET','snapshot_id':None}
+                  'reliability':'MISSING_TARGET','snapshot_id':None,**evidence,
+                  'source_trade_date':pd.NaT}
         if excluded_stock(*key):
             base['data_status']='excluded';position['reliability']='EXCLUDED'
         elif key in snaps and snaps[key]["bars"]:
-            s=snaps[key];observation=observe_snapshot(s,cs[asset.market],bench)
+            s=snaps[key]
+            # Analysis projection changes only the evaluation date, never stored bars
+            # or the original batch snapshot identity. RS uses the same as-of date.
+            analysis=(build_snapshot(SeriesIdentity(**s['identity']),s['bars'],expected,
+                                    datetime.fromisoformat(s['fetched_at'])) if closed else s)
+            observation=observe_snapshot(analysis,calendar,bench)
             trend=observation['trend'];frame=snapshot_frame(s)
             base.update(snapshot_id=s['snapshot_id'],source_trade_date=pd.Timestamp(frame.date.max()),
                         close=float(frame.close.iloc[-1]),**{k:v for k,v in trend.items() if k in {'trend_score','return_20d','relative_strength_20d'}})
             base['score_trend']=base['trend_score']
-            if trend['status']=='AVAILABLE' and trend.get('benchmark_status')=='AVAILABLE' and s['quality']['target_source_date_verified']:
-                base['data_status']='current';base['lag_days']=0
+            if trend['status']=='AVAILABLE' and trend.get('benchmark_status')=='AVAILABLE' and analysis['quality']['target_source_date_verified']:
+                base['data_status']='market_closed' if closed else 'current'
+                base['lag_days']=(target-expected).days
             base.update(return_5d=float(frame.close.pct_change(5).iloc[-1]) if len(frame)>5 else None,
                         volatility_20d=float(frame.close.pct_change().rolling(20).std().iloc[-1]) if len(frame)>20 else None,
                         drawdown_20d=float((1-frame.close/frame.high.rolling(20).max()).iloc[-1]) if len(frame)>20 else None)
-            position.update(observation['position'],snapshot_id=s['snapshot_id'])
-        rows.append(base);audit_assets.append({k:base[k] for k in ('market','symbol','name','source','source_route','data_status','snapshot_id','history_limitation')})
+            position.update(observation['position'],snapshot_id=s['snapshot_id'],source_trade_date=base['source_trade_date'])
+        rows.append(base);audit_assets.append({**{k:base[k] for k in ('market','symbol','name','source','source_route','data_status','snapshot_id','history_limitation')},
+                                             **evidence,'source_trade_date':None if pd.isna(base['source_trade_date']) else base['source_trade_date'].date().isoformat()})
         for item in (i for i in registrations if (i.asset.market,i.asset.symbol)==key):
             positions.append({**position,'theme':item.theme,'tier':item.tier,'participation':item.participation})
     frame=pd.DataFrame(rows)
@@ -139,8 +154,8 @@ def build_longbridge_stocks(trade_date, online=False, items=None):
            'manifest_sha256':ref['manifest_sha256'],'benchmark_source':'longbridge','benchmark_trade_date':benchmark_date,
            'registrations':len(registrations),'unique_assets':len(assets),'assets':audit_assets,
            'sources':{'longbridge':{'requests':len(manifest['records']) if online else 0}},
-           'complete':bool(frame.data_status.isin(['current','excluded']).all() and benchmark_date==target.isoformat()),
+           'complete':bool(frame.data_status.isin(['current','market_closed','excluded']).all() and benchmark_date==target.isoformat()),
            'excluded':frame.loc[frame.data_status.eq('excluded'),['market','symbol','name']].to_dict('records'),
-           'not_updated':frame.loc[~frame.data_status.isin(['current','excluded']),['market','symbol','name','data_status']].to_dict('records')}
+           'not_updated':frame.loc[~frame.data_status.isin(['current','market_closed','excluded']),['market','symbol','name','data_status']].to_dict('records')}
     (out/f'stock_update_audit_{trade_date}.json').write_text(json.dumps(audit,ensure_ascii=False,indent=2))
     return frame

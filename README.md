@@ -1,6 +1,6 @@
 # AKsignal — Investment Decision System
 
-当前基线：**v0.6.0**（2026-10-16）。版本源为 `VERSION`，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前基线：**v0.7.0**（2026-10-23）。版本源为 `VERSION`，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 AKsignal 通过可追溯的市场事实、策略信号和真实组合约束，辅助管理投资组合。投资者保留最终决策权。
 
@@ -29,7 +29,7 @@ AKsignal 通过可追溯的市场事实、策略信号和真实组合约束，�
 
 **层间约束：** Facts 不知道 Strategy 的存在，也不编码策略语义；Strategy 不直接维护或重算底层行情；Position 不自行生成市场信号。Strategy 信号不等于仓位决策：Position 可以基于实际持仓和风险暴露拒绝或调整策略建议，但不能篡改市场事实。
 
-**v0.6.0 完成重点：Data Foundation 与 Market Facts 的稳定化。** Strategy 与 Portfolio / Position 是后续建设阶段，将按新架构重新设计；不以旧 Selection、Timing、回测或仓位代码作为实现蓝本。
+**v0.7.0 完成重点：Basket Compare v2、日报 RPS15/RPS5/当日 RPS、跨市场休市验收。** Strategy 与 Portfolio / Position 是后续建设阶段，将按新架构重新设计；不以旧 Selection、Timing、回测或仓位代码作为实现蓝本。
 
 当前 Market Facts 保留八项能力：固定池个股数据、全市场 ETF 数据、全行业指数数据、行业轮动、大类资产趋势、ETF 趋势活跃池、个股趋势、ETF 与个股底部位置。覆盖范围随配置和行情质量变化，固定池个股不等于 A 股全量。
 
@@ -42,7 +42,7 @@ Trend（趋势观察）：行业轮动、大类资产、ETF 趋势、个股趋�
 Price Position（价格位置观察）：ETF 与固定池个股的历史价格位置。
 Daily Observation Report：统一日期、统一数据质量、统一发布。
 
-日报按大类资产、行业轮动、ETF、个股观察四个板块展示，每部分标明来源；趋势和位置归入各资产板块，审计放数据质量区。个股按8个研究主题加高现金流分类，目前68只有效、禾赛1只排除。正式来源见 [模块来源契约](docs/OBSERVATION_DATA_SOURCES.md)。
+日报按大类资产、行业轮动、ETF、个股观察四个板块展示，每部分标明来源；趋势和位置归入各资产板块，审计放数据质量区。个股按8个研究篮子加高现金流分类，目前68只有效、禾赛1只排除。正式来源见 [模块来源契约](docs/OBSERVATION_DATA_SOURCES.md)。
 
 ## 每日运行
 
@@ -83,6 +83,6 @@ pip install -r requirements.txt
 
 能力与边界见 [canonical 状态图](docs/ARCHITECTURE_MAP.md)；位置口径见 [POSITION_OBSERVATION.md](docs/POSITION_OBSERVATION.md)。
 
-独立 [篮子研究报告](docs/RESEARCH_BASKETS.md) 使用9篮子/68只个股与长桥同源基准。数据源探索旧材料见 [历史归档](docs/archive/source_migration_20261016/README.md)。
+独立 [篮子研究报告](docs/RESEARCH_BASKETS.md) 使用8个研究篮子 + 高现金流参照、68只个股与长桥同源基准；季度再平衡为默认结构指数，买入持有为对照。数据源探索旧材料见 [历史归档](docs/archive/source_migration_20261016/README.md)。
 
 目录职责：[业务架构与决策](config/decisions/README.md) · [项目工程结构](docs/PROJECT_STRUCTURE.md) · [数据存储架构](data/README.md) · [手动工具](scripts/README.md)。

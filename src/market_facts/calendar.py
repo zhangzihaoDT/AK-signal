@@ -72,6 +72,15 @@ class SessionCalendar:
     def index(self):
         return pd.DatetimeIndex(self.days)
 
+    def expected_session(self, target: date) -> date:
+        """Latest actual session at a bounded report date; never infer beyond coverage."""
+        if not self.start <= target <= self.end:
+            raise ValueError('calendar target outside coverage')
+        eligible = [d for d in self.days if d <= target]
+        if not eligible:
+            raise ValueError('calendar has no preceding session')
+        return eligible[-1]
+
 
 def export_model_calendars(output: Path, start: date, end: date):
     """Optional dependency, explicit rule-model authority, never exchange-certified."""

@@ -16,6 +16,7 @@ A股全市场 ETF 轮动 — Layer 1
 v0.7.0 Market Pulse（市场脉搏）：
   Layer① 从单维「谁最强」扩展为四维观察：趋势（Level）+ 今日（Today）+ 动量（Velocity）+ 流动性。
     - rps1        RPS1（Today）：最新 1 日收益横截面百分位，观察「今天是不是热点」
+    - rps5        RPS5（Short）：最新 5 日收益横截面百分位，日报大类资产短期强度
     - delta_rps15 ΔRPS15（Velocity）：RPS15 今日 − RPS15 5 个交易日前，观察「趋势有没有加速」
     - liquidity   最新 5 日均成交额横截面百分位，观察流动性强弱
   三者均为 Observation 展示指标：不参与排序（主表仍按 RPS15 排），不进入 Selection（Decision
@@ -65,6 +66,8 @@ TECH_KEYWORDS = [
 
 # RPS 排名窗口（来自统一 Strategy Specification config/indicator_spec.yaml）
 RPS_WINDOWS: tuple[int, ...] = (15, 20, 60)
+# RPS5 观察窗口：日报大类资产短期强度展示，沿用 RPS15 的横截面口径
+RPS5_WINDOW = 5
 # 排名变化回溯交易日数
 RANK_CHANGE_DAYS = 5
 # 横截面样本尾部保留行数
@@ -188,20 +191,21 @@ def _latest_returns(closes: pd.DataFrame, periods: tuple[int, ...]) -> dict[str,
     return out
 
 
-def _compute_today_rps(
+def _compute_latest_rps(
     closes: pd.DataFrame,
     rank_codes: set[str] | None,
-    today_window: int = 1,
+    window: int,
     tail: int = CROSS_SECTIONAL_TAIL,
 ) -> pd.Series:
-    """RPS1（Today）：最新交易日 today_window 日收益的横截面百分位（0-100）。
+    """最新交易日 window 日收益的横截面百分位（0-100）。
 
-    仅 Observation：标注「今天是不是热点」。不参与排序，也不进入 Selection。
+    仅 Observation：RPS1 标注「今天是不是热点」，RPS5 用于大类资产短期强度。
+    不参与排序，也不进入 Selection。
     """
-    if closes.empty or len(closes) <= today_window:
+    if closes.empty or len(closes) <= window:
         return pd.Series(dtype=float)
-    sub = closes.iloc[-(tail + today_window):]
-    ret = sub / sub.shift(today_window) - 1
+    sub = closes.iloc[-(tail + window):]
+    ret = sub / sub.shift(window) - 1
     recent = ret.iloc[-tail:]
     if rank_codes is not None:
         recent = recent[[c for c in recent.columns if c in rank_codes]]
@@ -290,7 +294,7 @@ def compute_rotation_metrics(
             fund_code, fund_name, asset_bucket, bucket_label, asset_class,
             is_tech,
             rps15, rps20, rps60,
-            rps1, delta_rps15, liquidity,   # v0.7.0 Market Pulse（仅 Observation 展示）
+            rps1, rps5, delta_rps15, liquidity,   # v0.7.0 Market Pulse（仅 Observation 展示）
             rank15, rank15_prev5, rank_change_5d,
             return_1d, return_5d, return_10d, return_15d, return_20d, return_60d,
             data_quality_flag              # 空=正常；corporate_action=单日异常/折算（原值保留）
@@ -329,6 +333,10 @@ def compute_rotation_metrics(
         c for c in (rank_codes or set(closes.columns))
         if not any(o <= today_window for o in anomaly_offsets.get(c, []))
     }
+    rps5_rank_codes = {
+        c for c in (rank_codes or set(closes.columns))
+        if not any(o <= RPS5_WINDOW for o in anomaly_offsets.get(c, []))
+    }
 
     xs = compute_cross_sectional(
         combined, windows=windows, rank_codes=rank_codes,
@@ -345,7 +353,8 @@ def compute_rotation_metrics(
     rank_prev5 = rank_series.shift(RANK_CHANGE_DAYS).iloc[-1] if len(rank_series) > RANK_CHANGE_DAYS else pd.Series(index=rank_series.columns, dtype=float)
 
     # v0.7.0 Market Pulse 观察指标（仅展示，不参与排序/选择）
-    today_rps = _compute_today_rps(closes, today_rank_codes, today_window=today_window)
+    today_rps = _compute_latest_rps(closes, today_rank_codes, window=today_window)
+    rps5 = _compute_latest_rps(closes, rps5_rank_codes, window=RPS5_WINDOW)
     rps15_series = xs[windows[0]]["rps"]
     rps15_today = rps15_series.iloc[-1]
     rps15_prev = (
@@ -364,6 +373,8 @@ def compute_rotation_metrics(
             row[f"rps{w}"] = None if pd.isna(rps) else float(rps)
         r1 = today_rps.get(code)
         row["rps1"] = None if pd.isna(r1) else float(r1)
+        r5 = rps5.get(code)
+        row["rps5"] = None if pd.isna(r5) else float(r5)
         r15v = rps15_today.get(code)
         r15p = rps15_prev.get(code)
         if pd.notna(r15v) and pd.notna(r15p):
@@ -420,7 +431,7 @@ def compute_rotation_metrics(
     # v0.4.3 多主题：按主题关键词打标（兼容旧 parquet 缺列场景）
     etf["theme"] = etf["fund_name"].apply(match_theme)
 
-    numeric_cols = ["rps15", "rps20", "rps60", "rps1", "delta_rps15", "liquidity",
+    numeric_cols = ["rps15", "rps20", "rps60", "rps1", "rps5", "delta_rps15", "liquidity",
                     "rank15", "rank15_prev5", "rank_change_5d",
                     "return_1d", "return_5d", "return_10d", "return_15d", "return_20d", "return_60d"]
     for c in numeric_cols:
@@ -742,8 +753,9 @@ def _direction_state(median_rps15: float | None, change_5d: float | None) -> str
 def cross_asset_direction(etf: pd.DataFrame) -> list[dict[str, Any]]:
     """① 全市场大类资产往哪里动：按跨资产方向聚合。
 
-    每行一个方向，字段：direction / etf_count / median_rps15 / change_5d /
-    active_ratio / rep_name / direction_state。不展示 RPS1 / 分位数 / 全市场数量。
+    每行一个方向，字段：direction / etf_count / median_rps15 / median_rps5 /
+    median_rps1 / change_5d / active_ratio / rep_name / direction_state。
+    不展示分位数 / 全市场数量。
     """
     if etf.empty:
         return []
@@ -755,6 +767,8 @@ def cross_asset_direction(etf: pd.DataFrame) -> list[dict[str, Any]]:
         if sub.empty:
             continue
         rps = pd.to_numeric(sub["rps15"], errors="coerce").dropna()
+        rps5 = pd.to_numeric(sub["rps5"], errors="coerce").dropna() if "rps5" in sub.columns else pd.Series(dtype=float)
+        rps1 = pd.to_numeric(sub["rps1"], errors="coerce").dropna() if "rps1" in sub.columns else pd.Series(dtype=float)
         chg = pd.to_numeric(sub["rank_change_5d"], errors="coerce").dropna()
         n = len(sub)
         n_active = int((sub.get("trend_state", pd.Series(dtype=str)).astype(str) != "OUT_OF_SCOPE").sum()) \
@@ -765,11 +779,15 @@ def cross_asset_direction(etf: pd.DataFrame) -> list[dict[str, Any]]:
         if not rep.empty:
             rep = rep.sort_values("liquidity", ascending=False)
         median = round(float(rps.median()), 1) if not rps.empty else None
+        median_rps5 = round(float(rps5.median()), 1) if not rps5.empty else None
+        median_rps1 = round(float(rps1.median()), 1) if not rps1.empty else None
         change = round(float(chg.median()), 1) if not chg.empty else None
         rows.append({
             "direction": d,
             "etf_count": n,
             "median_rps15": median,
+            "median_rps5": median_rps5,
+            "median_rps1": median_rps1,
             "change_5d": change,
             "active_ratio": round(n_active / n, 2) if n else 0,
             "rep_name": str(rep.iloc[0]["fund_name"]) if not rep.empty else "—",

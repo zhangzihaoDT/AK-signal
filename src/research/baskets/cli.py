@@ -75,7 +75,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Research Layer 主题篮子研究")
     sub = p.add_subparsers(dest="command")
 
-    compare = sub.add_parser('compare', aliases=['compare-longbridge'], help='长桥独立收盘价快照：八个研究主题+高现金流')
+    compare = sub.add_parser('compare', aliases=['compare-longbridge'], help='长桥独立收盘价快照：八个研究篮子+高现金流参照')
     compare.add_argument('--start', required=True)
     compare.add_argument('--end', required=True)
     compare.add_argument('--snapshot', help='离线快照目录')

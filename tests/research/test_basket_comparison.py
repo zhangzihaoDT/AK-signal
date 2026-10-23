@@ -64,6 +64,8 @@ def test_hub_preview_pins_report_and_rejects_tampered_data(tmp_path):
     pin_comparison(tmp_path, folder)
     preview, artifact = comparison_view(tmp_path)
     assert preview['series'][0]['values'] == [100, 120]
+    assert preview['method'] == 'buy_and_hold'
+    assert '固定初始权重' in preview['note']
     assert artifact['runId'].startswith('research-')
     assert artifact['targetDate'] == '20261014'
     path.write_text('tampered')
@@ -75,6 +77,50 @@ def test_hub_does_not_expand_existing_attachment_scope(tmp_path):
     from src.hub.baskets import pin_comparison
     with pytest.raises(ValueError):
         pin_comparison(tmp_path, tmp_path / 'untrusted')
+
+
+def test_baskets_use_quarterly_rebalance_and_cashflow_is_reference():
+    from src.research.baskets.config import load_baskets
+    from src.research.baskets.comparison import comparison_baskets
+    raw = load_baskets()
+    assert raw
+    assert all(basket['weighting']['rebalance'] == 'quarterly' for basket in raw.values())
+    baskets = comparison_baskets()
+    assert baskets['high_cashflow']['role'] == 'reference'
+    assert all(basket['role'] == 'mainline' for key, basket in baskets.items() if key != 'high_cashflow')
+
+
+def test_hub_preview_marks_reference_and_default_method(tmp_path):
+    import json
+    import hashlib
+    from src.hub.baskets import pin_comparison, comparison_view
+    folder = tmp_path / '.run_day/runs/20261014/example/outputs/research/baskets'
+    folder.mkdir(parents=True)
+    curves = pd.DataFrame({
+        'date': ['2024-07-16', '2026-10-14'],
+        'main': [100, 120],
+        'reference': [100, 108],
+        'hs300': [100, 110],
+    })
+    path = folder / 'comparison_nav.csv'
+    curves.to_csv(path, index=False)
+    (folder / 'comparison_manifest.json').write_text(json.dumps({
+        'start': '2024-07-16', 'end': '2026-10-14',
+        'data_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+        'default_method': 'quarterly',
+        'methodology_version': 'basket_compare_v2',
+        'baskets': [
+            {'key': 'main', 'label': '研究主线', 'role': 'mainline'},
+            {'key': 'reference', 'label': '高现金流资产', 'role': 'reference'},
+        ],
+    }))
+    (folder / 'basket_compare.html').write_text('<h1>Report</h1>')
+    pin_comparison(tmp_path, folder)
+    preview, _ = comparison_view(tmp_path)
+    assert preview['series'][0]['reference'] is False
+    assert preview['series'][1]['reference'] is True
+    assert preview['method'] == 'quarterly'
+    assert '季度再平衡' in preview['note']
 
 
 def test_longbridge_baskets_include_cashflow_and_exclude_hesai():

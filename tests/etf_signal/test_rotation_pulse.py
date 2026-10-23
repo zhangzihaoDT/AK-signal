@@ -67,7 +67,7 @@ class TestMarketPulseColumns:
     def test_columns_present_and_numeric(self):
         rot = rotation.compute_rotation_metrics(_combined_df(), _master_df())
         assert not rot.empty
-        for col in ("rps1", "delta_rps15", "liquidity"):
+        for col in ("rps1", "rps5", "delta_rps15", "liquidity"):
             assert col in rot.columns
             assert pd.to_numeric(rot[col], errors="coerce").notna().any()
 
@@ -85,6 +85,14 @@ class TestMarketPulseColumns:
         ref = _ref_rps(_combined_df(), 1, sorted(EQUITY))
         for code in sorted(EQUITY):
             assert rot.set_index("fund_code").loc[code, "rps1"] == pytest.approx(ref[code], abs=1e-6)
+
+    def test_rps5_matches_cross_section(self):
+        rot = rotation.compute_rotation_metrics(_combined_df(), _master_df())
+        ref = _ref_rps(_combined_df(), 5, sorted(EQUITY))
+        idx = rot.set_index("fund_code")
+        for code in sorted(EQUITY):
+            assert idx.loc[code, "rps5"] == pytest.approx(ref[code], abs=1e-6)
+        assert pd.isna(idx.loc["M", "rps5"])
 
     def test_delta_rps15_matches_5day_change(self):
         combined = _combined_df()
@@ -112,6 +120,7 @@ class TestMarketPulseColumns:
         rot = rotation.compute_rotation_metrics(_combined_df(), _master_df())
         m = rot[rot["fund_code"] == "M"].iloc[0]
         assert pd.isna(m["rps1"])
+        assert pd.isna(m["rps5"])
         assert pd.isna(m["delta_rps15"])
         assert pd.notna(m["liquidity"])
 
@@ -145,6 +154,12 @@ class TestReportThreeQuestions:
         dirs = {r["direction"]: r for r in rows}
         assert "A股行业/主题" in dirs
         assert "现金/货币" in dirs
+        equity = rot[rot["fund_code"].isin(sorted(EQUITY))]
+        row = dirs["A股行业/主题"]
+        assert row["median_rps5"] == pytest.approx(round(float(equity["rps5"].median()), 1))
+        assert row["median_rps1"] == pytest.approx(round(float(equity["rps1"].median()), 1))
+        assert dirs["现金/货币"]["median_rps5"] is None
+        assert dirs["现金/货币"]["median_rps1"] is None
 
     def test_active_etf_representatives(self):
         rot = rotation.compute_rotation_metrics(_combined_df(), _master_df())
@@ -181,9 +196,11 @@ class TestDataQualityAnomaly:
         assert idx.loc["B", "data_quality_flag"] == "corporate_action"
         assert idx.loc["C", "data_quality_flag"] == "corporate_action"
         assert idx.loc["A", "data_quality_flag"] == ""
-        # C（offset1）污染所有窗口；B（offset3）污染 15/20/60 但不污染 RPS1（今日）
+        # C（offset1）污染所有窗口；B（offset3）污染 5/15/20/60 但不污染 RPS1（今日）
         assert pd.isna(idx.loc["C", "rps15"])
         assert pd.isna(idx.loc["B", "rps15"])
+        assert pd.isna(idx.loc["C", "rps5"])
+        assert pd.isna(idx.loc["B", "rps5"])
         assert pd.notna(idx.loc["B", "rps1"])
         assert pd.isna(idx.loc["C", "rps1"])
         # 原值保留（未被清零或覆盖；-50% 单日 + 后两日修复 → 5 日 ≈ -49%）

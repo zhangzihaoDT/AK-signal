@@ -2,7 +2,7 @@
 
 # AKsignal Canonical Architecture Map
 
-> 当前能力的 canonical 状态图。基线版本：v0.6.0。更新：2026-10-16。
+> 当前能力的 canonical 状态图。基线版本：v0.7.0。更新：2026-10-23。
 
 ## 完整定位与项目目标
 
@@ -45,7 +45,7 @@ AKsignal
 
 ## 当前实现阶段
 
-v0.6.0 完成重点是 **Data Foundation 与 Market Facts 稳定化**。当前每日主链观察全市场 ETF、128 个 TDX 研究行业及固定池个股，并发布日报；独立 Basket Compare 提供比较结果。Strategy 与 Portfolio / Position 尚未作为正式能力实现。
+v0.6.0 完成 **Data Foundation 与 Market Facts 稳定化**；v0.7.0 完成 Basket Compare v2、日报 RPS 三列与跨市场休市验收。当前每日主链观察全市场 ETF、128 个 TDX 研究行业及固定池个股，并发布日报；独立 Basket Compare 提供主线结构、相对强弱、参与度与重叠诊断。Strategy 与 Portfolio / Position 尚未作为正式能力实现。
 
 **当前正式实现限于 Data Foundation 与 Market Facts。** 后续 Strategy 将重新定义策略、信号与独立回测机制；Portfolio / Position 将接入实际持仓、风险约束与调仓决策。旧 Selection、Timing、研究或回测实现不代表新层能力已完成，也不作为新设计基础。
 
@@ -87,7 +87,7 @@ etf update → etf calculate
 
 `make run-day-offline` 跳过在线 update，个股仅读缓存。所有步骤固定目标 trade_date；核心股票与基准未对齐时停止发布。ETF 缺口显式列入审计。
 
-每日只有一个报告入口：`outputs/observation/observation_{date}.html`，附同名 JSON 摘要与 Markdown。正文按大类资产、行业轮动、ETF、个股观察四个板块组织，趋势和位置归入对应资产；个股按8个研究主题加高现金流分类，各板块注明来源。数据覆盖、复权验证、缓存与来源状态集中在独立的数据质量区域；不占用投资观察正文。机器事实全量落盘。ETF 活跃定义沿用均线条件，个股活跃展示趋势分≥70，完整固定池可展开；这只是展示范围，不创造推荐资格。
+每日只有一个报告入口：`outputs/observation/observation_{date}.html`，附同名 JSON 摘要与 Markdown。正文按大类资产、行业轮动、ETF、个股观察四个板块组织，趋势和位置归入对应资产；个股按8个研究篮子加高现金流分类，各板块注明来源。数据覆盖、复权验证、缓存与来源状态集中在独立的数据质量区域；不占用投资观察正文。机器事实全量落盘。ETF 活跃定义沿用均线条件，个股活跃展示趋势分≥70，完整固定池可展开；这只是展示范围，不创造推荐资格。
 
 最终验收为 `outputs/run_day/final_check_{date}.json`，发布回执为 `outputs/run_day/publication.json`。结果包含 scope=observation_only、status、warnings、errors；不再包含投资 action。
 

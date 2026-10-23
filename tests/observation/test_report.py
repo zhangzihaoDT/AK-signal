@@ -3,7 +3,7 @@ from src.observation.report import render_html,PRINCIPLE
 
 
 def test_four_module_sections_and_separate_quality():
-    assets=pd.DataFrame({'direction':['A股'],'median_rps15':[80],'active_ratio':[.2]})
+    assets=pd.DataFrame({'direction':['A股'],'median_rps15':[81.0],'median_rps5':[72.0],'median_rps1':[63.0],'active_ratio':[.2]})
     industries=pd.DataFrame({'industry_name':['通信'],'RPS15':[90],'RPS5':[80],'RPS1':[99],'return_1d':[.0234],'trend_stage':['已形成趋势']})
     etfs=pd.DataFrame({'fund_code':['000001'],'fund_name':['ETF'],'rps15':[90],'rps1':[88],'return_1d':[-1.25],'trend_active':[True]})
     stocks=pd.DataFrame({'market':['CN'],'symbol':['000001'],'name':['股票'],'trend_score':[80],'return_5d':[.1],'return_20d':[.2]})
@@ -15,6 +15,17 @@ def test_four_module_sections_and_separate_quality():
     assert '复权审计结果' not in html[:html.index('<section id="data-quality"')]
     assert '10.0%' in html
     assert html.count('>当日 RPS</th>') == 2
+    assert html.count('>RPS5</th>') == 1
+    assert html.count('>RPS15 中位</th>') == 1
+    assert html.count('>RPS5 中位</th>') == 1
+    assert html.count('>当日 RPS 中位</th>') == 1
+    assert '11/12' not in html
+    assert '个有效配置成分' in html
+    assert '另有 1 个按观察政策排除' in html
+    assert '按 8 个研究篮子及高现金流资产分组' in html
+    assert '同股可跨篮子展示' in html
+    for value in ('81.0','72.0','63.0'):
+        assert value in html
     assert html.count('>当日涨幅</th>') == 2
     assert '2.3%' in html
     assert '-1.2%' in html

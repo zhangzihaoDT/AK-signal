@@ -12,13 +12,13 @@ baskets:
   hk_resources_shipping:
     label: "AZ 仓位观察"
     source: {type: observation_group, key: hk_resources_shipping}
-    weighting: {method: group_equal, rebalance: buy_and_hold}
+    weighting: {method: group_equal, rebalance: quarterly}
     benchmark: sh000300
 
   scania_china_watch:
     label: "商用车产业链"
     source: {type: observation_group, key: scania_china_watch}
-    weighting: {method: group_equal, rebalance: buy_and_hold}
+    weighting: {method: group_equal, rebalance: quarterly}
     benchmark: sh000300
 
   china_auto_global_ex_oem:
@@ -31,7 +31,7 @@ baskets:
         - global_ev_components
         - global_auto_components
         - adas_lidar
-    weighting: {method: group_equal, rebalance: buy_and_hold}
+    weighting: {method: group_equal, rebalance: quarterly}
     benchmark: sh000300
 
   ai_capex:
@@ -46,7 +46,7 @@ baskets:
         - high_speed_interconnect
         - server_power
         - liquid_cooling
-    weighting: {method: group_equal, rebalance: buy_and_hold}
+    weighting: {method: group_equal, rebalance: quarterly}
     benchmark: sh000300
 
   china_auto_global:
@@ -56,7 +56,7 @@ baskets:
       key: china_auto_global
       include_groups:
         - oem_global
-    weighting: {method: group_equal, rebalance: buy_and_hold}
+    weighting: {method: group_equal, rebalance: quarterly}
     benchmark: sh000300
 
   memory_and_storage:
@@ -66,17 +66,17 @@ baskets:
       key: ai_infrastructure
       include_groups:
         - memory_and_storage
-    weighting: {method: group_equal, rebalance: buy_and_hold}
+    weighting: {method: group_equal, rebalance: quarterly}
     benchmark: sh000300
 
   auto_tier1_ai_infra:
     label: "汽车热管理供应链 → AI 数据中心（液冷 / Capex）"
     source: {type: observation_group, key: auto_tier1_ai_infra}
-    weighting: {method: group_equal, rebalance: buy_and_hold}
+    weighting: {method: group_equal, rebalance: quarterly}
     benchmark: sh000300
 
   auto_tier1_embodied:
     label: "汽车供应链 → Physical AI（执行器 / 丝杠 / 轴承 / 控制器）"
     source: {type: observation_group, key: auto_tier1_embodied}
-    weighting: {method: group_equal, rebalance: buy_and_hold}
+    weighting: {method: group_equal, rebalance: quarterly}
     benchmark: sh000300

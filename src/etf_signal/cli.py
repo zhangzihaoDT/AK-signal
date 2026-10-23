@@ -1409,7 +1409,7 @@ def cmd_calculate(args: argparse.Namespace) -> None:
     # v0.7.0 Market Pulse：rps1（今日）/ delta_rps15（动量）/ liquidity（流动性）仅 Observation 展示
     rotation_df = rotation.compute_rotation_metrics(combined, master)
     if not rotation_df.empty:
-        rps_cols = [c for c in ["rps15", "rps20", "rps60", "rps1", "delta_rps15", "liquidity",
+        rps_cols = [c for c in ["rps15", "rps20", "rps60", "rps1", "rps5", "delta_rps15", "liquidity",
                                 "rank15", "rank15_prev5", "rank_change_5d"] if c in rotation_df.columns]
         indicators_df = indicators_df.merge(
             rotation_df[["fund_code"] + rps_cols].drop_duplicates(subset=["fund_code"]),

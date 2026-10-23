@@ -21,3 +21,13 @@
 长桥Python SDK可能返回主机本地naive时间戳，适配器先恢复时间点再转换为市场时区，不将naive时间直接声明为UTC。[SDK实现依据](https://github.com/longbridge/openapi/blob/main/python/src/time.rs)。测试覆盖aware跨日和naive本地反向恢复。
 
 `adapters.py`保留旧缓存研究适配与回归测试用途；未知来源不追认为正式源。Daily不通过该模块回退旧个股源或申万。试运行流程、早期生产准入标签与供应商探索已移到 [历史归档](archive/source_migration_20261016/README.md)，不再是现行运行入口。
+
+### 跨市场休市验收
+
+批次 `trade_date` 仍为统一目标日，各资产以所属市场有界独立规则日历核验。
+目标日休市时，仅允许最近实际交易日行情，记录 `data_status=market_closed`、
+`market_session_status=closed`、`expected_source_trade_date`、真实 `source_trade_date`、
+日历版本/摘要/authority 与原始快照 ID。趋势、位置、相对强度截至该实际交易日，
+相对强度基准亦截至同日；不生成休市日价格或收益，不修改原始快照。
+休市不阻止其他市场、ETF、行业与报告继续运行。最近应有交易日缺失、日历超出覆盖、
+历史不足或 OHLC 异常仍执行原有质量门控，不能借休市豁免。

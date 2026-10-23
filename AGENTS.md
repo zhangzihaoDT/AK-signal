@@ -1,10 +1,10 @@
 # AKsignal — 当前操作手册
 
-更新：2026-10-16 · v0.6.0。业务架构思考与调整记录在 `config/decisions/`；工程历史与迁移过程见 `docs/archive/`，不作为当前每日运行规范。能力总览真源为 `docs/ARCHITECTURE_MAP.md`，模块来源真源为 `config/observation_sources.yaml`。
+更新：2026-10-23 · v0.7.0。业务架构思考与调整记录在 `config/decisions/`；工程历史与迁移过程见 `docs/archive/`，不作为当前每日运行规范。能力总览真源为 `docs/ARCHITECTURE_MAP.md`，模块来源真源为 `config/observation_sources.yaml`。
 
 ## 定位与边界
 
-AKsignal = **Investment Decision System（投资决策系统）**，由四层组成：01 Data Foundation（数据源、历史行情、增量更新、数据质量）→ 02 Market Facts（市场日报、行业趋势、篮子 Compare）→ 03 Strategy（机会识别、信号生成、策略验证、买卖规则）→ 04 Portfolio / Position（仓位管理、持仓监控、风险暴露、调仓决策）。v0.6.0 稳定化 Data Foundation 与 Market Facts；Strategy 和 Portfolio / Position 尚未正式实现。
+AKsignal = **Investment Decision System（投资决策系统）**，由四层组成：01 Data Foundation（数据源、历史行情、增量更新、数据质量）→ 02 Market Facts（市场日报、行业趋势、篮子 Compare）→ 03 Strategy（机会识别、信号生成、策略验证、买卖规则）→ 04 Portfolio / Position（仓位管理、持仓监控、风险暴露、调仓决策）。v0.6.0 稳定化 Data Foundation 与 Market Facts；v0.7.0 完成 Basket Compare v2、日报 RPS 三列与跨市场休市验收；Strategy 和 Portfolio / Position 尚未正式实现。
 
 Data Foundation 对行情完整性、来源及质量负责；Market Facts 只消费标准化行情并描述市场，不感知 Strategy；Strategy 消费版本化事实，不直接维护或重算底层行情；Portfolio / Position 消费实际持仓和策略信号，不自行生成市场信号。信号不等于仓位决策，事实不可被策略或仓位建议覆盖。实际仓位、目标权重、调整量分别记录。
 
@@ -32,9 +32,9 @@ Data Foundation 对行情完整性、来源及质量负责；Market Facts 只消
 
 批次输出从空目录建立，验收后原子切换。失败保留上一发布，模块级降级遵循 PARTIAL 发布规则，`--require-complete`拒绝不完整发布。`*_latest`只在正式确认发布时更新。不得为清理而删除当前发布、恢复检查点、历史基座或被引用快照。
 
-日报按大类资产、行业轮动、ETF、个股观察排序，每部分注明来源；趋势和位置归入各资产板块，审计放数据质量区。个股按8个研究主题与独立高现金流分类，同股允许跨主题，覆盖数不等于去重个股数。主题/ tier/participation是注册身份，不压为股票级单一标签。
+日报按大类资产、行业轮动、ETF、个股观察排序，每部分注明来源；趋势和位置归入各资产板块，审计放数据质量区。个股按8个研究篮子与独立高现金流分类，同股允许跨篮子，覆盖数不等于去重个股数。主题/ tier/participation是注册身份，不压为股票级单一标签。
 
-`basket_compare` 是独立研究报告：9篮子、68只去重个股，长桥ForwardAdjust收盘价/同源沪深300。子组等权、组内等权初始权重，随后买入持有；IPO前现金须有依据，普通历史缺口不能冒充IPO。不含汇率/费用，不宣称真实组合收益、历史可执行策略或已验证总回报。入口及来源见 `docs/RESEARCH_BASKETS.md`。
+`basket_compare` 是独立研究报告：8个研究篮子 + 高现金流参照，共9条净值/68只去重个股，长桥ForwardAdjust收盘价/同源沪深300。组间等权、组内等权 + 季度再平衡为默认结构指数，买入持有为对照；QR/BH共享同一名单、起点、快照、上市前现金规则和HS300日历，唯一差异是再平衡规则。报告同时展示RS、区间/20日参与度、集中度与重叠诊断；不含汇率/费用，不宣称真实组合收益、历史可执行策略或已验证总回报。入口及来源见 `docs/RESEARCH_BASKETS.md`。
 
 ## 工程维护
 

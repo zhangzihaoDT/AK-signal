@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.7.0 — 2026-10-23
+
+- Basket Compare v2：8 个研究篮子 + 高现金流参照；默认改为组间/组内等权 + 季度再平衡结构指数，买入持有保留为对照。
+- 季度再平衡只在 HS300 日历确认的自然季度最后交易日收盘执行；数据末日不是季度末时不重置。QR/BH 共用名单、起点、价格快照、上市前现金规则和交易日历，并记录 `comparison_control` 哈希。
+- 新增 RS、RS20Δ、区间/20日参与度、集中度与跨篮子重叠诊断；参与度按股票数量等权，集中度按股票目标权重剔除现金袖套后归一化。
+- 报告改为 8 条主线 + 高现金流参照，支持季度再平衡/买入持有切换、主线强弱表、四象限定位、结构与重叠区；新增 `basket_metrics.csv`、`basket_participation.csv`、`basket_overlap.csv`、`basket_shared_stocks.csv`。
+- 修正主线定位散点图左上/右下象限文字与颜色标注：左上=弱但广，右下=强但窄；数据口径不变。
+- 日报大类资产新增 RPS15/RPS5/当日 RPS 三列；个股分组文案统一为“8 个研究篮子 + 高现金流参照”，政策排除标的不再计入配置成分分母。
+- 验证：全量测试 710 项通过；20261020 长桥快照完成 QR/BH 对账与 9 次季度再平衡校验。
+
 ## v0.6.0 — 2026-10-16
 
 AKsignal 定位更新为 **Investment Decision System**，正式采用 Data Foundation → Market Facts → Strategy → Portfolio / Position 四层架构。本版本完成重点为 Data Foundation 与 Market Facts 稳定化；Strategy 和 Portfolio / Position 留待后续阶段重新设计。

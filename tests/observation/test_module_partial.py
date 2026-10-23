@@ -96,7 +96,7 @@ def test_build_keeps_other_facts_and_emits_empty_industry_partition(tmp_path, mo
 
 
 def test_unavailable_industry_panel_is_not_rendered_as_an_empty_signal():
-    assets = pd.DataFrame(columns=["direction", "median_rps15", "change_5d", "active_ratio", "direction_state"])
+    assets = pd.DataFrame(columns=["direction", "median_rps15", "median_rps5", "median_rps1", "change_5d", "active_ratio", "direction_state"])
     industries = pd.DataFrame(columns=["industry_name", "RPS15", "RPS5", "trend_stage"])
     etfs = pd.DataFrame(columns=["trend_active", "rps15", "liquidity", "fund_code"])
     stocks = pd.DataFrame(columns=["trend_score", "return_20d", "market", "symbol", "name"])

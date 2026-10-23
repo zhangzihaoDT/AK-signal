@@ -279,11 +279,8 @@ def data_quality_warnings(trade_date: str) -> list[dict[str, Any]]:
     if path.exists():
         df = pd.read_parquet(path)
         if not df.empty and {"source_trade_date", "data_status", "market", "symbol", "name"}.issubset(df):
-            from src.market_facts.policy import excluded_stock
-            exclusions = df.apply(lambda r: r['data_status']=='excluded' and excluded_stock(r['market'],r['symbol'])
-                                   and pd.Timestamp(r.get('trade_date'))==pd.Timestamp(trade_date),axis=1)
-            bad = df[((pd.to_datetime(df["source_trade_date"]) != pd.Timestamp(trade_date))
-                     | (df["data_status"] != "current")) & ~exclusions].drop_duplicates(["market", "symbol"])
+            from src.market_facts.policy import aligned_stock_rows
+            bad = df[~aligned_stock_rows(df,trade_date)].drop_duplicates(["market", "symbol"])
             for _, r in bad.iterrows():
                 out.append({"category": "stock_data", "message":
                             f"股票未更新到 {trade_date}：{r['market']} {r['symbol']} {r['name']} "
