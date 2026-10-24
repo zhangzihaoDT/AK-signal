@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import json
+import hashlib
 from datetime import datetime
 from pathlib import Path
 import numpy as np
@@ -268,7 +269,13 @@ def build(date: str) -> None:
         write_frame(frame, stem, date)
     folder = outputs_dir()/'observation'
     from src.observation.report import render_html, quality_lines, REPORT_LAYOUT_VERSION, PRODUCT_VERSION
+    from src.market_facts.group_activity import build_from_daily
+    group_activity = build_from_daily(date, stocks, stock_metrics_dir())
+    activity_path = folder/f'stock_group_activity_{date}.json'
+    activity_path.write_text(json.dumps(group_activity, ensure_ascii=False, indent=2, allow_nan=False))
     quality = quality_lines(date, trend, industries, stocks)
+    available_groups = sum(r['status']!='UNAVAILABLE' for r in group_activity['groups'])
+    quality.append(f'分组趋势启动观察：{available_groups}/{len(group_activity["groups"])} 组可判定；复用本批长桥快照，缺失、休市或历史不足不判为无启动候选。规则 {group_activity["rule_version"]}；仅为阅读提示。')
     if tdx_pending:
         quality.append('行业数据契约：通达信官方 .day · TDX Research Industry 20261016 · 128 个二级行业；未复权指数；AKsignal 独立收益率及 RPS；不使用申万替代。')
         if industry_available:
@@ -281,7 +288,7 @@ def build(date: str) -> None:
     html = render_html(date, assets, industries, trend, stocks,
                        pd.read_parquet(folder/f'etf_positions_{date}.parquet'),
                        pd.read_parquet(folder/f'stock_positions_{date}.parquet'), quality,
-                       module_status={'industry_rotation': industry_module})
+                       module_status={'industry_rotation': industry_module}, group_activity=group_activity)
     (folder/f'observation_{date}.html').write_text(html)
     modules = {
         'market_direction': {'status': 'available', 'rows': len(assets)},
@@ -301,6 +308,14 @@ def build(date: str) -> None:
                'data_sources': source_policy(),
                'regions':['market_direction','active_trends','bottom_position'],
                'data_quality':quality, 'report_layout_version':REPORT_LAYOUT_VERSION, 'product_version':PRODUCT_VERSION}
+    summary['group_activity'] = {'file':activity_path.name,
+                               'sha256':hashlib.sha256(activity_path.read_bytes()).hexdigest(),
+                               'available_count':available_groups,
+                               'total_count':len(group_activity['groups']),
+                               'rule_version':group_activity['rule_version'],
+                               'input_hash':group_activity['input_hash'],
+                               'states':[{k:r.get(k) for k in ('key','status','first_trigger','path','event_origin','transition','reasons','metrics','leader_clues','evidence_channel','alert_kind','event_active','episode_status','trigger_channel')}
+                                         for r in group_activity['groups']]}
     (folder/f'observation_{date}.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
     from src.observation.report import PRINCIPLE
     markdown = f'# AKsignal 观察日报 · {date}\n\n{PRINCIPLE}\n\n## 市场方向\n\n大类资产与行业轮动。\n\n## 趋势活跃\n\nETF 与固定池个股。\n\n## 底部位置\n\nETF 与固定池个股的底部状态、变化和窗口可靠性。\n\n## 数据质量\n\n'+ '\n'.join('- '+line for line in quality) + f'\n\n完整观察事实见 observation_{date}.html 及同日 parquet/CSV。\n'
@@ -371,6 +386,24 @@ def validate(date: str) -> dict:
             errors.append('个股趋势缺少日期证据')
         elif not aligned_stock_rows(stocks,date).all():
             errors.append('个股趋势未对齐')
+    if summary.get('report_layout_version') not in (None, 'daily_observation_modules_v9'):
+        errors.append('日报布局版本过期，须重建趋势启动事实')
+    if summary.get('report_layout_version') == 'daily_observation_modules_v9':
+        from src.market_facts.group_activity import validate_document
+        activity_path = folder/f'stock_group_activity_{date}.json'
+        try:
+            content = activity_path.read_bytes()
+            receipt = summary.get('group_activity', {})
+            if receipt.get('file') != activity_path.name or receipt.get('sha256') != hashlib.sha256(content).hexdigest():
+                raise ValueError('分组趋势启动观察产物摘要不一致')
+            activity = json.loads(content)
+            validate_document(activity, date, pd.read_parquet(stocks_path), stock_metrics_dir())
+            from src.observation.report import validate_activity_rendering
+            validate_activity_rendering(date, activity, receipt, (folder/f'observation_{date}.html').read_text())
+            if any(r['status'] == 'UNAVAILABLE' for r in activity['groups']):
+                warnings.append('分组趋势启动观察部分不可用；已区分休市、历史不足与无启动候选，不影响其他事实模块')
+        except (OSError, ValueError, KeyError) as exc:
+            errors.append(f'分组趋势启动观察验收失败：{exc}')
     for stem in ('stock_positions','etf_positions'):
         path=folder/f'{stem}_{date}.parquet'
         if path.exists():

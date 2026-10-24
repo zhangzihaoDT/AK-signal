@@ -134,7 +134,10 @@ def step_artifacts(command: list[str], trade_date: str) -> list[Path]:
     if kind == ("observation", "build"):
         folder = outputs_dir() / "observation"
         return [folder / f"{stem}_{trade_date}.parquet" for stem in
-                ("etf_trends", "asset_directions", "industry_rotation", "industry_directions", "stock_positions", "etf_positions")]
+                ("etf_trends", "asset_directions", "industry_rotation", "industry_directions", "stock_positions", "etf_positions")] + [
+                    folder / f'stock_group_activity_{trade_date}.json',
+                    folder / f'observation_{trade_date}.json',
+                    folder / f'observation_{trade_date}.html']
     if kind == ("observation", "check"):
         return [outputs_dir() / "run_day" / f"final_check_{trade_date}.json"]
     return []

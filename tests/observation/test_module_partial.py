@@ -93,6 +93,17 @@ def test_build_keeps_other_facts_and_emits_empty_industry_partition(tmp_path, mo
     assert summary["industry_count"] == 0
     assert summary["missing"] == ["industry_rotation"]
     assert summary["modules"]["industry_rotation"]["status"] == "unavailable"
+    import hashlib
+    activity_path = folder / 'stock_group_activity_20261015.json'
+    assert summary['group_activity']['sha256'] == hashlib.sha256(activity_path.read_bytes()).hexdigest()
+    activity = json.loads(activity_path.read_text())
+    assert activity['input_error'] == 'MISSING_BATCH_AUDIT'
+    assert len(activity['groups']) == 9
+    html = (folder / 'observation_20261015.html').read_text()
+    assert '无法判定：全部分组数据不足' in html
+    assert '今日无明显分组异动' not in html
+    for group in activity['groups']:
+        assert f'id="stock-group-{group["key"]}"' in html
 
 
 def test_unavailable_industry_panel_is_not_rendered_as_an_empty_signal():

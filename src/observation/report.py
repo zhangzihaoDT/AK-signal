@@ -2,11 +2,20 @@
 from html import escape
 import json
 from pathlib import Path
+from urllib.parse import quote
 import pandas as pd
 
 PRODUCT_VERSION = (Path(__file__).resolve().parents[2] / 'VERSION').read_text().strip()
-REPORT_LAYOUT_VERSION = 'daily_observation_modules_v6'
+REPORT_LAYOUT_VERSION = 'daily_observation_modules_v9'
 PREVIEW_LIMIT = 20
+
+# Embedded geometry keeps the AK mark portable and independent of installed fonts.
+FAVICON_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+               '<title>AK</title><rect width="64" height="64" rx="12" fill="#6BB6E8"/>'
+               '<path d="M8 46 20 16 32 46 M12 36H28 M39 16V46 M55 16 39 31 55 46" '
+               'fill="none" stroke="#263746" stroke-width="4.5" stroke-linecap="round" '
+               'stroke-linejoin="round"/></svg>')
+FAVICON_LINK = '<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,' + quote(FAVICON_SVG, safe='') + '">'
 
 PRINCIPLE = 'AKsignal 负责发现和量化市场事实，你负责理解这些事实并作出投资决策。'
 LABELS = {'rps1':'当日 RPS','RPS1':'当日 RPS','daily_return':'当日涨幅','direction':'资产方向','median_rps15':'RPS15 中位','median_rps5':'RPS5 中位','median_rps1':'当日 RPS 中位','change_5d':'排名变化中位数','active_ratio':'趋势活跃比例',
@@ -31,6 +40,7 @@ section{margin-bottom:24px}.section-note{color:var(--muted);margin:0 0 10px;font
 .table-scroll{overflow-x:auto;overflow-y:visible;max-height:none}table{width:100%;border-collapse:separate;border-spacing:0;white-space:normal;font-size:12px;line-height:1.4}th{text-align:left;color:var(--muted);font-size:12px;font-weight:600;background:#f1f6f9;white-space:normal}th,td{padding:6px 7px;border-bottom:1px solid var(--line);vertical-align:middle}tr:hover td{background:#f7fbfe}.numeric{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.asset-name{white-space:normal;min-width:100px;max-width:180px;line-height:1.4;font-weight:600}.asset-code{display:block;font:11px/1.6 ui-monospace,monospace;letter-spacing:.3px;color:var(--muted);font-weight:400;margin-top:1px}
 .badge{display:inline-flex;align-items:center;gap:5px;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;background:#edf1f4;color:var(--muted)}.badge:before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}.badge.cool{background:var(--cool);color:#24608a}.badge.warm{background:var(--warm);color:#a84b14}.badge.quiet{background:#edf1f4;color:#687581}.score{display:flex;justify-content:flex-end;align-items:center;gap:5px;font-variant-numeric:tabular-nums}.score-track{width:28px;height:3px;background:#e5edf2;border-radius:3px;overflow:hidden}.score-fill{display:block;height:100%;background:var(--blue)}.score.low .score-fill{background:var(--accent)}.positive{color:#28608a}.negative{color:#a84b14}.missing{color:#8996a0}.empty{padding:28px;text-align:center;color:var(--muted)}
 details{margin-top:9px;border-top:1px solid var(--line);padding-top:8px}summary{cursor:pointer;color:#28608a;font-size:13px;padding:4px 0}summary:focus-visible{outline:2px solid var(--blue)}details .table-scroll{margin-top:8px}.quality{border-top:2px solid var(--line);padding-top:16px}.quality ul{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:1fr 1fr;gap:12px}.quality li{background:#f7f9fa;padding:10px 12px;border-left:3px solid var(--line);font-size:13px}.quality li.attention{border-left-color:var(--accent);background:#fff8f2}.quality-label{display:block;font-weight:600;margin-bottom:5px}.quality-detail{color:var(--muted)}
+.panel h3{flex-wrap:wrap}.panel[id]{scroll-margin-top:78px}
 @media(max-width:900px){.grid{grid-template-columns:1fr}.quality ul{grid-template-columns:1fr}}@media(max-width:600px){main{padding:18px 12px}header{padding-top:18px}h1{font-size:25px}h2{font-size:21px}.panel{padding:14px}nav{gap:2px;padding:6px}nav a{padding:7px 10px;font-size:12px}th,td{padding:6px 6px}.score-track{width:24px}.asset-name{min-width:100px}}
 '''
 
@@ -53,6 +63,82 @@ document.addEventListener('input', function(event) {
 });
 </script>
 '''
+
+def activity_detail(row):
+    """Format recorded facts only; never infer a trend in presentation."""
+    clues = row.get('leader_clues', [])
+    leader_text = (' 个股领先线索（非组级启动）：' + '、'.join(
+        f"{r['market']}:{r['symbol']} {r['return_1d']:+.1%}（{'新线索' if r['first_clue'] else '延续'}）" for r in clues) + '。') if clues else ''
+    if row.get('status') == 'UNAVAILABLE':
+        reason = row.get('reason', '')
+        label = {'MARKET_CLOSED': '涉及市场休市', 'INSUFFICIENT_HISTORY': '历史不足',
+                 'HISTORY_OR_CLOSED_ENDPOINT': '历史不足或参与度窗口端点休市',
+                 'INSUFFICIENT_NATIVE_HISTORY':'原生收益历史不足',
+                 'INSUFFICIENT_STRUCTURAL_HISTORY':'结构历史预热不足',
+                 'INCOMPLETE_STRUCTURAL_METRICS':'结构指标不完整', 'NATIVE_HISTORY_GAP':'原生收益缺口'}
+        return '无法判定：' + label.get(reason, '数据不齐或行情缺口') + '；未作今日判定。' + leader_text
+    m = row['metrics']
+    path = {'SUDDEN': '突发式', 'GRADUAL': '渐进式', 'TRACKING': '已有趋势跟踪'}.get(row.get('path'), '无启动路径')
+    origin = {'EARLY_CANDIDATE':'早期候选事件', 'EXISTING_TREND':'已有趋势观察'}.get(row.get('event_origin'),'无事件来源')
+    if row['status']=='NO_SETUP' and row.get('event_origin'):
+        origin = '上次已结束事件：' + origin
+    text = (f"{row['status']} · {origin} · {path} · 组级首次触发：{'是' if row['first_trigger'] else '否'}；"
+            f"QR结构指数 {m['nav']:.2f} / MA5 {m['ma5']:.2f} / MA20 {m['ma20']:.2f}，5日 {m['return_5d']:+.1%}；"
+            f"RS20Δ {m['rs_20d_pct']:+.2f}%（较5日前 {m['rs_20d_change_5d_pp']:+.2f}pp）；"
+            f"5/10/20日参与度 {m['participation_5d']:.0%} / {m['participation_10d']:.0%} / {m['participation_20d']:.0%}。")
+    if row.get('previous_observation_date'):
+        c = row['changes']
+        text += (f" 较上一有效观察日 {row['previous_observation_date']}：{row['previous_status']} → {row['status']}；"
+                 f"RS20Δ {c['rs_20d_pct']:+.2f}pp、10日参与度 {c['participation_10d']:+.0%}。")
+    if row.get('reasons'):
+        text += ' ' + '；'.join(row['reasons']) + '。'
+    text += ' 数据完整；候选参数未验证，当前名单重建，复权算法未认证，不含汇率/费用。'
+    return text + leader_text
+
+
+def activity_summary(date, activity):
+    from src.market_facts.group_activity import RULE_VERSION
+    if (not activity or activity.get('trade_date') != pd.Timestamp(date).strftime('%Y%m%d')
+            or activity.get('rule_version') != RULE_VERSION):
+        return '<article class="panel"><h3>分组趋势启动观察</h3><p class="section-note">无法判定：数据缺失或日期/规则版本不一致；未作今日判定。</p></article>', {}
+    rows = activity.get('groups', [])
+    annotations = {r['key']: r for r in rows}
+    unknown = [r for r in rows if r['status'] == 'UNAVAILABLE']
+    def priority(r):
+        if r.get('first_trigger'): return 0
+        if r.get('previous_status') == 'WATCH' and r['status'] == 'EMERGING': return 1
+        if r.get('transition') in ('UPGRADE', 'DOWNGRADE', 'INVALIDATED', 'EXPIRED'): return 2
+        return 3
+    hits = sorted([r for r in rows if r['status'] != 'UNAVAILABLE' and
+                   (r['status'] != 'NO_SETUP' or priority(r) == 2 or r.get('leader_clues'))], key=priority)
+    text = ''
+    if not any(r.get('first_trigger') for r in hits):
+        text = ('已验收分组今日未发现新的趋势启动候选；部分分组无法判定。' if unknown and len(unknown) < len(rows)
+                else '无法判定：全部分组数据不足，未作今日判定。' if unknown
+                else '今日未发现新的趋势启动候选。')
+    else:
+        text = '今日首次出现趋势启动迹象的研究分组：'
+    for r in hits + unknown:
+        text += ('<p><a href="#stock-group-' + escape(r['key'], quote=True) + '">' + escape(r['label'])
+                 + '</a>：' + escape(activity_detail(r)) + '</p>')
+    rules = ('WATCH 为早期线索；价格结构及参与度/相对强度连续支持后升级 EMERGING，持续十次才跟踪为 CONFIRMED。'
+             '按历史价格确定性重建；以回落后的新脉冲或低点恢复识别二次启动，不设置统一冷却期。单股线索独立展示，不能自动升级组级趋势。季度再平衡结构指数、RS20Δ及参与度复用 Basket Compare 定义。'
+             '只使用本批长桥快照；休市不作零收益观察，未知与没有候选严格分开。参数未验证，不构成交易建议。')
+    return ('<article class="panel"><h3>分组趋势启动观察</h3><div>'+text+'</div><details><summary>趋势判定口径</summary>'
+            '<p class="section-note">'+escape(rules)+'</p></details></article>'), annotations
+
+
+def validate_activity_rendering(date, activity, receipt, rendered):
+    """Check the receipt and visible section against the accepted facts."""
+    expected_states = [{k:r.get(k) for k in ('key','status','first_trigger','path','event_origin','transition','reasons','metrics','leader_clues','evidence_channel','alert_kind','event_active','episode_status','trigger_channel')}
+                       for r in activity['groups']]
+    if (receipt.get('states') != expected_states or receipt.get('rule_version') != activity['rule_version']
+            or receipt.get('input_hash') != activity['input_hash']):
+        raise ValueError('日报JSON趋势状态或依据不一致')
+    if activity_summary(date, activity)[0] not in rendered or any(
+        'id="stock-group-'+r['key']+'"' not in rendered or escape(activity_detail(r)) not in rendered
+        for r in activity['groups']):
+        raise ValueError('日报HTML趋势状态、依据或链接不一致')
 
 
 def _cell(value,column,row):
@@ -129,9 +215,13 @@ def positions(frame,stock=False):
     return ordered(d,identity=('_priority','price_pos_360',*identity))
 
 
-def render_html(date,assets,industries,etfs,stocks,etf_positions,stock_positions,quality,module_status=None):
-    def panel(title,body,rule=''):
-        return '<article class="panel"><h3>'+escape(title)+'</h3>'+('<p class="section-note">'+escape(rule)+'</p>' if rule else '')+body+'</article>'
+def render_html(date,assets,industries,etfs,stocks,etf_positions,stock_positions,quality,module_status=None,group_activity=None):
+    def panel(title,body,rule='',anchor='',activity=None):
+        badge = ''
+        if activity:
+            badge = ' <span class="badge warm">'+escape(activity['status'])+'</span>'
+        detail = activity_detail(activity) if activity else ''
+        return '<article class="panel"'+(' id="'+escape(anchor, quote=True)+'"' if anchor else '')+'><h3>'+escape(title)+badge+'</h3>'+('<p class="section-note">'+escape(detail)+'</p>' if detail else '')+('<p class="section-note">'+escape(rule)+'</p>' if rule else '')+body+'</article>'
     direction_cols=['direction','median_rps15','median_rps5','median_rps1','change_5d','active_ratio','direction_state']
     industry_cols=['industry_name','RPS15','RPS5','RPS1','daily_return','trend_stage']
     stock_cols=['market','symbol','name','trend_score','return_5d','return_20d']
@@ -164,7 +254,7 @@ def render_html(date,assets,industries,etfs,stocks,etf_positions,stock_positions
                    else 'RPS15 降序 → RPS5 降序 → 行业代码；当日指报告交易日，RPS1 为单日收益横截面排名')
     if industry_state.get('provider')=='tdx' and industry_unavailable:
         industry_rule='UNAVAILABLE：通达信目标日更新或质量门控未通过；本批不展示旧行情，不使用申万替代。'
-    from src.research.baskets.config import load_baskets, expand_constituents
+    from src.market_facts.group_activity import definitions
     from src.market_facts.policy import source_policy
     policy_excluded={(str(r['market']),str(r['symbol']).zfill(5 if str(r['market'])=='HK' else 6))
                      for r in source_policy().get('stocks',{}).get('excluded',[])}
@@ -184,22 +274,20 @@ def render_html(date,assets,industries,etfs,stocks,etf_positions,stock_positions
     position_fields=[c for c in ('_identity','bottom_state','price_pos_120','price_pos_360','bottom_change','reliability') if c in position_view]
     stock_view=stock_all.merge(position_view[position_fields],on='_identity',how='left',validate='one_to_one')
     stock_columns=['name','market_session_status','source_trade_date','trend_score','return_5d','return_20d','bottom_state','price_pos_120','price_pos_360','reliability']
-    stock_panels=[]
+    activity_html, activity_rows = activity_summary(date, group_activity)
+    stock_panels=[activity_html]
     covered=set(policy_excluded)
-    baskets=load_baskets()
-    for key,basket in baskets.items():
-        members=expand_constituents({**basket,'key':key})
+    groups=definitions()
+    baskets=[g for g in groups if g['role']=='mainline']
+    for basket in groups:
+        key=basket['key']
+        members=basket['members']
         identities={(str(r['market']),str(r['symbol']).zfill(5 if r['market']=='HK' else 6)) for r in members}
         subset=stock_view[stock_view['_identity'].isin(identities-policy_excluded)]
         covered.update(subset['_identity'])
         stock_panels.append(panel(basket['label'],table(subset,stock_columns),
-            coverage_note(subset,identities,'按趋势分降序，同股可跨篮子展示。未覆盖成分不补造行情。')))
-    from src.selection.universe import load_universe_items
-    from src.common.paths import selection_universe_path
-    cashflow={(i.asset.market,i.asset.symbol.zfill(5 if i.asset.market=='HK' else 6)) for i in load_universe_items(selection_universe_path()) if i.theme=='high_cashflow' and i.asset.category not in ('theme_etf','sub_industry_etf','watch_etf')}
-    cashflow_view=stock_view[stock_view['_identity'].isin(cashflow-policy_excluded)]
-    stock_panels.append(panel('高现金流资产',table(cashflow_view,stock_columns),coverage_note(cashflow_view,cashflow,'水电核电、运营商、公路、港口及周期电力观察。')))
-    covered.update(cashflow_view['_identity'])
+            coverage_note(subset,identities,'按趋势分降序，同股可跨篮子展示。未覆盖成分不补造行情。'),
+            anchor='stock-group-'+key,activity=activity_rows.get(key)))
     remainder=stock_view[~stock_view['_identity'].isin(covered)]
     if not remainder.empty:
         stock_panels.append(panel('其他固定池观察',table(remainder,stock_columns),'保留未纳入上述分类的固定池个股。'))
@@ -225,7 +313,7 @@ def render_html(date,assets,industries,etfs,stocks,etf_positions,stock_positions
         attention=any(word in line for word in ('错配','缺失','未统一','未更新'))
         body+='<li'+(' class="attention"' if attention else '')+'><span class="quality-label">'+escape(label)+'</span><span class="quality-detail">'+escape(detail)+'</span></li>' 
     body+='</ul><details><summary>观察口径</summary><p>ETF 活跃：价格高于 MA20 / MA60，且两条均线斜率为正；个股活跃：趋势分 ≥70。两种标尺不同。ETF 与行业 RPS 的横截面也不同，不直接比较。</p><p>位置数值表示窗口内收盘价范围的位置；低位不保证未来不再下跌。进入／离开只在相邻观测日位置均有效时记录；缺口保持未知。</p></details></div></section></main>'
-    return '<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AKsignal 观察日报</title><style>'+CSS+'</style></head><body data-report-layout="'+REPORT_LAYOUT_VERSION+'">'+body+SCRIPT+'</body></html>'
+    return '<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AKsignal 观察日报</title>'+FAVICON_LINK+'<style>'+CSS+'</style></head><body data-report-layout="'+REPORT_LAYOUT_VERSION+'">'+body+SCRIPT+'</body></html>'
 
 
 def quality_lines(date,etfs,industries,stocks):
