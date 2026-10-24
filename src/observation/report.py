@@ -11,9 +11,9 @@ PREVIEW_LIMIT = 20
 
 # Embedded geometry keeps the AK mark portable and independent of installed fonts.
 FAVICON_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-               '<title>AK</title><rect width="64" height="64" rx="12" fill="#6BB6E8"/>'
+               '<title>AK</title><rect width="64" height="64" rx="12" fill="#C0392B"/>'
                '<path d="M8 46 20 16 32 46 M12 36H28 M39 16V46 M55 16 39 31 55 46" '
-               'fill="none" stroke="#263746" stroke-width="4.5" stroke-linecap="round" '
+               'fill="none" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" '
                'stroke-linejoin="round"/></svg>')
 FAVICON_LINK = '<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,' + quote(FAVICON_SVG, safe='') + '">'
 

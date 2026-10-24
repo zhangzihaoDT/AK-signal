@@ -2,7 +2,7 @@
 
 # AKsignal Canonical Architecture Map
 
-> 当前能力的 canonical 状态图。基线版本：v0.7.0。更新：2026-10-23。
+> 当前能力的 canonical 状态图。基线版本：v0.7.1。更新：2026-10-24。
 
 ## 完整定位与项目目标
 
@@ -45,20 +45,21 @@ AKsignal
 
 ## 当前实现阶段
 
-v0.6.0 完成 **Data Foundation 与 Market Facts 稳定化**；v0.7.0 完成 Basket Compare v2、日报 RPS 三列与跨市场休市验收。当前每日主链观察全市场 ETF、128 个 TDX 研究行业及固定池个股，并发布日报；独立 Basket Compare 提供主线结构、相对强弱、参与度与重叠诊断。Strategy 与 Portfolio / Position 尚未作为正式能力实现。
+v0.6.0 完成 **Data Foundation 与 Market Facts 稳定化**；v0.7.0 完成 Basket Compare v2、日报 RPS 三列与跨市场休市验收；v0.7.1 将分组趋势启动观察接入日报 04。当前每日主链观察全市场 ETF、128 个 TDX 研究行业及固定池个股，并发布日报；独立 Basket Compare 提供主线结构、相对强弱、参与度与重叠诊断。Strategy 与 Portfolio / Position 尚未作为正式能力实现。
 
 **当前正式实现限于 Data Foundation 与 Market Facts。** 后续 Strategy 将重新定义策略、信号与独立回测机制；Portfolio / Position 将接入实际持仓、风险约束与调仓决策。旧 Selection、Timing、研究或回测实现不代表新层能力已完成，也不作为新设计基础。
 
 主题和 tier 当前仅保留观察分组与注册身份；同一股票多个身份不压成单标签。
 
-## Market Facts 的三类内部能力
+## Market Facts 的四类内部能力
 
 - **Data Foundation｜数据基础**：①固定池股票 · ②全市场 ETF · ③全行业指数。
 - **Trend｜趋势观察**：④行业轮动 · ⑤大类资产 · ⑥ETF 趋势 · ⑦个股趋势。
 - **Price Position｜价格位置观察**：⑧ETF 与个股历史价格位置；这属于 Market Facts，不是 Portfolio / Position 仓位管理。
+- **Group Activity｜分组启动观察**：⑨9 个研究分组的趋势启动状态、事件来源与成员线索；只提示阅读顺序，不输出交易动作。
 - **Daily Observation Report**：统一日期 · 统一数据质量 · 统一发布，消费上述事实，不新增投资决策。
 
-## 保留的八项能力
+## 保留的九项能力
 
 | # | 能力 | 模块 / 输入 | 产物 |
 |---|---|---|---|
@@ -70,6 +71,7 @@ v0.6.0 完成 **Data Foundation 与 Market Facts 稳定化**；v0.7.0 完成 Bas
 | 6 | ETF 趋势识别与活跃池 | RPS 原值、价格 / MA20 / MA60 / 斜率 | observation/etf_trends |
 | 7 | 观察池个股趋势评估 | 长桥快照 → 现有趋势纯计算，不输出action | stock_metrics/stock_metrics_{date}.parquet |
 | 8 | ETF 与观察池个股底部位置判断 | ETF 复用 price_map；股票独立 stock_position_v1 | observation/etf_positions、stock_positions |
+| 9 | 分组趋势启动观察 | market_facts.group_activity；Compare 分组与子组权重 + 同批长桥股票/沪深300 | observation/stock_group_activity_{date}.json；日报 04 |
 
 上述 observation 文件均按 trade_date 输出 parquet + CSV。位置只描述历史收盘价区间位置，不断言未来不会继续下跌。股票口径与可靠性限制见 [POSITION_OBSERVATION.md](POSITION_OBSERVATION.md)。
 

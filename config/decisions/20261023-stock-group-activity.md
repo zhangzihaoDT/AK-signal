@@ -54,10 +54,9 @@
 
 用户确认提交、推送并接入 Hub。Hub 只读正式发布，因此以 `make run-day-offline RUN_DATE=20261023 RUN_FLAGS=--restart` 从同一缓存快照重建 20261023 批次并原子切换，不联网、不改规则、不改阈值。
 
-- 正式发布 run_id `d523371ddd4f45a39162b2b1473ccc03`，trade_date 20261023，status CONFIRMED，data_complete=false（2 只 ETF 未更新，沿用既有警告）
+- 正式发布 run_id `d523371ddd4f45a39162b2b1473ccc03`（v9 接入），2026-10-24 升 v0.7.1 后以 `fdb57bd467ca4cb6bb9ba871dd11bf67` 覆盖同一批次；trade_date 20261023，status CONFIRMED，data_complete=false（2 只 ETF 未更新，沿用既有警告）
 - 布局 `daily_observation_modules_v9`，规则 `stock_group_trend_start_v2`，input_hash `fb47cdf4…`
-- 发布的分组事实与验收产物 `v2_facts.json` 逐字节一致（SHA256 `7748b364…`）
-- 6 个事实模块与 4 条警告与上一批次完全相同；变化仅为日报 HTML/JSON 与分组事实
-- Hub 附件：`observation_20261023.html` SHA256 `42d275a1…`，`observation_20261023.md` SHA256 `d8b04cf5…`
+- 发布的分组事实与验收产物 `v2_facts.json` 逐字节一致（SHA256 `7748b364…`）；两次发布间事实模块、分组事实、警告与 Markdown 均未变
+- Hub 附件（v0.7.1）：`observation_20261023.html` SHA256 `520ca8f9…`（仅 favicon 与版本字段变化），`observation_20261023.md` SHA256 `d8b04cf5…`
 
 上一节“不覆盖正式发布”描述的是验收当时的状态，已由本次显式发布取代。规则仍为 `UNVALIDATED`：发布表示进入日常使用，不表示预测能力已验证。
