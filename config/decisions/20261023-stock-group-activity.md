@@ -49,3 +49,15 @@
 5. 聚合数不得单独呈现。AI Capex与半导体存储合计占主事件的38%，须同时给逐组结果，避免单组权重决定结论。
 
 **为什么这样权衡**：V2的真实改进是同一脉冲内触发更早——44个共同捕获事件上已实现涨幅由45.9%降至39.8%，直接影响“更早读到、更多时间判断”。代价是提示数量翻倍；在注意力口径下可承受，在资金口径下不可承受。两者不是同一产品，不能共用一套验收数字。本次仅补记口径与约束，不修改规则、不改变 `UNVALIDATED` 状态、不覆盖正式发布。
+
+## 2026-10-24 发布：V2 进入正式日报与 Hub
+
+用户确认提交、推送并接入 Hub。Hub 只读正式发布，因此以 `make run-day-offline RUN_DATE=20261023 RUN_FLAGS=--restart` 从同一缓存快照重建 20261023 批次并原子切换，不联网、不改规则、不改阈值。
+
+- 正式发布 run_id `d523371ddd4f45a39162b2b1473ccc03`，trade_date 20261023，status CONFIRMED，data_complete=false（2 只 ETF 未更新，沿用既有警告）
+- 布局 `daily_observation_modules_v9`，规则 `stock_group_trend_start_v2`，input_hash `fb47cdf4…`
+- 发布的分组事实与验收产物 `v2_facts.json` 逐字节一致（SHA256 `7748b364…`）
+- 6 个事实模块与 4 条警告与上一批次完全相同；变化仅为日报 HTML/JSON 与分组事实
+- Hub 附件：`observation_20261023.html` SHA256 `42d275a1…`，`observation_20261023.md` SHA256 `d8b04cf5…`
+
+上一节“不覆盖正式发布”描述的是验收当时的状态，已由本次显式发布取代。规则仍为 `UNVALIDATED`：发布表示进入日常使用，不表示预测能力已验证。
