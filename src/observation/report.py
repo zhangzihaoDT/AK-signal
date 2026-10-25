@@ -4,9 +4,10 @@ import json
 from pathlib import Path
 from urllib.parse import quote
 import pandas as pd
+from src.observation.group_attention import attention_view
 
 PRODUCT_VERSION = (Path(__file__).resolve().parents[2] / 'VERSION').read_text().strip()
-REPORT_LAYOUT_VERSION = 'daily_observation_modules_v9'
+REPORT_LAYOUT_VERSION = 'daily_observation_modules_v10'
 PREVIEW_LIMIT = 20
 
 # Embedded geometry keeps the AK mark portable and independent of installed fonts.
@@ -41,6 +42,11 @@ section{margin-bottom:24px}.section-note{color:var(--muted);margin:0 0 10px;font
 .badge{display:inline-flex;align-items:center;gap:5px;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;background:#edf1f4;color:var(--muted)}.badge:before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}.badge.cool{background:var(--cool);color:#24608a}.badge.warm{background:var(--warm);color:#a84b14}.badge.quiet{background:#edf1f4;color:#687581}.score{display:flex;justify-content:flex-end;align-items:center;gap:5px;font-variant-numeric:tabular-nums}.score-track{width:28px;height:3px;background:#e5edf2;border-radius:3px;overflow:hidden}.score-fill{display:block;height:100%;background:var(--blue)}.score.low .score-fill{background:var(--accent)}.positive{color:#28608a}.negative{color:#a84b14}.missing{color:#8996a0}.empty{padding:28px;text-align:center;color:var(--muted)}
 details{margin-top:9px;border-top:1px solid var(--line);padding-top:8px}summary{cursor:pointer;color:#28608a;font-size:13px;padding:4px 0}summary:focus-visible{outline:2px solid var(--blue)}details .table-scroll{margin-top:8px}.quality{border-top:2px solid var(--line);padding-top:16px}.quality ul{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:1fr 1fr;gap:12px}.quality li{background:#f7f9fa;padding:10px 12px;border-left:3px solid var(--line);font-size:13px}.quality li.attention{border-left-color:var(--accent);background:#fff8f2}.quality-label{display:block;font-weight:600;margin-bottom:5px}.quality-detail{color:var(--muted)}
 .panel h3{flex-wrap:wrap}.panel[id]{scroll-margin-top:78px}
+.attention-headline{font-size:18px;line-height:1.8;margin:8px 0 12px;max-width:960px}.attention-summary{border-top:3px solid var(--blue)}.attention-summary h3:before{background:var(--accent)}
+.attention-brief{margin:10px 0 16px;padding:2px 12px;border-left:3px solid var(--line)}.attention-brief p{margin:5px 0;font-size:14px}.opportunity-label{display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--muted)}
+.group-overview{table-layout:fixed;font-size:13px}.group-overview th:nth-child(1){width:20%}.group-overview th:nth-child(2){width:18%}.group-overview th:nth-child(3){width:47%}.group-overview th:nth-child(4){width:15%}.group-overview td{padding:11px 8px;overflow-wrap:anywhere}.group-overview .rule-state{display:block;color:var(--muted);font-size:11px;font-weight:400;margin-top:3px}.group-overview .focus-row td:first-child{border-left:3px solid var(--accent)}
+.group-evidence{margin:0;padding:14px}.group-evidence>summary{font-size:15px;font-weight:600;color:var(--ink);list-style-position:outside;margin-left:16px}.group-evidence .evidence-body{padding-top:12px}.evidence-text{line-height:1.9;max-width:960px}.group-risk{border-left:3px solid var(--accent);padding-left:10px;color:#864116}.trace-list{overflow-wrap:anywhere;font-size:12px}.trace-list code{white-space:normal}.group-evidence:target{border-color:var(--blue)}
+@media(max-width:600px){.attention-headline{font-size:16px}.group-overview,.group-overview tbody,.group-overview tr,.group-overview td{display:block;width:100%}.group-overview thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.group-overview tr{padding:10px 0;border-bottom:1px solid var(--line)}.group-overview td{border:0;padding:3px 8px}.group-overview td[data-label]:before{content:attr(data-label) ' · ';font-size:12px;color:var(--muted)}.group-overview .rule-state{display:inline;margin-left:8px}.group-overview td:first-child{font-weight:600;font-size:15px}.group-overview .focus-row td:first-child{border-left:3px solid var(--accent)}}
 @media(max-width:900px){.grid{grid-template-columns:1fr}.quality ul{grid-template-columns:1fr}}@media(max-width:600px){main{padding:18px 12px}header{padding-top:18px}h1{font-size:25px}h2{font-size:21px}.panel{padding:14px}nav{gap:2px;padding:6px}nav a{padding:7px 10px;font-size:12px}th,td{padding:6px 6px}.score-track{width:24px}.asset-name{min-width:100px}}
 '''
 
@@ -61,6 +67,18 @@ document.addEventListener('input', function(event) {
   const result = wrapper.querySelector('[data-search-result]');
   if (result) result.textContent = query ? ('匹配 ' + matches + ' 项') : '名称、代码或状态均可搜索';
 });
+function openGroupEvidence() {
+  const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+  if (target && target.matches('details.group-evidence')) target.open = true;
+}
+window.addEventListener('hashchange', openGroupEvidence);
+document.addEventListener('click', function(event) {
+  const link = event.target.closest('a[href^="#stock-group-"]');
+  if (!link) return;
+  const target = document.getElementById(link.getAttribute('href').slice(1));
+  if (target && target.matches('details')) target.open = true;
+});
+openGroupEvidence();
 </script>
 '''
 
@@ -84,15 +102,23 @@ def activity_detail(row):
         origin = '上次已结束事件：' + origin
     text = (f"{row['status']} · {origin} · {path} · 组级首次触发：{'是' if row['first_trigger'] else '否'}；"
             f"QR结构指数 {m['nav']:.2f} / MA5 {m['ma5']:.2f} / MA20 {m['ma20']:.2f}，5日 {m['return_5d']:+.1%}；"
-            f"RS20Δ {m['rs_20d_pct']:+.2f}%（较5日前 {m['rs_20d_change_5d_pp']:+.2f}pp）；"
+            f"RS20Δ {m['rs_20d_pct']:+.2f}%（RS20Δ 较5日前变化 {m['rs_20d_change_5d_pp']:+.2f}pp）；"
             f"5/10/20日参与度 {m['participation_5d']:.0%} / {m['participation_10d']:.0%} / {m['participation_20d']:.0%}。")
     if row.get('previous_observation_date'):
         c = row['changes']
-        text += (f" 较上一有效观察日 {row['previous_observation_date']}：{row['previous_status']} → {row['status']}；"
-                 f"RS20Δ {c['rs_20d_pct']:+.2f}pp、10日参与度 {c['participation_10d']:+.0%}。")
+        text += f" 较上一有效观察日 {row['previous_observation_date']}：{row['previous_status']} → {row['status']}；"
+        if 'nav' in c:
+            text += f"结构指数 {c['nav']:+.2f}、"
+        text += (f"RS20Δ {c['rs_20d_pct']:+.2f}pp、10日参与度 {c['participation_10d']*100:+.2f}pp。")
+        if 'participation_5d' in c:
+            text += f" 5日参与度较上一有效观察日 {c['participation_5d']*100:+.2f}pp。"
     if row.get('reasons'):
         text += ' ' + '；'.join(row['reasons']) + '。'
-    text += ' 数据完整；候选参数未验证，当前名单重建，复权算法未认证，不含汇率/费用。'
+    channels = {'COLLECTIVE':'集体异动', 'RS_IMPROVEMENT':'RS改善',
+                'PARTICIPATION_EXPANSION':'参与度扩散', 'RS_AND_PARTICIPATION':'RS与参与度共同改善'}
+    text += (f" 事件首次证据：{channels.get(row.get('trigger_channel'), row.get('trigger_channel') or '无')}；"
+             f"当日证据：{channels.get(row.get('evidence_channel'), row.get('evidence_channel') or '无')}。")
+    text += ' 数据完整。' if row.get('data_complete') is True else ' 数据完整性未确认。'
     return text + leader_text
 
 
@@ -103,29 +129,81 @@ def activity_summary(date, activity):
         return '<article class="panel"><h3>分组趋势启动观察</h3><p class="section-note">无法判定：数据缺失或日期/规则版本不一致；未作今日判定。</p></article>', {}
     rows = activity.get('groups', [])
     annotations = {r['key']: r for r in rows}
-    unknown = [r for r in rows if r['status'] == 'UNAVAILABLE']
-    def priority(r):
-        if r.get('first_trigger'): return 0
-        if r.get('previous_status') == 'WATCH' and r['status'] == 'EMERGING': return 1
-        if r.get('transition') in ('UPGRADE', 'DOWNGRADE', 'INVALIDATED', 'EXPIRED'): return 2
-        return 3
-    hits = sorted([r for r in rows if r['status'] != 'UNAVAILABLE' and
-                   (r['status'] != 'NO_SETUP' or priority(r) == 2 or r.get('leader_clues'))], key=priority)
-    text = ''
-    if not any(r.get('first_trigger') for r in hits):
-        text = ('已验收分组今日未发现新的趋势启动候选；部分分组无法判定。' if unknown and len(unknown) < len(rows)
-                else '无法判定：全部分组数据不足，未作今日判定。' if unknown
-                else '今日未发现新的趋势启动候选。')
-    else:
-        text = '今日首次出现趋势启动迹象的研究分组：'
-    for r in hits + unknown:
-        text += ('<p><a href="#stock-group-' + escape(r['key'], quote=True) + '">' + escape(r['label'])
-                 + '</a>：' + escape(activity_detail(r)) + '</p>')
-    rules = ('WATCH 为早期线索；价格结构及参与度/相对强度连续支持后升级 EMERGING，持续十次才跟踪为 CONFIRMED。'
-             '按历史价格确定性重建；以回落后的新脉冲或低点恢复识别二次启动，不设置统一冷却期。单股线索独立展示，不能自动升级组级趋势。季度再平衡结构指数、RS20Δ及参与度复用 Basket Compare 定义。'
-             '只使用本批长桥快照；休市不作零收益观察，未知与没有候选严格分开。参数未验证，不构成交易建议。')
-    return ('<article class="panel"><h3>分组趋势启动观察</h3><div>'+text+'</div><details><summary>趋势判定口径</summary>'
-            '<p class="section-note">'+escape(rules)+'</p></details></article>'), annotations
+    view = attention_view(activity)
+    overview = []
+    for r in view['groups']:
+        tone = 'warm' if r['priority'] == '优先研究' else 'cool' if r['priority'] == '重点观察' else 'quiet'
+        state_label = r['event'] if r['status'] in r['event'] else r['status']+' · '+r['event']
+        overview.append('<tr'+(' class="focus-row"' if r['key'] in view['highlighted_keys'] else '')+'>'
+            '<td><a href="#stock-group-'+escape(r['key'], quote=True)+'" title="'+escape(r['full_label'], quote=True)+'">'+escape(r['label'])+'</a></td>'
+            '<td data-label="趋势阶段">'+escape(r['phase'])+'<span class="rule-state">'+escape(state_label)+'</span></td>'
+            '<td data-label="今日变化">'+escape(r['today'])+'</td>'
+            '<td data-label="阅读顺序">'+('<span class="opportunity-label">'+escape(r['opportunity'])+'</span>' if r['opportunity'] != r['priority_label'] else '')+
+            '<span class="badge '+tone+'">'+escape(r['priority_label'])+'</span></td></tr>')
+    unavailable = sum(r['priority'] == '待数据完整' for r in view['groups'])
+    note = f'另有 {unavailable} 组数据或展示依据不齐，未作趋势阶段判定；不可解释为没有机会。' if unavailable else ''
+    brief = ''.join('<div class="attention-brief"><span class="opportunity-label">'+escape(section['kind'])+'</span>'+
+                    ''.join('<p><strong>'+escape(r['label'])+'</strong>：'+escape(r['reason'])+'。</p>' for r in section['items'])+
+                    '</div>' for section in view['summary_sections'])
+    return ('<article class="panel attention-summary"><h3>今日观察结论</h3>'
+            '<p class="attention-headline"><strong>'+escape(view['headline'])+'</strong></p>'
+            +brief+'<p class="section-note">“机会”指研究观察线索；新增与已有分别标识，同档并列，仅安排阅读顺序。</p>'
+            +('<p class="group-risk">'+escape(note)+'</p>' if note else '')+
+            '<h3>'+str(len(rows))+' 个分组速览</h3><table class="group-overview" aria-label="研究分组速览">'
+            '<thead><tr><th scope="col">分组</th><th scope="col">趋势阶段 / 规则状态</th><th scope="col">今日变化 · 较上一有效观察日</th><th scope="col">观察优先级</th></tr></thead>'
+            '<tbody>'+''.join(overview)+'</tbody></table>'
+            '<p class="section-note">上涨范围指对应窗口参与度；pp 为百分点。点击分组查看完整证据。NO_SETUP 仅表示无启动候选，不表示弱势趋势已确认；UNAVAILABLE 表示无法判定。</p>'
+            +activity_common_notes(activity)+'</article>'), annotations
+
+
+def activity_common_notes(activity):
+    rows = activity.get('groups', [])
+    shared = set(rows[0].get('limitations', [])) if rows else set()
+    for row in rows[1:]:
+        shared.intersection_update(row.get('limitations', []))
+    limits = sorted(shared) or ['候选参数未验证；当前名单与复权快照重建历史，非历史时点回测。',
+        '复权算法未认证；price_basis_verified=false。不含汇率/费用，不代表真实组合收益。']
+    text = ''.join('<li>'+escape(line)+'</li>' for line in limits)
+    return ('<details class="common-limits"><summary>共性限制与解释口径（参数未验证）</summary><ul>'+text+'</ul>'
+            '<p>趋势阶段是事实解释，规则状态保留 V2 原值，观察优先级只决定阅读顺序。'
+            '优先研究：活跃状态下，价格转强结构与初步支持同时成立，或价格止跌、RS改善和参与度扩散同时成立。'
+            '重点观察：活跃状态下，价格高于MA5、5日收益为正且RS改善和参与度扩散成立。'
+            '其后依次观察单一路径的修复持续性、价格跟踪、尚缺止跌证据的异动及无启动候选。'
+            '不新增统计阈值或综合评分，同档不按涨幅或首次触发排序。</p>'
+            '<p>新增机会为本次首次 WATCH；其余活跃状态作为已有机会跟踪，新增不自动优先。'
+            '速览先展示首次触发或状态转换，再展示最多两项非零指标变化：先回落，再按10日参与度、5日参与度、相对强弱展示改善。'
+            '按两位小数显示为零的变化省略，完整数值留在详情；不代表统计显著性判断。机会与阅读顺序不代表买入概率或预期收益。</p>'
+            '<p>所有条件直接读取V2已验收事实；阶段与优先级不能升级 WATCH / EMERGING / CONFIRMED。'
+            'pp 为百分点；速览变化相对各组上一有效观察日，详情中“较5日前”是另一时间尺度。'
+            '只读本批长桥快照，休市不作零收益观察，单股线索不等于组级启动，不构成交易建议。</p>'
+            '<p class="trace-list">规则 '+escape(str(activity.get('rule_version')))+' · 解释 '+escape(attention_view(activity)['display_version'])+
+            ' · validation_status='+escape(str(activity.get('validation_status', 'UNVALIDATED')))+
+            ' · price_basis_verified='+escape(str(activity.get('price_basis_verified', False)).lower())+
+            ' · input_hash='+escape(str(activity.get('input_hash', '未知')))+'</p></details>')
+
+
+def activity_risks(row, activity):
+    """Keep group-specific exceptions next to their evidence, without repeating shared caveats."""
+    rows = activity.get('groups', [])
+    shared = set(rows[0].get('limitations', [])) if rows else set()
+    for other in rows[1:]:
+        shared.intersection_update(other.get('limitations', []))
+    risks = [line for line in row.get('limitations', []) if line not in shared]
+    risks.extend(json.dumps(issue, ensure_ascii=False, sort_keys=True) for issue in row.get('issues', []))
+    for identity, limitation in activity.get('history_limitations', {}).items():
+        if identity in row.get('snapshot_ids', {}):
+            risks.append(identity+' 历史限制：'+str(limitation))
+    if row.get('status') == 'UNAVAILABLE':
+        risks.insert(0, activity_detail(row))
+    return ''.join('<p class="group-risk">'+escape(line)+'</p>' for line in risks)
+
+
+def activity_explanation(view):
+    trace = ''.join('<li><code>'+escape(key)+'</code> = '+escape(json.dumps(value, ensure_ascii=False))+'</li>'
+                    for key, value in view['trace'].items())
+    return ('<p>'+escape(view['phase']+'：'+view['phase_reason'])+'。</p>'
+            '<details><summary>展示标签的事实依据</summary><p>阶段字段：'+escape('、'.join(view['phase_fields']))+
+            '；阅读顺序字段：'+escape('、'.join(view['priority_fields']))+'</p><ul class="trace-list">'+trace+'</ul></details>')
 
 
 def validate_activity_rendering(date, activity, receipt, rendered):
@@ -275,6 +353,7 @@ def render_html(date,assets,industries,etfs,stocks,etf_positions,stock_positions
     stock_view=stock_all.merge(position_view[position_fields],on='_identity',how='left',validate='one_to_one')
     stock_columns=['name','market_session_status','source_trade_date','trend_score','return_5d','return_20d','bottom_state','price_pos_120','price_pos_360','reliability']
     activity_html, activity_rows = activity_summary(date, group_activity)
+    explanations = {r['key']: r for r in attention_view(group_activity or {}).get('groups', [])}
     stock_panels=[activity_html]
     covered=set(policy_excluded)
     groups=definitions()
@@ -285,9 +364,14 @@ def render_html(date,assets,industries,etfs,stocks,etf_positions,stock_positions
         identities={(str(r['market']),str(r['symbol']).zfill(5 if r['market']=='HK' else 6)) for r in members}
         subset=stock_view[stock_view['_identity'].isin(identities-policy_excluded)]
         covered.update(subset['_identity'])
-        stock_panels.append(panel(basket['label'],table(subset,stock_columns),
-            coverage_note(subset,identities,'按趋势分降序，同股可跨篮子展示。未覆盖成分不补造行情。'),
-            anchor='stock-group-'+key,activity=activity_rows.get(key)))
+        row = activity_rows.get(key)
+        coverage = coverage_note(subset,identities,'按趋势分降序，同股可跨篮子展示。未覆盖成分不补造行情。')
+        evidence = ('<p class="evidence-text">'+escape(activity_detail(row))+'</p>'+
+                    activity_risks(row, group_activity)+activity_explanation(explanations[key])) if row else '<p>本组趋势依据缺失，未作今日判定。</p>'
+        stock_panels.append('<details class="panel group-evidence" id="stock-group-'+escape(key, quote=True)+'">'
+            '<summary>'+escape(basket['label'])+' · '+escape(explanations[key]['event'] if row else 'UNAVAILABLE')+'</summary>'
+            '<div class="evidence-body">'+evidence+'<p class="section-note">'+escape(coverage)+'</p>'+
+            table(subset,stock_columns)+'</div></details>')
     remainder=stock_view[~stock_view['_identity'].isin(covered)]
     if not remainder.empty:
         stock_panels.append(panel('其他固定池观察',table(remainder,stock_columns),'保留未纳入上述分类的固定池个股。'))

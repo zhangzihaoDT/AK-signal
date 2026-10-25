@@ -316,6 +316,8 @@ def build(date: str) -> None:
                                'input_hash':group_activity['input_hash'],
                                'states':[{k:r.get(k) for k in ('key','status','first_trigger','path','event_origin','transition','reasons','metrics','leader_clues','evidence_channel','alert_kind','event_active','episode_status','trigger_channel')}
                                          for r in group_activity['groups']]}
+    from src.observation.group_attention import attention_view
+    summary['group_attention'] = attention_view(group_activity)
     (folder/f'observation_{date}.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
     from src.observation.report import PRINCIPLE
     markdown = f'# AKsignal 观察日报 · {date}\n\n{PRINCIPLE}\n\n## 市场方向\n\n大类资产与行业轮动。\n\n## 趋势活跃\n\nETF 与固定池个股。\n\n## 底部位置\n\nETF 与固定池个股的底部状态、变化和窗口可靠性。\n\n## 数据质量\n\n'+ '\n'.join('- '+line for line in quality) + f'\n\n完整观察事实见 observation_{date}.html 及同日 parquet/CSV。\n'
@@ -386,9 +388,10 @@ def validate(date: str) -> dict:
             errors.append('个股趋势缺少日期证据')
         elif not aligned_stock_rows(stocks,date).all():
             errors.append('个股趋势未对齐')
-    if summary.get('report_layout_version') not in (None, 'daily_observation_modules_v9'):
-        errors.append('日报布局版本过期，须重建趋势启动事实')
-    if summary.get('report_layout_version') == 'daily_observation_modules_v9':
+    from src.observation.report import REPORT_LAYOUT_VERSION
+    if summary.get('report_layout_version') not in (None, REPORT_LAYOUT_VERSION):
+        errors.append('日报布局版本过期，须重建展示产物')
+    if summary.get('report_layout_version') == REPORT_LAYOUT_VERSION:
         from src.market_facts.group_activity import validate_document
         activity_path = folder/f'stock_group_activity_{date}.json'
         try:
@@ -398,6 +401,9 @@ def validate(date: str) -> dict:
                 raise ValueError('分组趋势启动观察产物摘要不一致')
             activity = json.loads(content)
             validate_document(activity, date, pd.read_parquet(stocks_path), stock_metrics_dir())
+            from src.observation.group_attention import attention_view
+            if summary.get('group_attention') != attention_view(activity):
+                raise ValueError('日报JSON展示解释与事实不一致')
             from src.observation.report import validate_activity_rendering
             validate_activity_rendering(date, activity, receipt, (folder/f'observation_{date}.html').read_text())
             if any(r['status'] == 'UNAVAILABLE' for r in activity['groups']):

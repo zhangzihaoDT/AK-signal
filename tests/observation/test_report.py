@@ -39,7 +39,7 @@ def test_four_module_sections_and_separate_quality():
     for basket in load_baskets().values():
         assert escape(basket['label']) in html
     assert '其他固定池观察' in html
-    assert '高现金流资产</h3>' in html
+    assert '<summary>高现金流资产 · UNAVAILABLE</summary>' in html
 
 
 def test_identity_mismatch_is_excluded_from_observation_body(monkeypatch):
@@ -100,16 +100,18 @@ def test_group_activity_summary_links_evidence_and_unknown_are_distinct():
     html, annotations = activity_summary('20261022', document)
     assert 'href="#stock-group-ai_capex"' in html
     assert 'AI &lt;基础设施&gt;' in html
-    assert '渐进式' in html and '首次触发：是' in html
+    assert '首次 WATCH' in html
     detail = activity_detail(annotations['ai_capex'])
+    assert '渐进式' in detail and '首次触发：是' in detail
     assert 'RS20Δ -1.00%' in detail and '60% / 50% / 40%' in detail
     assert '2026-10-21' in detail and 'NO_SETUP → WATCH' in detail
     row.update(status='NO_SETUP', first_trigger=False, transition='NO_CHANGE')
-    assert '今日未发现新的趋势启动候选。' in activity_summary('20261022', document)[0]
+    assert 'NO_SETUP · 无启动候选' in activity_summary('20261022', document)[0]
     row.update(status='UNAVAILABLE', reason='MARKET_CLOSED')
     html, _ = activity_summary('20261022', document)
     assert '今日未发现新的趋势启动候选' not in html
-    assert '休市' in html and '未作今日判定' in html
+    assert '无法判定' in html and '未作今日判定' in html
+    assert '休市' in activity_detail(row)
     assert activity_summary('20261023', document)[1] == {}
     document['rule_version'] = 'stock_group_activity_v1'
     assert activity_summary('20261022', document)[1] == {}
@@ -134,12 +136,13 @@ def test_rendered_trend_receipt_and_anchors_fail_closed():
 
 
 def test_member_lead_is_visible_even_when_group_has_no_setup():
-    from src.observation.report import activity_summary
+    from src.observation.report import activity_summary, activity_detail
     from src.market_facts.group_activity import RULE_VERSION
     row=dict(key='x',label='单股线索',status='NO_SETUP',first_trigger=False,path=None,event_origin=None,
         metrics=dict(nav=101,ma5=100,ma20=103,return_5d=.01,rs_20d_pct=-1,
                      rs_20d_change_5d_pp=.1,participation_5d=.2,participation_10d=.2,participation_20d=.2),
         leader_clues=[dict(market='CN',symbol='600000',return_1d=.08,first_clue=True)])
     html,_=activity_summary('20261023',dict(trade_date='20261023',rule_version=RULE_VERSION,groups=[row]))
-    assert '单股线索' in html and '600000 +8.0%' in html
-    assert '非组级启动' in html and '组级首次触发：否' in html
+    assert '单股线索' in html and '1 条新增个股线索（非组级启动）' in html
+    assert '600000 +8.0%' in activity_detail(row)
+    assert '组级首次触发：否' in activity_detail(row)

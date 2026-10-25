@@ -100,7 +100,9 @@ def test_build_keeps_other_facts_and_emits_empty_industry_partition(tmp_path, mo
     assert activity['input_error'] == 'MISSING_BATCH_AUDIT'
     assert len(activity['groups']) == 9
     html = (folder / 'observation_20261015.html').read_text()
-    assert '无法判定：全部分组数据不足' in html
+    assert '今日数据不足，无法安排优先观察分组' in html
+    assert len(summary['group_attention']['groups']) == 9
+    assert all(r['priority'] == '待数据完整' for r in summary['group_attention']['groups'])
     assert '今日无明显分组异动' not in html
     for group in activity['groups']:
         assert f'id="stock-group-{group["key"]}"' in html
