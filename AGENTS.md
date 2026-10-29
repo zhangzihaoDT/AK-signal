@@ -1,10 +1,10 @@
 # AKsignal — 当前操作手册
 
-更新：2026-10-24 · v0.7.1。业务架构思考与调整记录在 `config/decisions/`；工程历史与迁移过程见 `docs/archive/`，不作为当前每日运行规范。能力总览真源为 `docs/ARCHITECTURE_MAP.md`，模块来源真源为 `config/observation_sources.yaml`。
+更新：2026-10-28 · v0.7.3。业务架构思考与调整记录在 `config/decisions/`；工程历史与迁移过程见 `docs/archive/`，不作为当前每日运行规范。能力总览真源为 `docs/ARCHITECTURE_MAP.md`，模块来源真源为 `config/observation_sources.yaml`。
 
 ## 定位与边界
 
-AKsignal = **Investment Decision System（投资决策系统）**，由四层组成：01 Data Foundation（数据源、历史行情、增量更新、数据质量）→ 02 Market Facts（市场日报、行业趋势、篮子 Compare）→ 03 Strategy（机会识别、信号生成、策略验证、买卖规则）→ 04 Portfolio / Position（仓位管理、持仓监控、风险暴露、调仓决策）。v0.6.0 稳定化 Data Foundation 与 Market Facts；v0.7.0 完成 Basket Compare v2、日报 RPS 三列与跨市场休市验收；v0.7.1 将分组趋势启动观察接入日报 04；Strategy 和 Portfolio / Position 尚未正式实现。
+AKsignal = **Investment Decision System（投资决策系统）**，由四层组成：01 Data Foundation（数据源、历史行情、增量更新、数据质量）→ 02 Market Facts（市场日报、行业趋势、篮子 Compare）→ 03 Strategy（机会识别、信号生成、策略验证、买卖规则）→ 04 Portfolio / Position（仓位管理、持仓监控、风险暴露、调仓决策）。v0.6.0 稳定化 Data Foundation 与 Market Facts；v0.7.0 完成 Basket Compare v2、日报 RPS 三列与跨市场休市验收；v0.7.1 将分组趋势启动观察接入日报 04；v0.7.2 完善为研究注意力简报，展示解释不改变 V2 规则；v0.7.3 重整日报信息架构（Summary/Observation/Evidence 三层与固定展示契约，不改计算与规则）；Strategy 和 Portfolio / Position 尚未正式实现。
 
 Data Foundation 对行情完整性、来源及质量负责；Market Facts 只消费标准化行情并描述市场，不感知 Strategy；Strategy 消费版本化事实，不直接维护或重算底层行情；Portfolio / Position 消费实际持仓和策略信号，不自行生成市场信号。信号不等于仓位决策，事实不可被策略或仓位建议覆盖。实际仓位、目标权重、调整量分别记录。
 
@@ -14,6 +14,8 @@ Data Foundation 对行情完整性、来源及质量负责；Market Facts 只消
 
 - **个股**：仅长桥 OpenAPI / Longbridge ForwardAdjust，趋势、收益与位置共用同一快照；沪深300基准同源，000300.SH 为指数值。观察池为固定股票池与8个研究篮子并集，统一代码后69只；禾赛02525明确排除，当前68只有效。研究新增注册仅 monitor_only，不扩展主题确认权或策略准入。
 - **ETF**：东方财富/新浪模块内部路由；AKShare 是适配器而非供应商。保留实际来源和价格依据，不拼接已知不同口径。ETF与个股/行业不互为备用。
+- **核心指数**：`core_indices.yaml` 固定8个宽基+1个红利低波风格参照；按指数固定来源：7个宽基为长桥NoAdjust，中证2000（932000）与红利低波H30269为中证官方价格指数；不强求单一供应商，不自动跨源回退或拼接，独立于ETF产品池。日报01固定展示全部行，映射/目标日缺失保留UNAVAILABLE，不用ETF代替；模块不完整进入PARTIAL。规范见 `docs/CORE_INDEX_OBSERVATION.md`。
+- **衍生品**：`derivatives.yaml`首期注册中金所IC，使用中金所官方HTTP日行情文件；按具体到期合约记录收盘、结算、量仓及同批现货基差，不拼接连续合约。日期使用CN独立日历代理，来源文件日期与摘要独立记录。见 `docs/DERIVATIVE_OBSERVATION.md`。
 - **行业**：通达信官方 .day；固定128个TDX二级研究行业，分类版本20261016，清单在 `config/tdx_research_industry_20261016.csv`。`data/sources/tdx/raw/day` 为历史基座，命中目标日零请求；缺日按官方ZIP成员做Range获取、本地仅追加。重叠历史改写必须明确报错，不静默覆盖。独立计算收益/RPS；SW2021仅历史研究，无正式备用回退。
 
 模块独立维护历史，不强制分类映射；ETF与行业RPS横截面不同，不直接比较。来源、价格依据、分类版本、源交易日、目标交易日、生成时间及摘要保持可追溯；未知元数据不能追认为已验证。
@@ -32,7 +34,9 @@ Data Foundation 对行情完整性、来源及质量负责；Market Facts 只消
 
 批次输出从空目录建立，验收后原子切换。失败保留上一发布，模块级降级遵循 PARTIAL 发布规则，`--require-complete`拒绝不完整发布。`*_latest`只在正式确认发布时更新。不得为清理而删除当前发布、恢复检查点、历史基座或被引用快照。
 
-日报按大类资产、行业轮动、ETF、个股观察排序，每部分注明来源；趋势和位置归入各资产板块，审计放数据质量区。个股观察内的分组趋势启动提示复用本批快照，只提示阅读顺序，不构成交易动作。个股按8个研究篮子与独立高现金流分类，同股允许跨篮子，覆盖数不等于去重个股数。主题/ tier/participation是注册身份，不压为股票级单一标签。
+行业快照登记（`config/observation_snapshots.json`）遵守「Build 计算 / Validate 校验 / Publish 提交」：build 只在批次暂存区写候选 `run_day/industry_snapshot.json`，不修改正式登记表；check 只校验候选与已验收事实逐字节一致；发布阶段指针切换后提交，事实从公布目录读回复核，写入幂等原子。提交若中断，下次运行按已发布批次的候选与回执补登；登记表不纳入实现签名。
+
+日报按市场环境（固定指数、衍生品）、行业轮动、ETF（含分类概览）、研究主线排序，前置今日市场速览，每部分注明来源；默认字段由 `docs/DAILY_INFORMATION_ARCHITECTURE.md` 固定，其余进入详情与数据质量技术详情；趋势和位置归入各资产板块，审计放数据质量区。个股观察内的分组趋势启动提示复用本批快照，只提示阅读顺序，不构成交易动作。个股按8个研究篮子与独立高现金流分类，同股允许跨篮子，覆盖数不等于去重个股数。主题/ tier/participation是注册身份，不压为股票级单一标签。
 
 `basket_compare` 是独立研究报告：8个研究篮子 + 高现金流参照，共9条净值/68只去重个股，长桥ForwardAdjust收盘价/同源沪深300。组间等权、组内等权 + 季度再平衡为默认结构指数，买入持有为对照；QR/BH共享同一名单、起点、快照、上市前现金规则和HS300日历，唯一差异是再平衡规则。报告同时展示RS、区间/20日参与度、集中度与重叠诊断；不含汇率/费用，不宣称真实组合收益、历史可执行策略或已验证总回报。入口及来源见 `docs/RESEARCH_BASKETS.md`。
 

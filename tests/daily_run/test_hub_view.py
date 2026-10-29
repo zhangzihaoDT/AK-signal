@@ -55,6 +55,29 @@ def test_publication_manifest_and_quality_readonly(tmp_path, monkeypatch):
         assert active['details']['publication']['run_id'] != maintenance['run_id']
         assert len(active['artifacts']) == 2
 
+    # A stopped later attempt cannot make an already delivered target pending.
+    # The online/offline checkpoint pointers may outlive a separately published run.
+    before = {p: release.fingerprint(p) for p in (tmp_path / '.run_day/checkpoints').glob('*.json')}
+    publication_before = (tmp_path / 'outputs').resolve()
+    for checkpoint_status in ('preparing', 'running', 'publishing', 'failed', 'interrupted'):
+        maintenance['status'] = checkpoint_status
+        maintenance['error'] = 'abandoned attempt'
+        release.save_checkpoint(tmp_path, maintenance)
+        checkpoint_before = release.fingerprint(release.checkpoint_path(tmp_path, '20261012', False))
+        delivered = daily_hub.view(tmp_path, now)
+        assert delivered['lastRun']['status'] == 'PUBLISHED'
+        assert delivered['lastRun']['finishedAt'] == delivered['details']['publication']['published_at']
+        assert delivered['lastRun']['startedAt'] is None
+        assert delivered['details']['runId'] == delivered['details']['publication']['run_id']
+        assert delivered['details']['error'] == ''
+        assert delivered['details']['retryAt'] is None
+        assert 'elapsedSeconds' not in delivered['details']
+        assert 'phase' not in delivered['details']
+        assert len(delivered['artifacts']) == 2
+        assert release.fingerprint(release.checkpoint_path(tmp_path, '20261012', False)) == checkpoint_before
+        assert (tmp_path / 'outputs').resolve() == publication_before
+    assert release.fingerprint(checkpoint) == before[checkpoint]
+
     # An expired calendar must block new execution while retaining old formal delivery.
     v = daily_hub.view(tmp_path, datetime(2027, 1, 1, 12, tzinfo=SHANGHAI))
     assert v['lastRun']['status'] == 'BLOCKED' and len(v['artifacts']) == 2
@@ -93,6 +116,25 @@ def test_partial_publication_is_delivered_with_industry_unavailable_status(tmp_p
     assert view['lastRun']['status'] == 'PUBLISHED'
     assert view['details']['quality']['status'] == 'PARTIAL'
     assert view['details']['metrics'] == [{'label': '行业观察', 'value': '不可用（0/124 已核验）'}]
+    # Legacy scheduler records may still call a valid PARTIAL release blocked.
+    # Read-only delivery must follow the current formal receipt, not that record.
+    record_path = tmp_path / '.run_day/scheduler/20261012.json'
+    release.atomic_json(record_path, {'status': 'blocked', 'reason': 'PUBLICATION_NOT_COMPLETE',
+                                     'error': '已有非完整正式结果，等待人工检查'})
+    before = release.fingerprint(record_path)
+    delivered = daily_hub.view(tmp_path, now)
+    assert delivered['lastRun']['status'] == 'PUBLISHED'
+    assert delivered['details']['quality']['status'] == 'PARTIAL'
+    assert delivered['details']['error'] == ''
+    assert len(delivered['artifacts']) == 2
+    assert all(a['runId'] == delivered['details']['publication']['run_id'] for a in delivered['artifacts'])
+    assert release.fingerprint(record_path) == before
+    # An actual execution block remains visible, while the report stays readable.
+    release.atomic_json(record_path, {'status': 'blocked', 'reason': 'PUBLICATION_INVALID',
+                                     'error': '当前触发记录需检查'})
+    blocked = daily_hub.view(tmp_path, now)
+    assert blocked['lastRun']['status'] == 'BLOCKED'
+    assert len(blocked['artifacts']) == 2
 
 
 def test_running_waiting_blocked_and_no_unpublished_attachments(tmp_path, monkeypatch):

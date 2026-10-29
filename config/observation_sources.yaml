@@ -12,6 +12,17 @@ etfs:
   providers: [em, sina]
   price_basis: existing_etf_series
   cross_module_fallback: false
+indices:
+  providers: [longbridge, csindex]
+  price_basis: index_level
+  universe_file: config/core_indices.yaml
+  fallback: false
+derivatives:
+  provider: cffex
+  price_basis: unadjusted_contract_prices
+  universe_file: config/derivatives.yaml
+  daily_url: http://www.cffex.com.cn/sj/hqsj/rtj/{month}/{day}/{date}_1.csv
+  fallback: false
 industry:
   provider: tdx
   classification: TDX Research Industry

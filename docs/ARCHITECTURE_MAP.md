@@ -2,7 +2,7 @@
 
 # AKsignal Canonical Architecture Map
 
-> 当前能力的 canonical 状态图。基线版本：v0.7.1。更新：2026-10-24。
+> 当前能力的 canonical 状态图。基线版本：v0.7.2。更新：2026-10-25。
 
 ## 完整定位与项目目标
 
@@ -45,7 +45,7 @@ AKsignal
 
 ## 当前实现阶段
 
-v0.6.0 完成 **Data Foundation 与 Market Facts 稳定化**；v0.7.0 完成 Basket Compare v2、日报 RPS 三列与跨市场休市验收；v0.7.1 将分组趋势启动观察接入日报 04。当前每日主链观察全市场 ETF、128 个 TDX 研究行业及固定池个股，并发布日报；独立 Basket Compare 提供主线结构、相对强弱、参与度与重叠诊断。Strategy 与 Portfolio / Position 尚未作为正式能力实现。
+v0.6.0 完成 **Data Foundation 与 Market Facts 稳定化**；v0.7.0 完成 Basket Compare v2、日报 RPS 三列与跨市场休市验收；v0.7.1 将分组趋势启动观察接入日报 04，v0.7.2 完善为研究注意力简报。当前每日主链观察全市场 ETF、128 个 TDX 研究行业及固定池个股，并发布日报；独立 Basket Compare 提供主线结构、相对强弱、参与度与重叠诊断。Strategy 与 Portfolio / Position 尚未作为正式能力实现。
 
 **当前正式实现限于 Data Foundation 与 Market Facts。** 后续 Strategy 将重新定义策略、信号与独立回测机制；Portfolio / Position 将接入实际持仓、风险约束与调仓决策。旧 Selection、Timing、研究或回测实现不代表新层能力已完成，也不作为新设计基础。
 
@@ -59,7 +59,7 @@ v0.6.0 完成 **Data Foundation 与 Market Facts 稳定化**；v0.7.0 完成 Bas
 - **Group Activity｜分组启动观察**：⑨9 个研究分组的趋势启动状态、事件来源与成员线索；只提示阅读顺序，不输出交易动作。
 - **Daily Observation Report**：统一日期 · 统一数据质量 · 统一发布，消费上述事实，不新增投资决策。
 
-## 保留的九项能力
+## 当前能力清单
 
 | # | 能力 | 模块 / 输入 | 产物 |
 |---|---|---|---|
@@ -72,6 +72,10 @@ v0.6.0 完成 **Data Foundation 与 Market Facts 稳定化**；v0.7.0 完成 Bas
 | 7 | 观察池个股趋势评估 | 长桥快照 → 现有趋势纯计算，不输出action | stock_metrics/stock_metrics_{date}.parquet |
 | 8 | ETF 与观察池个股底部位置判断 | ETF 复用 price_map；股票独立 stock_position_v1 | observation/etf_positions、stock_positions |
 | 9 | 分组趋势启动观察 | market_facts.group_activity；Compare 分组与子组权重 + 同批长桥股票/沪深300 | observation/stock_group_activity_{date}.json；日报 04 |
+| 10 | 固定核心指数观察 | market_facts.core_indices；core_indices.yaml；长桥NoAdjust / 中证官方价格指数 | observation/core_indices_{date}.json/parquet/csv；日报01固定8宽基+1风格参照 |
+| 11 | 衍生品观察 | market_facts.derivatives；derivatives.yaml；中金所官方日CSV | observation/derivatives_{date}.json/parquet/csv；日报01核心宽基之后 |
+
+核心指数观察独立于 ETF 产品池，全部注册行固定展示，缺失保持 UNAVAILABLE，模块降级进入 PARTIAL。口径与验收见 [CORE_INDEX_OBSERVATION.md](CORE_INDEX_OBSERVATION.md)。
 
 上述 observation 文件均按 trade_date 输出 parquet + CSV。位置只描述历史收盘价区间位置，不断言未来不会继续下跌。股票口径与可靠性限制见 [POSITION_OBSERVATION.md](POSITION_OBSERVATION.md)。
 
@@ -89,7 +93,7 @@ etf update → etf calculate
 
 `make run-day-offline` 跳过在线 update，个股仅读缓存。所有步骤固定目标 trade_date；核心股票与基准未对齐时停止发布。ETF 缺口显式列入审计。
 
-每日只有一个报告入口：`outputs/observation/observation_{date}.html`，附同名 JSON 摘要与 Markdown。正文按大类资产、行业轮动、ETF、个股观察四个板块组织，趋势和位置归入对应资产；个股按8个研究篮子加高现金流分类，各板块注明来源。数据覆盖、复权验证、缓存与来源状态集中在独立的数据质量区域；不占用投资观察正文。机器事实全量落盘。ETF 活跃定义沿用均线条件，个股活跃展示趋势分≥70，完整固定池可展开；这只是展示范围，不创造推荐资格。
+每日只有一个报告入口：`outputs/observation/observation_{date}.html`，附同名 JSON 摘要与 Markdown。正文前置“今日市场速览”，其后按 01 市场环境（核心指数、IC）、02 行业轮动、03 ETF（趋势、位置、分类）、04 研究主线、05 数据质量组织；趋势和位置归入对应资产，各板块注明来源。默认字段、详情与审计边界由 [日报信息架构与展示契约](DAILY_INFORMATION_ARCHITECTURE.md)（`src/observation/contract.py`，`daily_display_contract_v1`）固定；个股按8个研究篮子加高现金流分类，覆盖数据质量、复权验证与来源状态集中在 05 的异常摘要，完整来源清单进入技术详情。机器事实全量落盘。ETF 活跃定义沿用均线条件，个股活跃展示趋势分≥70，完整固定池可展开；这只是展示范围，不创造推荐资格。
 
 最终验收为 `outputs/run_day/final_check_{date}.json`，发布回执为 `outputs/run_day/publication.json`。结果包含 scope=observation_only、status、warnings、errors；不再包含投资 action。
 
@@ -116,14 +120,14 @@ AKsignal 自己的 macOS LaunchAgent（`com.aksignal.daily-scheduler`）拥有 0
 
 `docs/ARCHITECTURE.md` 与 AGENTS.md 中旧 Layer / Lane 叙述为历史背景，当前范围以本状态图为准。
 
-## 每日展示一致性规则（UI v3）
+## 每日展示一致性规则（布局 v10）
 
 排序、分页与展开由 `src/observation/report.py` 统一定义，`observation build` 每日调用同一个 renderer；JSON 同步记录 report_layout_version。仅修改展示顺序，不改原始事实或候选条件。
 
 - 大类资产：固定 CROSS_ASSET_ORDER，保证方向位置每天一致。
 - 行业：RPS15降序 → RPS5降序 → 行业代码（缺少代码时名称兜底）。
 - 活跃ETF：RPS15降序 → 流动性降序 → ETF代码。
-- 固定池股票：趋势分降序 → 20日收益降序 → 市场/代码。默认展示分数≥70的前20项；其余活跃及未达门槛股票在同一个“其余固定池个股”展开区，不再复制完整池。
+- 研究主线：主线概览 → 9 组一行式速览（趋势阶段、启动状态、观察变化、线索）→ 折叠证据；新增观察线索与已有观察线索分别标识，优先级只决定阅读顺序。组内个股按趋势分 → 20日收益 → 市场/代码排列，允许同股跨篮子展示。确定性展示定义见 [日报04信息架构](DAILY_GROUP_ATTENTION.md)。
 - 底部位置：有效进入/离开变化 → 有效长期低位 → 其他有效 → 未知/不适用；同组按360日位置升序，再按身份代码。数据缺口不因位置数值低而排到可靠低位之前。
 - 每个面板最多默认20项，只提供一个展开区；默认行与剩余行互斥，每对象每面板只出现一次。无活跃个股时默认区明确为空，展开仍可读剩余固定池。
 - 同股票跨注册身份仅在展示层按市场/代码去重；机器事实保留全部注册。跨不同观察区域的同资产允许重复，分别回答趋势与位置问题。

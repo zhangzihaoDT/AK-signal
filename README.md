@@ -1,6 +1,6 @@
 # AKsignal — Investment Decision System
 
-当前基线：**v0.7.1**（2026-10-24）。版本源为 `VERSION`，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前基线：**v0.7.2**（2026-10-25）。版本源为 `VERSION`，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 AKsignal 通过可追溯的市场事实、策略信号和真实组合约束，辅助管理投资组合。投资者保留最终决策权。
 
@@ -29,7 +29,7 @@ AKsignal 通过可追溯的市场事实、策略信号和真实组合约束，�
 
 **层间约束：** Facts 不知道 Strategy 的存在，也不编码策略语义；Strategy 不直接维护或重算底层行情；Position 不自行生成市场信号。Strategy 信号不等于仓位决策：Position 可以基于实际持仓和风险暴露拒绝或调整策略建议，但不能篡改市场事实。
 
-**v0.7.1 完成重点：日报 04 分组趋势启动观察进入正式发布；v0.7.0 完成 Basket Compare v2、日报 RPS15/RPS5/当日 RPS、跨市场休市验收。** Strategy 与 Portfolio / Position 是后续建设阶段，将按新架构重新设计；不以旧 Selection、Timing、回测或仓位代码作为实现蓝本。
+**v0.7.2 完成重点：日报 04 研究注意力简报，区分新增与已有机会、突出关键变化，提供九组速览与折叠证据；v0.7.1 接入分组趋势启动观察，v0.7.0 完成 Basket Compare v2。** 展示解释见 [日报 04 信息架构](docs/DAILY_GROUP_ATTENTION.md)，不改变底层 V2 规则。Strategy 与 Portfolio / Position 是后续建设阶段，将按新架构重新设计；不以旧 Selection、Timing、回测或仓位代码作为实现蓝本。
 
 当前 Market Facts 保留九项能力：固定池个股数据、全市场 ETF 数据、全行业指数数据、行业轮动、大类资产趋势、ETF 趋势活跃池、个股趋势、ETF 与个股底部位置、分组趋势启动观察。覆盖范围随配置和行情质量变化，固定池个股不等于 A 股全量。
 

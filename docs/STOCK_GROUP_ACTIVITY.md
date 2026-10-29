@@ -1,6 +1,6 @@
 # 日报04趋势启动观察 · V2
 
-2026-10-25 · `stock_group_trend_start_v2` · 日报布局 `daily_observation_modules_v10`。
+2026-10-25 · 产品 v0.7.2 · `stock_group_trend_start_v2` · 日报布局 `daily_observation_modules_v10`。
 
 本轮替换启动规则与事件去重，保留双路径、结构指数、快照审计、完整性和状态历史重建机制。全部参数为样本内探索候选，**未验证**。本地比较和预览不覆盖正式发布，不构成交易、仓位或收益预测结论。
 

@@ -18,7 +18,9 @@
 | `portfolio.yaml` | 组合构建（资金 / 持仓 / 单资产上限 / deploy / 权重） | Portfolio |
 | `industry_data.yaml` | 申万行业数据模块自身配置（数据源 / provisional / storage / bootstrap） | SW 模块 |
 | `market_data.yaml` | ETF 行情获取 Data Acquisition 参数（增量窗口起点 / EM 熔断 window-min_requests-failure_rate / Sina 并发 workers-retry） | etf update（fetch_policy） |
-| `etf_classification.yaml` | ETF 资产桶分类（展示标签） | classifier / rotation 报告 |
+| `etf_classification.yaml` | ETF 两维度词表与离线名称线索 | 独立维护，不用于 RunDay 分类 |
+| `etf_classification_facts.json` | 已发布逐基金分类、独立核验状态与证据引用 | RunDay 只读、按批次锁定 |
+| `etf_classification_versions/` | 不可变分类版本归档 | 独立发布与历史复现 |
 | `research_baskets.yaml` | Research Basket 定义（来源 / 权重 / 基准） | Research Basket |
 | `research_stage_log.yaml` | 观察组商业化阶段变更审计日志（genesis + entries 链） | stage_log 校验 / 未来 stage event study |
 | `guojin_tradable_blacklist.csv` | 实战可交易黑名单 | Selection 账户映射 |
@@ -64,3 +66,5 @@
 - `etf_signal_rules.yaml`（旧 ETF 规则草案，无代码引用）
 - `etf_universe.yaml`（旧 ETF 门控草案，仅被已删除的 `load_gate_config` 读取）
 - `guojin_tradable_verified_backup.csv`（原人工验证白名单备份，黑名单机制已取代）
+
+ETF 分类发布与消费契约见 [docs/ETF_CLASSIFICATION.md](../docs/ETF_CLASSIFICATION.md)。分类证据与审计归 data/reference，发布入口归 scripts/maintenance，正式分类映射归 config。

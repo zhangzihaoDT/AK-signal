@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 from src.common import batch_release as release
 
-VERSION = 'market_snapshot_v2'
+VERSION = 'market_snapshot_v3'
 
 
 def load(stage: Path, stem: str, date: str) -> pd.DataFrame:
@@ -21,12 +21,24 @@ def snapshot(root: Path, stage: Path, receipt: dict) -> dict:
     etfs = load(stage, 'etf_trends', date).drop_duplicates('fund_code')
     positions = load(stage, 'etf_positions', date).drop_duplicates('fund_code')
     state, focus, changes = [], [], []
+    index_module = (receipt.get('result') or {}).get('modules', {}).get('core_indices')
+    if index_module:
+        indices = load(stage, 'core_indices', date)
+        fixed = indices[indices.category.eq('broad')]
+        ready = fixed[fixed.status.eq('AVAILABLE')]
+        rising = int(ready.trend_state.eq('RISING').sum())
+        falling = int(ready.trend_state.eq('FALLING').sum())
+        state.append(f"核心宽基指数：{len(ready)}/{len(fixed)} 可用；均线上行 {rising}，下行 {falling}，交错 {len(ready)-rising-falling}。来源：长桥指数日线。")
+        missing = indices[indices.status.ne('AVAILABLE')]
+        if len(missing):
+            from src.observation.core_indices import REASONS
+            state.append('指数观察缺失：' + '；'.join(r['name'] + '（' + REASONS.get(r['reason'], r['reason']) + '）' for _, r in missing.iterrows()) + '。')
     broad = assets[assets.direction.eq('A股宽基')]
     if len(broad) == 1:
         r = broad.iloc[0]
-        state.append(f"A股宽基：{r.direction_state}；趋势活跃 {r.active_ratio:.1%}。")
+        state.append(f"A股宽基 ETF 汇总：{r.direction_state}；趋势活跃 {r.active_ratio:.1%}。")
     else:
-        state.append('宽基环境事实缺失，不能判断整体市场状态。')
+        state.append('宽基 ETF 汇总事实缺失，不能据此判断整体市场状态。')
     industry_module = (receipt.get('result') or {}).get('modules', {}).get('industry_rotation') or {}
     industry_unavailable = industry_module.get('status') == 'unavailable'
     established = int(industries.trend_stage.eq('已形成趋势').sum()) if not industry_unavailable else 0

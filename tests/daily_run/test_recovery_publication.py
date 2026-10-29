@@ -276,3 +276,75 @@ def test_new_observation_batch_does_not_copy_old_decisions_or_research(tmp_path)
     stage = release.prepare_workspace(tmp_path,state)
     assert list(stage.iterdir()) == []
     assert (public/'selection/old.json').read_text() == 'legacy recommendation'
+
+
+def test_build_candidate_is_only_committed_by_publication(tmp_path, monkeypatch):
+    """Principle: build computes, validate checks, publish commits.
+
+    The fake build writes a candidate inside the private stage; the ledger must
+    not exist while the batch can still fail, and must exist once it published.
+    """
+    calls, fail = harness(tmp_path, monkeypatch)
+    fail['enabled'] = False
+    from src.observation import industry_events
+    original = daily_run.run_step
+    ledger = tmp_path / 'config' / 'observation_snapshots.json'
+
+    def run(command, env, log, title):
+        code = original(command, env, log, title)
+        if command[0] == 'fake' and command[1] == '4':
+            stage = Path(env['AKSIGNAL_OUTPUTS_DIR'])
+            folder = stage / 'observation'
+            folder.mkdir(parents=True, exist_ok=True)
+            facts = folder / 'industry_rotation_20261012.parquet'
+            facts.write_bytes(b'industry facts')
+            industry_events.write_candidate(stage / 'run_day', '20261012', facts)
+            assert not ledger.exists(), 'build must not write the official registry'
+        return code
+
+    monkeypatch.setattr(daily_run, 'run_step', run)
+    assert daily_run.execute_batch(tmp_path, '20261012', False) == 0
+    assert ledger.exists()
+    assert json.loads(ledger.read_text())['industry_rotation'][0]['date'] == '20261012'
+
+
+def test_reconcile_after_publication_repairs_a_missing_registry(tmp_path, capfd):
+    """A commit interrupted after the pointer swap is repaired from the published batch."""
+    from src.observation import industry_events
+    facts = tmp_path / 'outputs' / 'observation' / 'industry_rotation_20261012.parquet'
+    facts.parent.mkdir(parents=True)
+    facts.write_bytes(b'industry facts')
+    industry_events.write_candidate(tmp_path / 'outputs' / 'run_day', '20261012', facts)
+    (tmp_path / 'outputs' / 'run_day' / 'publication.json').write_text(json.dumps(
+        {'trade_date': '20261012', 'run_id': 'run'}))
+    daily_run.commit_published_snapshot(tmp_path)
+    assert '行业快照已登记' in capfd.readouterr().out
+    ledger = tmp_path / 'config' / 'observation_snapshots.json'
+    assert json.loads(ledger.read_text())['industry_rotation'][0]['date'] == '20261012'
+    daily_run.commit_published_snapshot(tmp_path)
+    assert '行业快照已登记' not in capfd.readouterr().out
+
+
+def test_classification_publish_during_failure_keeps_pinned_input_on_resume(tmp_path, monkeypatch):
+    from src.etf_signal import classification_facts as facts
+    calls, fail = harness(tmp_path, monkeypatch)
+    doc = {'schema_version': facts.SCHEMA, 'classification_version': 'v1',
+           'published_at': '2026-10-11T00:00:00+00:00', 'as_of_date': '2026-10-11',
+           'investment_markets': facts.MARKETS, 'investment_directions': facts.DIRECTIONS, 'records': []}
+    release.atomic_json(tmp_path / facts.CURRENT, doc)
+    observed = []
+    original = daily_run.run_step
+    def capture(command, env, log, title):
+        loaded = facts.read_input(Path(env['AKSIGNAL_ETF_CLASSIFICATION_PATH']), env['AKSIGNAL_ETF_CLASSIFICATION_SHA256'])
+        observed.append(loaded['document']['classification_version'])
+        return original(command, env, log, title)
+    monkeypatch.setattr(daily_run, 'run_step', capture)
+    assert daily_run.execute_batch(tmp_path, '20261012', False) == 1
+    doc['classification_version'] = 'v2'
+    release.atomic_json(tmp_path / facts.CURRENT, doc)
+    fail['enabled'] = False
+    assert daily_run.execute_batch(tmp_path, '20261012', False) == 0
+    assert set(observed) == {'v1'}
+    receipt = json.loads((tmp_path / 'outputs/run_day/publication.json').read_text())
+    assert receipt['etf_classification']['classification_version'] == 'v1'
+    assert receipt['etf_classification']['sha256'] == facts.digest(Path(receipt['etf_classification']['file']).read_bytes())

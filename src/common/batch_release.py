@@ -65,12 +65,22 @@ def fingerprint(path: Path) -> str:
     return digest.hexdigest()
 
 
+# Files the batch itself writes during a run. They are runtime state, not the
+# implementation: including them would change the signature mid-batch and make
+# a resumed batch refuse to publish (2026-10-29: industry snapshot registration).
+SELF_WRITTEN = {"config/observation_snapshots.json"}
+
+
 def implementation_signature(root: Path) -> str:
     digest = hashlib.sha256()
     for directory in (root / "src", root / "config"):
         for path in sorted(directory.rglob("*")):
             if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc":
-                digest.update(str(path.relative_to(root)).encode())
+                name = str(path.relative_to(root))
+                # Published classification is independently pinned as a batch input.
+                if name in SELF_WRITTEN or name == 'config/etf_classification_facts.json' or name.startswith('config/etf_classification_versions/'):
+                    continue
+                digest.update(name.encode())
                 digest.update(fingerprint(path).encode())
     version = root / "VERSION"
     if version.exists():

@@ -1,0 +1,10 @@
+{
+  "version": "observation-snapshots-v1",
+  "industry_rotation": [
+    {
+      "date": "20261028",
+      "path": "observation/industry_rotation_20261028.parquet",
+      "sha256": "dc15a9b914b9e7c60526597b18a7d553695fb8bd0eca9446de68aa1811c41026"
+    }
+  ]
+}

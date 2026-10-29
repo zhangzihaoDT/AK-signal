@@ -1,6 +1,8 @@
 # 日报 04：研究注意力分配
 
-2026-10-25 · 展示解释 `group_attention_v2` · 日报布局 `daily_observation_modules_v10`。
+2026-10-25 · 产品 v0.7.2 · 展示解释 `group_attention_v2` · 日报布局 `daily_observation_modules_v10`。
+
+> v0.7.3（2026-10-28）：布局升为 `daily_observation_modules_v13`，“个股观察”更名为“研究主线”，速览合并为单表（趋势阶段、启动状态、观察变化、线索），证据拆成结构化字段；“已有机会/新增机会”展示层改为“已有观察线索/新增观察线索”。展示解释与规则不变，见 [日报信息架构与展示契约](DAILY_INFORMATION_ARCHITECTURE.md)。
 
 这是读取已验收 `stock_group_trend_start_v2` 的展示层，不计算行情、趋势信号或状态机。`status`、`first_trigger`、事件、RS及参与度保留原值。只解释事实和安排阅读顺序，不表示投资吸引力、买入概率或预期收益。
 
@@ -63,7 +65,7 @@
 
 `today`中的RS20Δ与5/10日参与度变化来自`changes`，其日期来自`previous_observation_date`，单位均为pp；详情“RS20Δ较5日前变化”来自`metrics.rs_20d_change_5d_pp`。不从日历猜上一有效日，不用5日变化冒充逐观察日变化。`phase_fields`、`priority_fields`、`observation_fields`和trace用于追溯标签及摘要。
 
-Hub继续交付原文件名与HTML artifact类型；锚点、favicon、原4个日报区域和数据质量区保留。解释JSON是增补字段。此轮只生成本地预览，未调用发布入口。
+Hub继续交付原文件名与HTML artifact类型；锚点、favicon、原4个日报区域和数据质量区保留。解释JSON是增补字段。开发验收先生成独立本地预览；用户确认后通过正式离线入口重新发布，Hub只读正式发布回执，不直接指向开发预览。
 
 ## 本地复现
 

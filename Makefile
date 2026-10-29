@@ -78,8 +78,16 @@ etf-update: ## 增量更新 ETF 日行情
 etf-calculate: ## 计算 ETF 技术指标与 RPS
 	$(PYTHON) $(SRC_MAIN) etf calculate
 
-etf-classify: ## ETF 资产类别分类
+etf-classify: ## 离线名称推断维护（不发布分类配置，不用于 RunDay）
 	$(PYTHON) $(SRC_MAIN) etf classify
+
+CLASSIFICATION_CANDIDATE ?=
+CLASSIFICATION_VERSION ?=
+CLASSIFICATION_BASE ?=
+CLASSIFICATION_VALIDATOR ?= $(HOME)/.agents/skills/etf-classification/scripts/validate_evidence.py
+.PHONY: etf-classification-publish
+etf-classification-publish: ## 独立发布 Skill 分类候选到 config（不运行行情）
+	$(PYTHON) -m scripts.maintenance.publish_etf_classification --candidate "$(CLASSIFICATION_CANDIDATE)" --version "$(CLASSIFICATION_VERSION)" --validator "$(CLASSIFICATION_VALIDATOR)" $(if $(CLASSIFICATION_BASE),--base-version "$(CLASSIFICATION_BASE)",)
 
 etf-layer1: ## 全市场资产热度分布
 	$(PYTHON) $(SRC_MAIN) etf layer1

@@ -1,0 +1,14 @@
+version: core-indices-v1
+# 固定指数观察注册；与 ETF 产品池、流动性筛选、活跃列表独立。
+# exchange 是行情路由/日历映射，并不表示指数由该交易所编制。
+# null 表示尚无核验通过的供应商映射，不能猜代码或改用 ETF 填充。
+indices:
+  - {key: csi300, name: 沪深300, code: '000300', issuer: CSI, category: broad, provider_symbol: 000300.SH, exchange: SSE}
+  - {key: csi500, name: 中证500, code: '000905', issuer: CSI, category: broad, provider_symbol: 000905.SH, exchange: SSE}
+  - {key: csi1000, name: 中证1000, code: '000852', issuer: CSI, category: broad, provider_symbol: 000852.SH, exchange: SSE}
+  - {key: chinext, name: 创业板指, code: '399006', issuer: SZSE, category: broad, provider_symbol: 399006.SZ, exchange: SZSE}
+  - {key: star50, name: 科创50, code: '000688', issuer: SSE, category: broad, provider_symbol: 000688.SH, exchange: SSE}
+  - {key: csi2000, name: 中证2000, code: '932000', issuer: CSI, category: broad, provider: csindex, provider_symbol: '932000', exchange: SSE}
+  - {key: csi_all, name: 中证全指, code: '000985', issuer: CSI, category: broad, provider_symbol: 000985.SH, exchange: SSE}
+  - {key: csi_a500, name: 中证A500, code: '000510', issuer: CSI, category: broad, provider_symbol: 000510.SH, exchange: SSE}
+  - {key: dividend_low_vol, name: 红利低波, code: H30269, issuer: CSI, category: style, provider: csindex, provider_symbol: H30269, exchange: SSE}

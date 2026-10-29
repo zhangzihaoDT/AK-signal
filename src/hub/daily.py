@@ -186,14 +186,29 @@ def view(root: Path, at: datetime | None = None) -> dict:
             else:
                 primary = int(frame.source_status.eq('primary').sum()) if 'source_status' in frame else 0
                 detail['metrics'] = [{'label': '行业主源覆盖', 'value': f"{primary}/{len(frame)}"}]
-            if publication['trade_date'] == target and (not state or state.get('run_id') == publication['run_id']
-                                                        or state.get('status') == 'published'):
+            # A verified delivery resolves this target even when a later,
+            # abandoned checkpoint remains. Only a live replacement batch or
+            # a blocking probe error takes precedence over the formal receipt.
+            stale_partial_block = (record.get('status') == 'blocked'
+                                   and record.get('reason') == 'PUBLICATION_NOT_COMPLETE'
+                                   and facts.get('status') == 'PARTIAL')
+            if (publication['trade_date'] == target
+                    and (result['lastRun']['status'] != 'BLOCKED' or stale_partial_block)
+                    and (state.get('run_id') == publication['run_id']
+                         or result['lastRun']['status'] != 'RUNNING')):
+                if state.get('run_id') != publication['run_id']:
+                    # Do not attach the abandoned attempt's timing/progress to
+                    # the published run. Keep its checkpoint untouched for audit.
+                    result['lastRun']['startedAt'] = None
+                    for key in ('elapsedSeconds', 'phase', 'completedSteps', 'totalSteps',
+                                'triggerSource', 'logLines'):
+                        detail.pop(key, None)
                 result['lastRun']['status'] = 'PUBLISHED'
                 result['lastRun']['finishedAt'] = publication['published_at']
                 detail['runId'] = publication['run_id']
                 detail.update(error='', reason='PUBLISHED', retryAt=None)
-            elif state.get('status') == 'published':
-                raise ValueError('checkpoint 已发布但目标回执不一致')
+            # Runtime/trigger blocks do not invalidate a separately verified
+            # publication. Keep its pinned attachments deliverable in that case.
             for suffix, mime in (('.html', 'text/html'), ('.md', 'text/markdown')):
                 path = stage / 'observation' / f"observation_{publication['trade_date']}{suffix}"
                 result['artifacts'].append({'file': str(path), 'name': path.name, 'extension': suffix,

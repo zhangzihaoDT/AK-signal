@@ -8,7 +8,12 @@ data/
 │   ├── longbridge/
 │   │   └── raw/
 │   │       ├── daily/               每日原始快照、manifest、精确日期分区引用
+│   │       ├── core_indices/        固定指数独立快照、身份取证、manifest与日期引用
 │   │       └── baskets/             篮子研究独立close_only快照及manifest
+│   ├── cffex/                      中金所官方衍生品来源
+│   │   └── raw/daily/               按日期原始日CSV、manifest与日期分区
+│   ├── csindex/                     中证官方指数来源
+│   │   └── raw/core_indices/        原始HTTP响应、标准快照、manifest与日期引用
 │   ├── tdx/
 │   │   ├── raw/day/                 官方.day历史基座（1,318个文件）
 │   │   ├── processed/               128行业价格表与独立收益/RPS
@@ -36,3 +41,7 @@ TDX官方.day为原始数据基础，仅追加新交易记录；加工价格库�
 raw不可被计算或展示静默修改；processed保留输入版本/日期/来源。数据缺失应报错或标记不可用，不能从legacy目录偷偷补齐。旧审计与已发布研究可追溯，但其结论不代表当前业务规则。
 
 新来源须增加独立来源目录及schema说明；不要新增含糊的temp/final/new2等目录。原始事实只留一份，派生物放processed或正式批次outputs；大体积试验结果按清理回执移出工作树。
+
+## ETF 分类维护数据
+
+`reference/etf_classification/candidates/<run_id>/` 保存 Skill 候选、证据快照、输入摘要与审计；`publications/<version>.json` 保存发布回执。RunDay 不从候选生成分类，只读 `config/etf_classification_facts.json` 并锁定批次副本。不可变正式版本位于 `config/etf_classification_versions/`。证据不随每日行情重建，清理前检查 config 与历史批次引用。完整接口见 [ETF_CLASSIFICATION.md](../docs/ETF_CLASSIFICATION.md)。

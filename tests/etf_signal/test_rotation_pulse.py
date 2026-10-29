@@ -21,6 +21,19 @@ EQUITY = {"A", "B", "C"}
 ALL_CODES = ["A", "B", "C", "M"]
 
 
+@pytest.fixture(autouse=True)
+def published_classification(monkeypatch):
+    # Fixed published classifications; changing a fund's name must not reclassify it.
+    def fact(value):
+        return dict(value=value, status='pending' if value == '待核实' else 'inferred',
+                    as_of='2020-01-01', scope='mandate', source_ids=['fixture'], reason='published fixture')
+    document = {'classification_version': 'fixture-v1', 'published_at': '2020-01-01T00:00:00+00:00',
+                'records': [{'fund_code': c, 'investment_market': fact('待核实' if c == 'A' else '境内'),
+                             'investment_direction': fact('货币' if c == 'M' else '科技')} for c in ALL_CODES]}
+    monkeypatch.setattr(rotation.classification_facts, 'load_input', lambda: {'document': document, 'sha256': 'fixture', 'reason': ''})
+    return document
+
+
 def _combined_df() -> pd.DataFrame:
     dates = pd.bdate_range("2026-01-05", periods=40)
     paths = {
@@ -78,7 +91,9 @@ class TestMarketPulseColumns:
         rot = rotation.compute_rotation_metrics(_combined_df(), master).set_index("fund_code")
         assert rot.loc["A", "tracking_index_status"] == "missing"
         assert rot.loc["B", "tracking_index_status"] == "present_unverified"
-        assert rot.loc["A", "classification_status"] == "classified_unverified"
+        assert rot.loc["A", "classification_status"] == "unclassified"
+        assert rot.loc["A", "investment_market"] == "待核实"
+        assert rot.loc["A", "investment_direction"] == "科技"
 
     def test_rps1_matches_cross_section(self):
         rot = rotation.compute_rotation_metrics(_combined_df(), _master_df())
@@ -147,19 +162,20 @@ class TestReportThreeQuestions:
         # 页脚审计行
         assert "异常 ETF" in html
 
-    def test_cross_asset_direction_groups(self):
-        rot = rotation.compute_rotation_metrics(_combined_df(), _master_df())
+    def test_cross_asset_direction_groups(self, published_classification):
+        published_classification['records'][0]['investment_market'].update(value='境内', status='inferred')
+        master = _master_df()
+        master["fund_name"] = ["A股科技ETF", "A股AIETF", "A股芯片ETF", "A股货币ETF"]
+        rot = rotation.compute_rotation_metrics(_combined_df(), master)
         rows = rotation.cross_asset_direction(rot)
-        # A/B/C 是 industry（权益），M 是货币
         dirs = {r["direction"]: r for r in rows}
-        assert "A股行业/主题" in dirs
-        assert "现金/货币" in dirs
+        assert set(dirs) == {"境内 · 科技", "境内 · 货币"}
         equity = rot[rot["fund_code"].isin(sorted(EQUITY))]
-        row = dirs["A股行业/主题"]
+        row = dirs["境内 · 科技"]
         assert row["median_rps5"] == pytest.approx(round(float(equity["rps5"].median()), 1))
         assert row["median_rps1"] == pytest.approx(round(float(equity["rps1"].median()), 1))
-        assert dirs["现金/货币"]["median_rps5"] is None
-        assert dirs["现金/货币"]["median_rps1"] is None
+        assert dirs["境内 · 货币"]["median_rps5"] is None
+        assert dirs["境内 · 货币"]["median_rps1"] is None
 
     def test_active_etf_representatives(self):
         rot = rotation.compute_rotation_metrics(_combined_df(), _master_df())

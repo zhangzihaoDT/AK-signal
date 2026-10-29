@@ -51,6 +51,9 @@ def test_build_keeps_other_facts_and_emits_empty_industry_partition(tmp_path, mo
     monkeypatch.setattr(storage, "load_metrics", sw_prices_forbidden)
     monkeypatch.setattr(report, "mark_identity", lambda frame, _date: frame)
     monkeypatch.setattr(report, "quality_lines", lambda *_args: [])
+    # The registry is read beside the root; a test root must never read or write
+    # the repository's real history, and build must never write the registry.
+    monkeypatch.setattr(cli, "project_root", lambda: tmp_path)
 
     daily = tmp_path / "daily"
     daily.mkdir()
@@ -87,11 +90,17 @@ def test_build_keeps_other_facts_and_emits_empty_industry_partition(tmp_path, mo
     industry = pd.read_parquet(folder / "industry_rotation_20261015.parquet")
     summary = json.loads((folder / "observation_20261015.json").read_text())
     assert industry.empty
+    # Build is a calculation stage: no registry write and no candidate without facts.
+    assert not (tmp_path / "config" / "observation_snapshots.json").exists()
+    assert not (tmp_path / "outputs" / "run_day" / "industry_snapshot.json").exists()
     assert summary["modules"]["industry_rotation"]["provider"] == "tdx"
     assert summary["modules"]["industry_rotation"]["reason"] == "ValueError: test unavailable"
     assert len(pd.read_parquet(folder / "etf_trends_20261015.parquet")) == 1
     assert summary["industry_count"] == 0
-    assert summary["missing"] == ["industry_rotation"]
+    assert 'industry_rotation' in summary['missing']
+    assert len(pd.read_parquet(folder / 'core_indices_20261015.parquet')) == 9
+    assert summary['modules']['core_indices']['expected_count'] == 9
+    assert summary['modules']['derivatives']['expected_contract_count'] == 4
     assert summary["modules"]["industry_rotation"]["status"] == "unavailable"
     import hashlib
     activity_path = folder / 'stock_group_activity_20261015.json'
@@ -100,6 +109,8 @@ def test_build_keeps_other_facts_and_emits_empty_industry_partition(tmp_path, mo
     assert activity['input_error'] == 'MISSING_BATCH_AUDIT'
     assert len(activity['groups']) == 9
     html = (folder / 'observation_20261015.html').read_text()
+    assert html.index('id="core-indices-broad"') < html.index('id="derivatives-observation"') < html.index('id="core-indices-style"')
+    assert 'id="derivatives-observation"' in html and '基差率' in html
     assert '今日数据不足，无法安排优先观察分组' in html
     assert len(summary['group_attention']['groups']) == 9
     assert all(r['priority'] == '待数据完整' for r in summary['group_attention']['groups'])

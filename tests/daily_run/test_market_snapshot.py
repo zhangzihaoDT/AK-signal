@@ -58,3 +58,21 @@ def test_visuals_preserve_calendar_gaps_and_unknown(monkeypatch):
     assert v['industries'][0]['change'] is None
     assert v['industries'][0]['activeRatio']==.75
     assert sum(s['count'] for s in v['distribution'])==1
+
+
+def test_native_index_summary_is_separate_from_etf_breadth(monkeypatch):
+    f = frames()
+    f['core_indices'] = pd.DataFrame([
+        dict(category='broad', status='AVAILABLE', trend_state='FALLING', name='沪深300', reason=''),
+        dict(category='broad', status='UNAVAILABLE', trend_state='UNKNOWN', name='中证2000', reason='PROVIDER_SYMBOL_UNVERIFIED'),
+        dict(category='style', status='UNAVAILABLE', trend_state='UNKNOWN', name='红利低波', reason='PROVIDER_SYMBOL_UNVERIFIED'),
+    ])
+    monkeypatch.setattr(m, 'load', lambda stage, stem, date: f[stem].copy())
+    monkeypatch.setattr(m.release, 'published_batch', lambda *a: None)
+    receipt = {'trade_date': '20261013', 'run_id': 'r', 'result': {'data_complete': False,
+               'modules': {'core_indices': {'status': 'partial'}}}}
+    s = m.snapshot(Path(__file__).resolve().parents[2], Path('.'), receipt)
+    rows = s['sections'][0]['rows']
+    assert '核心宽基指数：1/2 可用' in rows[0] and '下行 1' in rows[0]
+    assert '中证2000' in rows[1] and '红利低波' in rows[1]
+    assert any('ETF 汇总' in row for row in rows)

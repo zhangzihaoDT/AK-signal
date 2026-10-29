@@ -38,6 +38,7 @@ import pandas as pd
 
 from src.common import themes as themes_cfg
 from . import classifier
+from . import classification_facts
 
 logger = logging.getLogger("etf_signal.rotation")
 
@@ -310,13 +311,15 @@ def compute_rotation_metrics(
         logger.warning("no close data for rotation")
         return pd.DataFrame()
 
-    # 参与排名的风险资产集合（排除货币/债券）
-    rank_codes: set[str] | None = None
-    if not master.empty and "asset_bucket" in master.columns:
-        excluded = master[master["asset_bucket"].isin(RANK_EXCLUDED_BUCKETS)]["fund_code"]
-        rank_codes = set(closes.columns) - set(excluded)
-        logger.info("rotation ranking universe: %d / %d ETFs (excluded %d defensive)",
-                    len(rank_codes), len(closes.columns), len(excluded))
+    # Classifications are published inputs. Missing codes retain price facts without name fallback.
+    identities = pd.DataFrame({'fund_code': list(closes.columns)})
+    if not master.empty:
+        identities = identities.merge(master.drop_duplicates('fund_code'), on='fund_code', how='left', validate='one_to_one')
+    if 'fund_name' not in identities:
+        identities['fund_name'] = ''
+    master = classification_facts.attach(identities, closes.index[-1])
+    rank_codes = set(master.loc[master.classification_rank_eligible, 'fund_code'])
+    logger.info('rotation ranking universe: %d / %d ETFs from published classification', len(rank_codes), len(closes.columns))
 
     # v0.7.0 数据质量：回溯窗口内单日异常（份额折算/除权/异常行情）不参与对应窗口横截面排名
     anomaly_offsets = _detect_anomaly_offsets(closes, dq_window, dq_threshold)
@@ -326,15 +329,15 @@ def compute_rotation_metrics(
     rank_codes_by_window: dict[int, set[str]] = {}
     for w in windows:
         rank_codes_by_window[w] = {
-            c for c in (rank_codes or set(closes.columns))
+            c for c in rank_codes
             if not any(o <= w for o in anomaly_offsets.get(c, []))
         }
     today_rank_codes = {
-        c for c in (rank_codes or set(closes.columns))
+        c for c in rank_codes
         if not any(o <= today_window for o in anomaly_offsets.get(c, []))
     }
     rps5_rank_codes = {
-        c for c in (rank_codes or set(closes.columns))
+        c for c in rank_codes
         if not any(o <= RPS5_WINDOW for o in anomaly_offsets.get(c, []))
     }
 
@@ -402,7 +405,7 @@ def compute_rotation_metrics(
     # 名称 / 桶信息
     if not master.empty and "fund_code" in master.columns:
         m_cols = [c for c in ["fund_code", "fund_name", "asset_bucket", "tracking_index",
-                              "tracking_index_code"] if c in master.columns]
+                              "tracking_index_code", *classification_facts.COLUMNS] if c in master.columns]
         etf = etf.merge(master[m_cols].drop_duplicates(subset=["fund_code"]), on="fund_code", how="left")
     else:
         etf["fund_name"] = ""
@@ -423,11 +426,17 @@ def compute_rotation_metrics(
     etf["classification_status"] = np.where(
         etf["asset_bucket"].ne(""), "classified_unverified", "unclassified",
     )
+    if "investment_market" in etf and "investment_direction" in etf:
+        complete = (etf["investment_market"].notna() & etf["investment_direction"].notna()
+                    & etf["investment_market"].ne("待核实") & etf["investment_direction"].ne("待核实"))
+        etf["classification_status"] = np.where(complete, "classified_unverified", "unclassified")
+        verified = complete & etf.market_classification_status.eq('verified') & etf.direction_classification_status.eq('verified')
+        etf.loc[verified, 'classification_status'] = 'verified'
     etf["bucket_label"] = etf["asset_bucket"].map(BUCKET_LABELS).fillna(etf["asset_bucket"])
     asset_class_map = {k: ASSET_CLASS_LABEL.get(v.get("asset_class", ""), "其他")
                        for k, v in classifier.BUCKET_DEFINITIONS.items()}
     etf["asset_class"] = etf["asset_bucket"].map(asset_class_map).fillna("未分类")
-    etf["is_tech"] = etf["fund_name"].apply(is_tech_etf)
+    etf["is_tech"] = etf["investment_direction"].eq('科技')
     # v0.4.3 多主题：按主题关键词打标（兼容旧 parquet 缺列场景）
     etf["theme"] = etf["fund_name"].apply(match_theme)
 
@@ -717,6 +726,11 @@ CROSS_ASSET_ORDER = ["A股宽基", "A股行业/主题", "港股", "海外权益"
 
 def _cross_asset_direction(row: Any) -> str:
     """把单只 ETF 归到跨资产方向（消费侧分组，不改任何 Policy）。"""
+    if "investment_market" in row and "investment_direction" in row:
+        market, direction = row.get("investment_market"), row.get("investment_direction")
+        if pd.isna(market) or pd.isna(direction) or market in ("", "待核实") or direction in ("", "待核实"):
+            return "其他"
+        return f"{market} · {direction}"
     asset_class = str(row.get("asset_class", "") or "")
     bucket = str(row.get("asset_bucket", "") or "")
     name = str(row.get("fund_name", "") or "")
@@ -762,7 +776,12 @@ def cross_asset_direction(etf: pd.DataFrame) -> list[dict[str, Any]]:
     df = etf.copy()
     df["_dir"] = df.apply(_cross_asset_direction, axis=1)
     rows: list[dict[str, Any]] = []
-    for d in CROSS_ASSET_ORDER:
+    if "investment_market" in df and "investment_direction" in df:
+        order = [f"{market} · {direction}" for market in classification_facts.MARKETS if market != "待核实"
+                 for direction in classification_facts.DIRECTIONS if direction != "待核实"] + ["其他"]
+    else:
+        order = CROSS_ASSET_ORDER
+    for d in order:
         sub = df[df["_dir"] == d]
         if sub.empty:
             continue

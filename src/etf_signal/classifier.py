@@ -1,14 +1,6 @@
 """
-ETF 资产类别与风险暴露分类
-
-职责：
-  - 对 ETF 进行资产类别（primary_asset_class）和资产桶（primary_bucket）分类
-  - 生成 exposure_tags 多标签
-  - 区分 primary_asset_class：股票、债券、商品、现金、海外
-  - 区分 primary_bucket：行业、宽基、红利、黄金、国债等
-  - 支持多标签（exposure_tags）：AI、央企、高股息、科技成长等
-
-P0-B 交付物
+ETF 投资市场 / 投资方向两个平行维度，及既有计算桶的兼容映射。
+配置真源：config/etf_classification.yaml；名称推断不等于成分股核验。
 """
 
 from __future__ import annotations
@@ -48,112 +40,124 @@ BUCKET_DEFINITIONS: dict[str, dict[str, Any]] = {
     "overseas_bond": {"asset_class": "overseas", "label": "海外债券"},
 }
 
-# 关键词 → primary_bucket + exposure_tags
-KEYWORD_RULES: list[dict[str, Any]] = [
-    # 货币（场内货币基金命名多样：日日鑫/添益/日利/快线/快钱…不都带「货币」，与 research `_MONEY_KEYWORDS` 保持同一语义集）
-    {"keywords": ["货币", "短融", "现金", "场内货币", "货币增强",
-                  "日日鑫", "日鑫", "添益", "日利", "快线", "快钱", "天利", "同业存单"],
-     "bucket": "money_market", "tags": ["货币"]},
-    # 债券
-    {"keywords": ["国债", "国开", "利率债", "政金债"], "bucket": "bond_treasury", "tags": ["利率债"]},
-    {"keywords": ["公司债", "城投债", "科创债", "信用债"], "bucket": "bond_credit", "tags": ["信用债"]},
-    {"keywords": ["可转债", "转债"], "bucket": "bond_convertible", "tags": ["可转债"]},
-    # 商品（需含明确商品标识，避免与行业混淆）
-    {"keywords": ["黄金"], "bucket": "commodity_gold", "tags": ["黄金"]},
-    {"keywords": ["豆粕", "能源化工", "商品期货"], "bucket": "commodity_futures", "tags": ["商品期货"]},
-    # 海外
-    {"keywords": ["恒生", "h股", "港股", "纳斯达克", "标普", "日经", "德国", "亚太", "海外"],
-     "bucket": "overseas_equity", "tags": ["海外"]},
-    # 宽基
-    {"keywords": ["沪深300", "中证500", "中证1000", "创业板", "科创50", "上证50"],
-     "bucket": "broad_market", "tags": ["宽基"]},
-    # 行业（按关键词匹配）
-    {"keywords": ["银行", "证券", "保险", "非银"], "bucket": "industry", "tags": ["金融"]},
-    {"keywords": ["医药", "医疗", "生物"], "bucket": "industry", "tags": ["医药"]},
-    {"keywords": ["芯片", "半导体", "电子"], "bucket": "industry", "tags": ["科技", "半导体"]},
-    {"keywords": ["通信", "5g", "计算机", "软件", "人工智能", "ai"], "bucket": "industry", "tags": ["科技", "TMT"]},
-    {"keywords": ["新能源", "光伏", "风电", "电池", "新能车", "汽车"], "bucket": "industry", "tags": ["新能源"]},
-    {"keywords": ["军工", "国防", "航天"], "bucket": "industry", "tags": ["军工"]},
-    {"keywords": ["有色", "钢铁", "煤炭", "化工", "建材"], "bucket": "industry", "tags": ["周期"]},
-    {"keywords": ["消费", "食品", "饮料", "白酒", "家电"], "bucket": "industry", "tags": ["消费"]},
-    {"keywords": ["地产", "基建", "建筑"], "bucket": "industry", "tags": ["地产基建"]},
-    # 策略/风格
-    {"keywords": ["红利", "股息", "价值", "成长", "质量", "低波", "自由现金流"],
-     "bucket": "factor_style", "tags": ["策略"]},
-    # 主题兜底
-    {"keywords": [], "bucket": "theme", "tags": ["主题"]},
-]
+# 这两个字段是产品分类；旧桶只用于兼容既有计算消费者。
+CLASSIFICATION_COLUMNS = (
+    "investment_market", "investment_direction", "market_classification_status",
+    "direction_classification_status", "classification_version", "classification_basis",
+    "market_classification_evidence", "direction_classification_evidence",
+)
 
 
-def load_config(config_dir: Path) -> dict[str, Any]:
-    path = config_dir / "etf_classification.yaml"
-    if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    return {}
+def load_config(config_dir: Path | None = None) -> dict[str, Any]:
+    if config_dir is None:
+        from src.common.paths import config_dir as default_config_dir
+        config_dir = default_config_dir()
+    with (config_dir / "etf_classification.yaml").open(encoding="utf-8") as handle:
+        cfg = yaml.safe_load(handle)
+    for key in ("version", "investment_markets", "investment_directions", "market_rules", "direction_rules"):
+        if not cfg.get(key):
+            raise ValueError(f"ETF classification config missing {key}")
+    for rules, values in (("market_rules", "investment_markets"),
+                          ("direction_rules", "investment_directions")):
+        for rule in cfg[rules]:
+            if rule["value"] not in cfg[values] or not rule.get("keywords"):
+                raise ValueError(f"Invalid ETF classification rule: {rule}")
+    return cfg
 
 
-def classify_etf(fund_name: str, tracking_index: str = "") -> dict[str, Any]:
-    """对单只 ETF 执行分类。
+def _text(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    text = str(value).strip()
+    return "" if text.lower() in ("nan", "none", "<na>") else text
 
-    Returns:
-        {
-            primary_asset_class: str,
-            primary_bucket: str,
-            exposure_tags: list[str],
-            asset_bucket: str,        # 向下兼容
-            exposure_type: str,       # 向下兼容
-            exposure_name: str,       # 向下兼容
-            market_scope: str,
-        }
+
+def _match(text: str, rules: list[dict]) -> tuple[str, str]:
+    normalized = text.casefold().replace(" ", "")
+    for rule in rules:
+        for keyword in rule["keywords"]:
+            if rule["value"] == "货币" and "现金流" in normalized:
+                continue
+            if keyword == "能源ETF" and "新能源" in normalized:
+                continue
+            if keyword == "国企" and any(k in normalized for k in ("恒生国企", "港股国企")):
+                continue
+            if keyword.casefold() in normalized:
+                return rule["value"], keyword
+    return "待核实", ""
+
+
+def classify_etf(fund_name: str, tracking_index: str = "", *, config: dict | None = None) -> dict[str, Any]:
+    """独立识别投资市场和方向；指数名称优先，简称仅作未核验推断。
+
+    不读取/改写价格，不用代码前缀推断市场，不把名称推断认证为真实持仓。
     """
-    name = fund_name.lower()
-    result: dict[str, Any] = {
-        "primary_asset_class": "",
-        "primary_bucket": "",
-        "exposure_tags": [],
-        "asset_bucket": "",
-        "exposure_type": "",
-        "exposure_name": "",
-        "market_scope": "a_share",
+    cfg = config if config is not None else load_config()
+    name, index = _text(fund_name), _text(tracking_index)
+    # 指数名称存在时不拼接可能冲突的基金简称。
+    evidence = index or name
+    market, market_keyword = _match(evidence, cfg["market_rules"])
+    direction, direction_keyword = _match(evidence, cfg["direction_rules"])
+    bucket = ""
+    if direction == "货币":
+        bucket = "money_market"
+    elif direction == "固收":
+        if any(k in evidence for k in ("可转债", "转债")):
+            bucket = "bond_convertible"
+        elif any(k in evidence for k in ("国债", "国开", "利率债", "政金债", "地方债")):
+            bucket = "bond_treasury"
+        else:
+            bucket = "bond_credit"
+    elif direction == "商品":
+        bucket = "commodity_gold" if any(k in evidence for k in ("黄金", "上海金")) else "commodity_futures"
+    elif direction != "待核实":
+        if market in ("港股", "美国", "其他海外"):
+            bucket = "overseas_equity"
+        elif direction == "宽基":
+            bucket = "broad_market"
+        elif direction == "跨行业策略":
+            bucket = "factor_style"
+        else:
+            bucket = "industry"
+    # 市场明确但方向不明：保留权益身份，方向仍待核实。
+    elif market in ("港股", "美国", "其他海外", "跨市场"):
+        bucket = "overseas_equity" if market != "跨市场" else "theme"
+    definition = BUCKET_DEFINITIONS.get(bucket, {})
+    return {
+        "primary_asset_class": definition.get("asset_class", ""),
+        "primary_bucket": bucket, "asset_bucket": bucket,
+        "exposure_tags": [] if direction == "待核实" else [direction],
+        "exposure_type": definition.get("label", ""),
+        "exposure_name": "" if direction == "待核实" else direction,
+        "market_scope": {"境内": "a_share", "港股": "hk", "美国": "us",
+                         "其他海外": "other_overseas", "跨市场": "cross_market"}.get(market, ""),
+        "investment_market": market, "investment_direction": direction,
+        "market_classification_status": "unverified" if market_keyword else "pending",
+        "direction_classification_status": "unverified" if direction_keyword else "pending",
+        "classification_version": cfg["version"],
+        "classification_basis": "tracking_index_name" if index else ("fund_name" if name else "missing"),
+        "market_classification_evidence": market_keyword,
+        "direction_classification_evidence": direction_keyword,
     }
-
-    for rule in KEYWORD_RULES:
-        if any(kw in name for kw in rule["keywords"]):
-            bucket = rule["bucket"]
-            bucket_def = BUCKET_DEFINITIONS.get(bucket, {})
-            result["primary_asset_class"] = bucket_def.get("asset_class", "")
-            result["primary_bucket"] = bucket
-            result["asset_bucket"] = bucket
-            result["exposure_tags"] = rule["tags"]
-            result["exposure_type"] = bucket_def.get("label", "")
-            result["exposure_name"] = rule["tags"][0] if rule["tags"] else fund_name
-            return result
-
-    return result
 
 
 def classify_all(master: pd.DataFrame, config: dict | None = None) -> pd.DataFrame:
-    """对 Master 中所有未分类的 ETF 执行自动分类。
+    """重新识别所有行（包括旧货币误分），不改变输入或持久化原始 Master。
 
-    同时回填历史数据中 primary_bucket 已赋值但 asset_bucket 为空的情况。
+    无新识别依据时只保留旧计算桶，并明确两项产品分类待核实。
     """
     if master.empty:
-        return master
-
-    df = master.copy()
-
-    # 回填：primary_bucket 有值但 asset_bucket 为空 → 用 primary_bucket
-    if "asset_bucket" in df.columns and "primary_bucket" in df.columns:
-        empty_asset = df["asset_bucket"].isna() | (df["asset_bucket"] == "")
-        has_primary = df["primary_bucket"].notna() & (df["primary_bucket"] != "")
-        df.loc[empty_asset & has_primary, "asset_bucket"] = df.loc[empty_asset & has_primary, "primary_bucket"]
-
-    for idx, row in df.iterrows():
-        if row.get("primary_bucket"):
-            continue
-        cls = classify_etf(row.get("fund_name", ""), row.get("tracking_index", ""))
-        for k, v in cls.items():
-            df.at[idx, k] = v if not isinstance(v, list) else str(v)
-
-    return df
+        return master.copy()
+    cfg = config if config is not None else load_config()
+    rows = []
+    for _, row in master.iterrows():
+        result = row.to_dict()
+        cls = classify_etf(row.get("fund_name"), row.get("tracking_index"), config=cfg)
+        if not cls["asset_bucket"]:
+            # 兼容无名称的历史计算输入；不得据此补造新分类。
+            old_bucket = _text(row.get("asset_bucket")) or _text(row.get("primary_bucket"))
+            cls["asset_bucket"] = cls["primary_bucket"] = old_bucket
+            cls["primary_asset_class"] = BUCKET_DEFINITIONS.get(old_bucket, {}).get("asset_class", "")
+        result.update({k: str(v) if isinstance(v, list) else v for k, v in cls.items()})
+        rows.append(result)
+    return pd.DataFrame(rows, index=master.index)

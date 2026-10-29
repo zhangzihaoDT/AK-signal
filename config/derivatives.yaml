@@ -1,0 +1,13 @@
+version: derivatives-v1
+products:
+  - product: IC
+    name: 中证500股指期货
+    exchange: CFFEX
+    provider: cffex
+    series_kind: listed_contracts
+    expected_contract_count: 4
+    spot_key: csi500
+    contract_multiplier_cny: 200
+    quote_unit: index_points
+    volume_unit: contracts
+    source_spec: https://www.cffex.com.cn/u/cms/www/202003/27165856gzzt.pdf

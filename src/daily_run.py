@@ -112,7 +112,7 @@ def phase(command: list[str]) -> str:
         ("etf", "update"): "更新 ETF 行情", ("industry", "update"): "更新行业行情",
         ("etf", "calculate"): "计算 ETF 强度", ("industry", "calculate"): "计算行业轮动",
         ("observation", "stock-metrics"): "更新观察池个股趋势",
-        ("observation", "build"): "构建趋势与底部位置观察",
+        ("observation", "build"): "构建核心指数、趋势与底部位置观察",
         ("observation", "check"): "验收观察事实",
     }.get(tuple(command[:2]), "检查全部结果")
 
@@ -134,7 +134,9 @@ def step_artifacts(command: list[str], trade_date: str) -> list[Path]:
     if kind == ("observation", "build"):
         folder = outputs_dir() / "observation"
         return [folder / f"{stem}_{trade_date}.parquet" for stem in
-                ("etf_trends", "asset_directions", "industry_rotation", "industry_directions", "stock_positions", "etf_positions")] + [
+                ("core_indices", "derivatives", "etf_trends", "asset_directions", "industry_rotation", "industry_directions", "stock_positions", "etf_positions")] + [
+                    folder / f'core_indices_{trade_date}.json',
+                    folder / f'derivatives_{trade_date}.json',
                     folder / f'stock_group_activity_{trade_date}.json',
                     folder / f'observation_{trade_date}.json',
                     folder / f'observation_{trade_date}.html']
@@ -225,6 +227,23 @@ def committed_release(root: Path, state: dict) -> dict | None:
     return publication if publication.get("run_id") == state["run_id"] else None
 
 
+def commit_published_snapshot(root: Path) -> None:
+    """Commit the industry snapshot registry from the published batch.
+
+    Publication is the commit point; the registry write follows it. This is the
+    only writer besides the reconcile that retries a commit interrupted between
+    the two, so a failed batch can never leave a registered day behind.
+    """
+    from src.observation import industry_events
+    try:
+        result = industry_events.reconcile_published(root)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"行业快照登记未完成：{exc}；下次运行会按发布回执补登", flush=True)
+        return
+    if result and result.get('changed'):
+        print(f"行业快照已登记 · {result['entry']['date']}", flush=True)
+
+
 def validate_release(trade_date: str) -> dict:
     for suffix in (".html", ".md", ".json"):
         path = outputs_dir()/"observation"/f"observation_{trade_date}{suffix}"
@@ -262,6 +281,9 @@ def show_status(root: Path, trade_date: str = "", offline: bool = False) -> None
 
 def execute_batch(root: Path, trade_date: str, offline: bool, *, resume: bool = False, restart: bool = False,
                   require_complete: bool = False) -> int:
+    # A publication whose registry commit was interrupted is repaired from the
+    # published batch before anything else, whichever date this run targets.
+    commit_published_snapshot(root)
     if not restart:
         published = release.published_batch(root, trade_date)
         if published:
@@ -302,7 +324,14 @@ def execute_batch(root: Path, trade_date: str, offline: bool, *, resume: bool = 
         if not state.get("prepared"):
             print("准备批次：隔离本轮报告，已发布日报继续可读", flush=True)
         stage = release.prepare_workspace(root, state)
+        from src.etf_signal.classification_facts import pin_input, read_input
+        state['etf_classification'] = pin_input(root, release.run_dir(root, state), state.get('etf_classification'))
+        release.save_checkpoint(root, state)
+        classification_input = state['etf_classification']
         env = {**os.environ, "AKSIGNAL_TRADE_DATE": trade_date,
+               "AKSIGNAL_RUN_ID": state["run_id"],
+               "AKSIGNAL_ETF_CLASSIFICATION_PATH": classification_input['file'],
+               "AKSIGNAL_ETF_CLASSIFICATION_SHA256": classification_input['sha256'],
                "AKSIGNAL_OFFLINE": "1" if offline else "0", "AKSIGNAL_OUTPUTS_DIR": str(stage)}
         with release.output_workspace(stage):
             start = resume_index(state, trade_date) if continuing else 0
@@ -390,11 +419,14 @@ def execute_batch(root: Path, trade_date: str, offline: bool, *, resume: bool = 
                 raise ValueError('行业兜底缺少独立源交易日验收证据；请在数据就绪后手动恢复（不会自动重试）')
             if release.implementation_signature(root) != state["signature"]:
                 raise ValueError("运行过程中代码或配置发生变化，暂不发布；请 --restart")
+            read_input(Path(classification_input['file']), classification_input['sha256'])
             release.atomic_json(stage / "run_day" / "publication.json", {
                 "run_id": state["run_id"], "trade_date": trade_date,
+                "etf_classification": classification_input,
                 "published_at": release.now(), "result": receipt,
             })
             release.publish_workspace(root, stage)
+            commit_published_snapshot(root)
             state.update(status="published", finished_at=release.now(), result=receipt)
             save_published_checkpoint(root, state)
             print(f"日报已统一发布 · {trade_date} · {receipt['status']} · 观察事实", flush=True)
