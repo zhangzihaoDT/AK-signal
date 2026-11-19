@@ -1,0 +1,85 @@
+{
+  "project": "AKsignal",
+  "trade_date": "2026-11-18",
+  "path_base": "project_root",
+  "published_outputs_root": ".run_day/runs/20261118/2087d7eee68f4c1297a01167ac3201b8/outputs",
+  "datasets": {
+    "stocks": {
+      "name": "个股观察池",
+      "active_count": 68,
+      "market_counts": {"CN": 62, "HK": 6},
+      "providers": ["longbridge"],
+      "paths": {
+        "raw_snapshot_dir": "data/sources/longbridge/raw/daily/runs/20261118/31b58101cc7b4863b87db8832689ac56",
+        "partition_index": "data/sources/longbridge/raw/daily/partitions/20261118.json"
+      },
+      "published_paths": {
+        "metrics_parquet": "stock_metrics/stock_metrics_20261118.parquet",
+        "update_audit_json": "stock_metrics/stock_update_audit_20261118.json"
+      },
+      "active_row_filter": {"data_status": "current"}
+    },
+    "etfs": {
+      "name": "ETF",
+      "target_date_count": 1549,
+      "master_count": 1554,
+      "providers": ["em", "sina"],
+      "paths": {
+        "daily_cache_dir": "data/sources/etf_em_sina/raw",
+        "master_parquet": "data/sources/etf_em_sina/processed/master/etf_master.parquet"
+      },
+      "published_paths": {
+        "trends_csv": "observation/etf_trends_20261118.csv",
+        "trends_parquet": "observation/etf_trends_20261118.parquet"
+      }
+    },
+    "tdx_industry_indices": {
+      "name": "通达信二级行业指数",
+      "count": 128,
+      "providers": ["tdx"],
+      "paths": {
+        "raw_day_dir": "data/sources/tdx/raw/day",
+        "universe_csv": "config/tdx_research_industry_20261016.csv",
+        "prices_parquet": "data/sources/tdx/processed/prices_20261118.parquet"
+      },
+      "published_paths": {
+        "rotation_csv": "observation/industry_rotation_20261118.csv",
+        "rotation_parquet": "observation/industry_rotation_20261118.parquet"
+      }
+    },
+    "core_indices": {
+      "name": "核心指数",
+      "count": 9,
+      "broad_count": 8,
+      "dividend_low_volatility_count": 1,
+      "provider_counts": {"longbridge": 7, "csindex": 2},
+      "paths": {
+        "longbridge_partition_index": "data/sources/longbridge/raw/core_indices/partitions/20261118.json",
+        "csindex_partition_index": "data/sources/csindex/raw/core_indices/partitions/20261118.json"
+      },
+      "published_paths": {
+        "csv": "observation/core_indices_20261118.csv",
+        "parquet": "observation/core_indices_20261118.parquet"
+      }
+    },
+    "index_futures": {
+      "name": "中证500股指期货",
+      "product_code": "IC",
+      "product_count": 1,
+      "contract_count": 4,
+      "providers": ["cffex"],
+      "paths": {
+        "raw_csv": "data/sources/cffex/raw/daily/runs/20261118/790a9a6b682b4915955639c68c23d005/20261118_1.csv",
+        "partition_index": "data/sources/cffex/raw/daily/partitions/20261118.json"
+      },
+      "published_paths": {
+        "csv": "observation/derivatives_20261118.csv",
+        "parquet": "observation/derivatives_20261118.parquet"
+      }
+    }
+  },
+  "path_notes": {
+    "paths": "相对于项目根目录；目录中的历史缓存可能随日更变化。",
+    "published_paths": "相对于 published_outputs_root，固定引用 2026-11-18 已发布批次。"
+  }
+}
