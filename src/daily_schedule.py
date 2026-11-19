@@ -126,7 +126,10 @@ def _publication(root: Path, target: str, record: dict, at: datetime, *,
     status = result.get('status')
     publishable = result.get('ok') is True and not result.get('errors') \
         and status in ('CONFIRMED', 'COMPLETE', 'PARTIAL')
-    if status == 'PARTIAL' and allow_partial_retry:
+    if publishable and status == 'PARTIAL' and allow_partial_retry:
+        if record.get('status') == 'blocked' and record.get('reason') == 'PUBLICATION_NOT_COMPLETE':
+            # Revalidate the receipt before clearing an old scheduler's partial block.
+            record.update(status='published', reason='ALREADY_PUBLISHED', error='')
         return None
     if not publishable:
         if record.get('status') == 'blocked' and record.get('reason') == 'PUBLICATION_NOT_COMPLETE' \
@@ -235,14 +238,32 @@ def actionable_target(root: Path, at: datetime | None = None) -> str:
     at = at or shanghai_now()
     calendar = default_calendar(root)
     current, _ = calendar.scheduled_target(at)
+    # A live native batch owns the panel even if an older date remains unresolved.
+    # Ignore abandoned latest.json records unless the business lock is held.
+    if release.lock_active(root):
+        try:
+            active = json.loads((root / '.run_day/latest.json').read_text(encoding='utf-8'))
+            target = active.get('trade_date')
+            eligible = {d.strftime('%Y%m%d') for d in calendar.days}
+            if (active.get('status') in ('preparing', 'running', 'publishing')
+                    and target in eligible and target <= calendar.complete_day(at)):
+                return target
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
     folder = root / '.run_day' / 'scheduler'
     unresolved = []
+    launching = []
     for path in folder.glob('????????.json'):
         if not path.stem.isdigit():
             continue
         try:
             record = json.loads(path.read_text(encoding='utf-8'))
             target = path.stem
+            if record.get('trade_date') != target or target > calendar.complete_day(at):
+                continue
+            if record.get('status') in ('starting', 'running') and pid_alive(record.get('pid')):
+                launching.append((record.get('triggered_at', ''), target))
+                continue
             actionable = record.get('status') in ('missed', 'failed', 'waiting', 'exhausted', 'published') or (
                 record.get('status') == 'blocked' and record.get('reason') == 'RESTART_REQUIRED')
             if record.get('trade_date') != target or target > calendar.complete_day(at) or not actionable:
@@ -258,6 +279,8 @@ def actionable_target(root: Path, at: datetime | None = None) -> str:
             unresolved.append((record.get('scheduled_at', ''), target))
         except (OSError, ValueError, KeyError, TypeError):
             continue
+    if launching:
+        return max(launching)[1]
     return max(unresolved)[1] if unresolved else current
 
 

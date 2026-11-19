@@ -171,7 +171,8 @@ def test_missed_schedule_is_visible_and_manual_target_is_actionable(tmp_path, mo
         'reason': 'MISSED_SCHEDULE', 'attempts': 0, 'history': [],
     })
     view = daily_hub.view(tmp_path, now)
-    assert view['lastRun']['status'] == 'MISSED'
+    assert view['lastRun']['status'] == 'WAITING'
+    assert view['details']['reason'] == 'MISSED_SCHEDULE'
     assert view['details']['targetDate'] == '20261012'
     assert view['details']['schedule']['enabled'] is True
     assert view['details']['schedule']['manualPendingCount'] == 1

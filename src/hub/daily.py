@@ -118,7 +118,9 @@ def view(root: Path, at: datetime | None = None) -> dict:
         elif status == 'blocked':
             result['lastRun']['status'] = 'BLOCKED'
         elif status == 'missed':
-            result['lastRun']['status'] = 'MISSED'
+            # Hub protocol v1 supports WAITING; MISSED is an occurrence reason,
+            # not a wire operation status (the Hub otherwise coerces it to UNKNOWN).
+            result['lastRun']['status'] = 'WAITING'
         elif status in ('failed', 'exhausted'):
             result['lastRun']['status'] = 'FAILED'
         elif state.get('status') in ('preparing', 'running', 'publishing'):

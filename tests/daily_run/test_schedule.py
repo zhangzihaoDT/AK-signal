@@ -329,3 +329,43 @@ def test_schedule_rejects_complete_without_price_date_receipt(tmp_path, monkeypa
     monkeypatch.setattr(daily_run, 'validate_release', original)
     assert daily_run.execute_batch(tmp_path, '20261012', offline, require_complete=require_complete) == 0
     assert release.published_batch(tmp_path, '20261012')['run_id'] == run_id
+
+
+def test_live_native_target_wins_over_older_unresolved_date(root):
+    release.atomic_json(schedule.record_path(root, '20261012'), {
+        'trade_date': '20261012', 'status': 'failed', 'scheduled_at': '2026-10-13T08:30:00+08:00'})
+    state = release.new_checkpoint(root, '20261013', False, [])
+    state['status'] = 'running'
+    release.save_checkpoint(root, state)
+    with release.batch_lock(root):
+        assert schedule.actionable_target(root, at('2026-10-14T09:00')) == '20261013'
+    # Stale checkpoint without a lock must not mask recoverable work.
+    assert schedule.actionable_target(root, at('2026-10-14T09:00')) == '20261012'
+
+
+def test_starting_launcher_keeps_target_before_native_checkpoint_exists(root, monkeypatch):
+    release.atomic_json(schedule.record_path(root, '20261012'), {
+        'trade_date': '20261012', 'status': 'failed', 'scheduled_at': '2026-10-13T08:30:00+08:00'})
+    release.atomic_json(schedule.record_path(root, '20261013'), {
+        'trade_date': '20261013', 'status': 'starting', 'pid': 123,
+        'triggered_at': '2026-10-14T09:00:00+08:00'})
+    monkeypatch.setattr(schedule, 'pid_alive', lambda pid: pid == 123)
+    assert schedule.actionable_target(root, at('2026-10-14T09:00')) == '20261013'
+    monkeypatch.setattr(schedule, 'pid_alive', lambda pid: False)
+    assert schedule.actionable_target(root, at('2026-10-14T09:00')) == '20261012'
+
+
+def test_manual_retry_clears_legacy_partial_block_only_after_valid_receipt(root, monkeypatch):
+    release.atomic_json(schedule.record_path(root, '20261013'), {
+        'schema_version': 2, 'trade_date': '20261013', 'attempts': 1, 'history': [],
+        'status': 'blocked', 'reason': 'PUBLICATION_NOT_COMPLETE', 'error': 'legacy block'})
+    publication = {'result': {'ok': True, 'errors': [], 'status': 'PARTIAL'}}
+    monkeypatch.setattr(release, 'published_batch', lambda *_: publication)
+    launched = []
+    result = schedule.manual_run(root, trade_date='20261013', at=at('2026-10-14T09:00'),
+                                 launch=lambda *args: launched.append(args) or 123)
+    assert result['status'] == 'running' and len(launched) == 1
+    publication['result']['errors'] = ['bad receipt']
+    result = schedule.manual_run(root, trade_date='20261013', at=at('2026-10-14T09:00'),
+                                 launch=lambda *args: pytest.fail('Invalid receipt allowed retry'))
+    assert result['status'] == 'blocked'

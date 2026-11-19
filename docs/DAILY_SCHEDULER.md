@@ -26,7 +26,7 @@ The Service Scheduler does not poll or launch AKsignal. Runtime service status, 
 - `.run_day/scheduler/agent_state.json`: LaunchAgent PID, heartbeat, latest occurrence and Scheduler health.
 - `.run_day/scheduler/{trade_date}.json`: occurrence status, trigger source, attempts, PID/log and recovery detail.
 - Native checkpoint and publication receipts remain the source of truth for batch progress and formal release.
-- The Hub view reports Scheduler heartbeat age and next scheduled occurrence separately from the current actionable batch, publication quality and artifacts. A stale heartbeat is not displayed as an enabled Scheduler.
+- The Hub view reports Scheduler heartbeat age and next scheduled occurrence separately from the current actionable batch, publication quality and artifacts. A locked native batch (or its live launcher before checkpoint creation) takes precedence over older unresolved dates. Missed occurrences use the Hub v1 operation status `WAITING`, with `reason=MISSED_SCHEDULE` retained; `MISSED` is not a supported wire operation status. A stale heartbeat is not displayed as an enabled Scheduler.
 
 ## Commands
 
@@ -50,3 +50,7 @@ The Hub Worker registers `AKsignal Scheduler` as an AKsignal-domain service (Ena
 ## Cutover
 
 The Service-domain external AKsignal hook has been removed. Installing `com.aksignal.daily-scheduler` is a separate, explicit local operation; it is not installed or enabled merely by deploying Hub code or restarting Worker. Verify its heartbeat and the AKsignal panel after installation. No production LaunchAgent is changed by source-code tests.
+
+## 2026-10-30 Run Control recovery
+
+The manual Hub request successfully launched the 20261029 online batch and published a PARTIAL report. The visible UNKNOWN state came from sending unsupported MISSED to the Hub v1 status whitelist; after launch, actionable-target selection skipped running records and exposed an older unresolved date. Regression coverage now checks protocol-compatible waiting status, native-lock priority, launcher startup, abandoned checkpoints, and manual recovery from a legacy PUBLICATION_NOT_COMPLETE block only when the current receipt validates as PARTIAL. Existing classification and market-quality gates remain unchanged. Long-running Scheduler processes must reload the updated source; restart only the Scheduler after any live Daily batch finishes.
