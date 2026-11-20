@@ -5,6 +5,81 @@
       "date": "20261028",
       "path": "observation/industry_rotation_20261028.parquet",
       "sha256": "dc15a9b914b9e7c60526597b18a7d553695fb8bd0eca9446de68aa1811c41026"
+    },
+    {
+      "date": "20261029",
+      "path": "observation/industry_rotation_20261029.parquet",
+      "sha256": "1866955ab8a7a9b4de3f55c968e0db400d7ba00bacd0a038fffb9d7852c4468c"
+    },
+    {
+      "date": "20261030",
+      "path": "observation/industry_rotation_20261030.parquet",
+      "sha256": "fcc196f7ca3643ceef25f4e04a7be5f4b0cf9e8407042dc9f9081177cecd8374"
+    },
+    {
+      "date": "20261102",
+      "path": "observation/industry_rotation_20261102.parquet",
+      "sha256": "364e6ddf55519b6f19f6447d55eb83ff33fae0a5eee0e32374659bf3bec6a7cf"
+    },
+    {
+      "date": "20261103",
+      "path": "observation/industry_rotation_20261103.parquet",
+      "sha256": "e1d643321937c414681f65753ceea43d3f47f7044706eb5c8d564eb54117dcc6"
+    },
+    {
+      "date": "20261104",
+      "path": "observation/industry_rotation_20261104.parquet",
+      "sha256": "ddbf071a4ed4cc152587af8a9390f11e84351204d163fcf1d2cb57e7aebf940e"
+    },
+    {
+      "date": "20261105",
+      "path": "observation/industry_rotation_20261105.parquet",
+      "sha256": "4fc0133c73a1a6bc78154aa3f6da87772c59ed7e6914d4a7c2f53ae9ed300491"
+    },
+    {
+      "date": "20261106",
+      "path": "observation/industry_rotation_20261106.parquet",
+      "sha256": "9a00f546b441cc31a17ac67e1ed93ca6e50ff39258875065c92068d23f38e89b"
+    },
+    {
+      "date": "20261109",
+      "path": "observation/industry_rotation_20261109.parquet",
+      "sha256": "ae517469b3996fcc1dd25f8e09bd573ac9644f5eadd3bc2b828caf1b0eb45f58"
+    },
+    {
+      "date": "20261110",
+      "path": "observation/industry_rotation_20261110.parquet",
+      "sha256": "f694be972ee8b9d0e8de8fe76731169cba3c9de39cc37885de4fe9581b4c428a"
+    },
+    {
+      "date": "20261111",
+      "path": "observation/industry_rotation_20261111.parquet",
+      "sha256": "4193a4701dcefb87d386793c8ad7a8647cb2216b1ba3fa75c13e5f50951a6cc5"
+    },
+    {
+      "date": "20261112",
+      "path": "observation/industry_rotation_20261112.parquet",
+      "sha256": "b8b363910db88cc510a108c8f82f959844f8294df4c4c38eee4d2d2dcbde3a81"
+    },
+    {
+      "date": "20261116",
+      "path": "observation/industry_rotation_20261116.parquet",
+      "sha256": "72728ada427dfd33b232febd000d100093c27db1bb6fdea385ee9c1498e8b5f6"
+    },
+    {
+      "date": "20261117",
+      "path": "observation/industry_rotation_20261117.parquet",
+      "sha256": "4be8ef7f82cb00f24c5b11693ff5a0ddcd0705002f0928d333b3256531bf35af"
+    },
+    {
+      "date": "20261118",
+      "path": "observation/industry_rotation_20261118.parquet",
+      "sha256": "9709a699db255c14dd96cad10b2a2a52f2bdc01e6fb800b1ec3ca8814fd00a38"
+    },
+    {
+      "date": "20261119",
+      "path": "observation/industry_rotation_20261119.parquet",
+      "sha256": "be61a43f88da4ab93fe6ea3fb20fe347f3a5e24a590e4639b704f37a5472b90e"
     }
   ]
 }
