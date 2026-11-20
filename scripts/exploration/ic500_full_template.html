@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IC500 价格趋势 · 全部数据范围</title>
+<style>
+  :root { --zh-blue:#174A7C; --zh-deep-blue:#06213D; --zh-cyan:#7ECDEB; --zh-light-blue:#DDEFF8; --zh-cream:#FFF9EF; --zh-gold:#D79A36; --zh-brown:#7A4A24; --zh-text:#1F2D3D; --zh-muted:#6B7C8F; --zh-card:#FFFFFF; --rule:rgba(31,45,61,0.12); --rule-soft:rgba(31,45,61,0.08); --warn:#A8442B; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; padding:0; background:var(--zh-cream); color:var(--zh-text); }
+  body { font-family:'Avenir Next','Noto Sans SC',-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif; font-size:14px; line-height:1.7; }
+  .page { max-width:1120px; margin:0 auto; padding:56px 40px 48px; }
+  .eyebrow { font-family:'SF Mono',ui-monospace,SFMono-Regular,Menlo,monospace; font-size:10px; letter-spacing:0.16em; color:var(--zh-muted); text-transform:uppercase; margin:0 0 12px; }
+  h1 { font-family:'Iowan Old Style','Songti SC','Noto Serif SC',Georgia,serif; font-weight:400; font-size:40px; line-height:1.15; color:var(--zh-blue); margin:0 0 10px; letter-spacing:-0.01em; }
+  .subtitle { color:var(--zh-muted); font-size:13px; margin:0 0 6px; }
+  .window-note { color:var(--zh-muted); font-size:12px; margin:0; max-width:900px; }
+  .window-note b { color:var(--zh-text); font-weight:600; }
+  .notice { margin:20px 0 0; padding:14px 18px; background:#FFF4E8; border-left:3px solid var(--zh-gold); border-radius:4px; font-size:12px; color:#6B4A24; }
+  .notice strong { color:#8A5310; }
+  .cards { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin:30px 0 26px; }
+  .card { background:var(--zh-card); border:1px solid var(--rule); border-radius:6px; padding:18px; }
+  .card .label { font-family:'SF Mono',ui-monospace,monospace; font-size:9px; letter-spacing:0.12em; color:var(--zh-muted); text-transform:uppercase; margin:0 0 10px; }
+  .card .big { font-family:'Avenir Next',-apple-system,sans-serif; font-size:25px; font-weight:600; line-height:1.1; margin:0 0 6px; color:var(--zh-text); }
+  .card .big.down { color:var(--zh-brown); } .card .big.up { color:var(--zh-blue); }
+  .card .detail { font-size:12px; color:var(--zh-muted); margin:0; }
+  .card .detail strong { color:var(--zh-text); font-weight:500; }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:7px; vertical-align:1px; }
+  .dot.gold { background:var(--zh-gold); } .dot.blue { background:var(--zh-blue); } .dot.cyan { background:var(--zh-cyan); } .dot.muted { background:#C9D3DC; }
+  h2 { font-family:'Iowan Old Style','Songti SC','Noto Serif SC',Georgia,serif; font-weight:400; font-size:24px; color:var(--zh-blue); margin:0 0 4px; }
+  .chart-note { font-size:12px; color:var(--zh-muted); margin:0 0 12px; max-width:940px; }
+  .panel { margin:0 0 34px; }
+  .chart { width:100%; background:var(--zh-card); border:1px solid var(--rule-soft); border-radius:6px; }
+  .chart.main { height:480px; } .chart.small { height:320px; }
+  .totals { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 14px; }
+  .totals button { font-family:inherit; font-size:12px; padding:6px 13px; border-radius:999px; border:1px solid var(--rule); background:var(--zh-card); color:var(--zh-muted); cursor:pointer; }
+  .totals button:hover { border-color:var(--zh-blue); color:var(--zh-blue); }
+  .totals button.active { background:var(--zh-blue); border-color:var(--zh-blue); color:#fff; }
+  .source { font-size:11px; color:var(--zh-muted); line-height:1.8; margin:4px 0 30px; }
+  .source strong { color:var(--zh-text); font-weight:500; }
+  details { background:var(--zh-card); border:1px solid var(--rule); border-radius:6px; padding:0 20px; margin:0 0 14px; }
+  summary { cursor:pointer; padding:15px 0; font-weight:500; color:var(--zh-blue); font-size:13px; }
+  details[open] summary { border-bottom:1px solid var(--rule-soft); margin-bottom:14px; }
+  .table-scroll { overflow-x:auto; margin-bottom:16px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th,td { padding:7px 10px; text-align:left; border-bottom:1px solid var(--rule-soft); white-space:nowrap; }
+  th { font-family:'SF Mono',ui-monospace,monospace; font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--zh-muted); font-weight:500; position:sticky; top:0; background:var(--zh-card); }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  tbody tr:hover { background:#F7FBFF; }
+  .neg { color:var(--zh-brown); } .pos { color:var(--zh-blue); }
+  .tag { font-family:'SF Mono',ui-monospace,monospace; font-size:9px; padding:2px 6px; border-radius:3px; letter-spacing:0.04em; }
+  .tag.main { background:rgba(215,154,54,0.16); color:#8A5310; }
+  .tag.na { background:rgba(168,68,43,0.10); color:var(--warn); }
+  .lede { font-size:13px; color:var(--zh-muted); margin:0 0 18px; max-width:940px; }
+  footer { border-top:1px solid var(--rule); margin-top:34px; padding-top:16px; font-size:11px; color:var(--zh-muted); }
+  @media (max-width:900px){ .cards{grid-template-columns:1fr 1fr;} .page{padding:36px 20px;} h1{font-size:30px;} .chart.main{height:380px;} }
+  @media (max-width:560px){ .cards{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <p class="eyebrow">AKSIGNAL · DERIVATIVES OBSERVATION · AD-HOC EXPLORATION</p>
+    <h1>IC500 价格趋势 · 全部数据范围</h1>
+    <p class="subtitle">中证500股指期货（IC）· <b>__SESSIONS__</b> 个交易日 · __FIRST__ → __LAST__（中金所上市日迄今全部已登记历史）</p>
+    <p class="window-note">期货部分一律为<b>具体到期合约的官方收盘报价</b>：按当月 / 次月 / 当季 / 下季四个挂牌月序分别成线，不合成主力连续价格；<b>换月处断线</b>，任何一条线段都发生在同一份合约内部，图上不会出现换月造成的虚假跳空。现货中证500指数由长桥快照提供，历史仅回溯至 __SPOT_START__，故基差只在该区间成立。</p>
+    <div class="notice">
+      <strong>两层数据，口径分开。</strong>上层期货走势覆盖足额 __SESSIONS__ 个交易日；下层指数与基差仅 <b>__SPOT_N__</b> 个交易日（__SPOT_START__ → __SPOT_END__）。
+      __SPOT_START__ 之前没有同批中证500现货快照，因此不计算、不倒推、不以外部指数替代基差，全部保持 <span class="tag na">SPOT_UNAVAILABLE</span>。
+    </div>
+  </header>
+
+  <section class="cards" id="cards"></section>
+
+  <section class="panel">
+    <h2>全历史视角：四个挂牌月序的真实合约收盘</h2>
+    <p class="chart-note">按到期月份远近分为当月 / 次月 / 当季 / 下季四条线，<b>每个点都是当日真实挂牌合约的官方收盘</b>。换月时该月序会改挂另一份合约，此处<b>主动断线、不用折线相连</b>：两份不同合约之间的价格差不是任何一天的涨跌，连起来就是虚假跳空。因此四条线都是若干段“同一合约内”的连续走势，段与段之间的缺口即换月点；悬停可看到当日实际合约代码。这样的代价是看不到跨合约的连续轨迹，但换来的是图上每一条线段都真实发生过。</p>
+    <div class="totals" id="totals"></div>
+    <div id="full" class="chart main"></div>
+  </section>
+
+  <section class="panel">
+    <h2>最近区间：期货与中证500现货</h2>
+    <p class="chart-note">仅在同时存在当日中证500现货收盘的交易日绘制。指数线长度由数据可用性决定，不是抽样。</p>
+    <div id="zoom" class="chart small"></div>
+  </section>
+
+  <section class="panel">
+    <h2>基差（期货 − 现货）</h2>
+    <p class="chart-note">基差 = 同一日 IC 具体合约收盘 − 中证500指数收盘（指数点）。主力合约贴水深度随到期临近收敛，远月贴水更深。仅覆盖 __SPOT_START__ 之后。</p>
+    <div id="basis" class="chart small"></div>
+  </section>
+
+  <p class="source"><strong>来源：</strong>中金所官方按日期发布日行情（CFFEX，GB 编码 CSV，逐日原始文件与 SHA-256 摘要留档）；中证500指数 000905.SH，长桥 ForwardAdjust=NoAdjust 快照。<strong>口径：</strong>期货为未调整合约价格（index points），每点 200 元；基差 = 期货收盘 − 指数收盘，不作分红调整、不年化；不含手续费、保证金与展期成本，<b>不是</b>保证金收益或可执行策略回报。<strong>验收：</strong>全部数字经 <code>derivatives.consume</code> 生产门控重算（四合约覆盖、前结算连续、持仓变化一致）；数据截至 __LAST__。</p>
+
+  <details open>
+    <summary>最新四合约截面（__LAST__）</summary>
+    <div class="table-scroll"><table id="cross-table"></table></div>
+    <p class="chart-note" id="cross-note"></p>
+  </details>
+
+  <details>
+    <summary>年度摘要（__FIRST__ → __LAST__）</summary>
+    <div class="table-scroll"><table id="year-table"></table></div>
+  </details>
+
+  <details>
+    <summary>月度摘要（全部月份）</summary>
+    <div class="table-scroll"><table id="month-table"></table></div>
+  </details>
+
+  <details>
+    <summary>IC 全历史关键点</summary>
+    <div class="table-scroll"><table id="extremes-table"></table></div>
+  </details>
+
+  <footer>
+    AKsignal · Market Facts / Derivatives · ad-hoc exploration<br>
+    本页为探索页，不是已发布的日报；不输出交易建议。生成于构建时刻，事实来源为已登记的不可变原始文件。
+  </footer>
+</div>
+
+__PLOTLY_TAG__
+<script>
+const DATA = __DATA__;
+const BLUE='#174A7C', GOLD='#C2842A', CYAN='#7ECDEB', MUTED='#6B7C8F', INSET='#A8442B';
+const num = v => v===null||v===undefined ? '—' : v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const pct = v => v===null||v===undefined ? '—' : (v>=0?'+':'')+(v*100).toFixed(2)+'%';
+const base = {paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{family:'-apple-system, PingFang SC, sans-serif',size:12,color:'#556270'},hovermode:'x unified'};
+
+/* ---------- cards ---------- */
+(function(){
+  const m = DATA.meta;
+  const chg = m.last_main.close/m.first_main.close-1;
+  const spotChg = DATA.spot.close.length ? DATA.spot.close.at(-1)/DATA.spot.close[0]-1 : null;
+  const basisLast = DATA.basis.filter(b=>b.main).at(-1);
+  /* The four slots are separate contracts, so their levels are not a return series.
+     The only honest "change" figure is the near-month slot on a like-for-like pair of
+     days; that is still a single contract, so it is labelled with both contract codes. */
+  const near = DATA.slots.series[DATA.slots.order[0]];
+  const cards = [
+    {dot:'gold', label:'最新当月合约收盘', big:num(near.close.at(-1)), cls:'',
+     detail:`${near.contract.at(-1)} · ${DATA.slots.dates.at(-1)}<br>四个挂牌月序共 ${m.sessions.toLocaleString()} 个交易日`},
+    {dot:'blue', label:'历史最高 / 最低收盘（任一挂牌合约）', big:num(m.high.close), cls:'',
+     detail:`最高 ${m.high.date}（${num(m.high.close)}）<br>最低 ${m.low.date}（${num(m.low.close)}）<br>含远月合约的极端报价`},
+    {dot:'cyan', label:`现货区间 · ${m.spot_span ? m.spot_span[2] : 0} 个交易日`, big:m.spot_span?num(DATA.spot.close.at(-1)):'—', cls:spotChg<0?'down':'up',
+     detail:m.spot_span?`中证500 ${num(DATA.spot.close[0])} → ${num(DATA.spot.close.at(-1))}<br>区间 <strong>${pct(spotChg)}</strong>`:'现货不可用'},
+    {dot:'muted', label:'最新基差（主力）', big:basisLast?num(basisLast.basis):'—', cls:basisLast&&basisLast.basis<0?'down':'',
+     detail:basisLast?`${basisLast.contract} · ${pct(basisLast.rate)}<br>仅 ${m.spot_span?m.spot_span[2]:0} 日有现货可比`:'SPOT_UNAVAILABLE'}
+  ];
+  document.getElementById('cards').innerHTML = cards.map(c=>`<div class="card"><p class="label"><span class="dot ${c.dot}"></span>${c.label}</p><p class="big ${c.cls}">${c.big}</p><p class="detail">${c.detail}</p></div>`).join('');
+})();
+
+/* ---------- full history chart with window presets ---------- */
+const PRESETS=[{k:'all',label:'全部 '+(DATA.main.dates.length).toLocaleString()+' 日',years:null},
+               {k:'10',label:'近 10 年',years:10},{k:'5',label:'近 5 年',years:5},
+               {k:'3',label:'近 3 年',years:3},{k:'1',label:'近 1 年',years:1}];
+let preset='all';
+document.getElementById('totals').innerHTML = PRESETS.map(p=>`<button data-p="${p.k}" class="${p.k===preset?'active':''}">${p.label}</button>`).join('');
+
+function windowDates(){
+  const p = PRESETS.find(x=>x.k===preset);
+  if(!p.years) return DATA.main.dates;
+  const last = new Date(DATA.main.dates.at(-1));
+  const cut = new Date(last); cut.setFullYear(cut.getFullYear()-p.years);
+  const i = DATA.main.dates.findIndex(d=>new Date(d)>=cut);
+  return i<0 ? DATA.main.dates : DATA.main.dates.slice(i);
+}
+const SLOT_COLORS={'当月':GOLD,'次月':'#C46A2A','当季':BLUE,'下季':'#4A8DB7'};
+function drawFull(){
+  const w = windowDates();
+  const lo = DATA.slots.dates.indexOf(w[0]), hi = DATA.slots.dates.indexOf(w.at(-1));
+  const x = DATA.slots.dates.slice(lo,hi+1);
+  /* Each slot line must never connect two different contracts: that segment would be a
+     price move that did not happen. Break the line at every contract change by emitting
+     nulls, so only same-contract day-to-day moves are ever drawn as a segment. */
+  const traces = DATA.slots.order.map(slot=>{
+    const s = DATA.slots.series[slot];
+    const y=[], c=[];
+    for(let k=lo;k<=hi;k++){
+      if(k>lo && s.contract[k]!==s.contract[k-1]){y.push(null);c.push(null);}
+      y.push(s.close[k]); c.push(s.contract[k]);
+    }
+    return {x:y.map((_,k)=>DATA.slots.dates[lo+k]),y,name:slot,mode:'lines',
+      line:{color:SLOT_COLORS[slot],width:1.7},connectgaps:false,
+      customdata:c,hovertemplate:'%{customdata} · %{y:,.1f}<extra>'+slot+'</extra>'};
+  });
+  const layout={...base,height:null,autosize:true,margin:{l:66,r:20,t:16,b:40},
+    xaxis:{gridcolor:'#EDF1F4',nticks:10,type:'date'},yaxis:{gridcolor:'#E6EDF1',title:{text:'指数点'}},
+    legend:{orientation:'h',y:-0.12,x:0,font:{size:11}}};
+  Plotly.react('full',traces,layout,{displayModeBar:false,responsive:true});
+}
+document.querySelectorAll('#totals button').forEach(b=>b.onclick=()=>{
+  preset=b.dataset.p;
+  document.querySelectorAll('#totals button').forEach(x=>x.classList.toggle('active',x===b));
+  drawFull();
+});
+
+/* ---------- spot vs futures zoom ---------- */
+function drawZoom(){
+  const s = DATA.spot;
+  const fut = DATA.main.dates.map((d,i)=>({d,y:DATA.main.close[i]})).filter(o=>s.dates.includes(o.d));
+  const traces=[
+    {x:s.dates,y:s.close,name:'中证500指数',mode:'lines+markers',line:{color:BLUE,width:1.6},
+     marker:{size:5},hovertemplate:'%{y:,.2f}<extra></extra>'},
+    {x:fut.map(o=>o.d),y:fut.map(o=>o.y),name:'IC 期货收盘',mode:'lines',line:{color:GOLD,width:2.4},
+     hovertemplate:'%{y:,.1f}<extra></extra>'}
+  ];
+  Plotly.react('zoom',traces,{...base,autosize:true,margin:{l:66,r:20,t:16,b:40},
+    xaxis:{gridcolor:'#EDF1F4',type:'date'},yaxis:{gridcolor:'#E6EDF1',title:{text:'指数点'}},
+    legend:{orientation:'h',y:-0.15,x:0,font:{size:11}}},{displayModeBar:false,responsive:true});
+}
+
+/* ---------- basis chart ---------- */
+function drawBasis(){
+  const mainB = DATA.basis.filter(b=>b.main);
+  const farB  = DATA.basis.filter(b=>!b.main);
+  const traces=[
+    {x:farB.map(b=>b.date),y:farB.map(b=>b.basis),name:'其他到期合约',mode:'markers',
+     marker:{size:5,color:'rgba(23,74,124,0.28)'},hovertemplate:'%{customdata} · %{y:,.1f}<extra></extra>',
+     customdata:farB.map(b=>b.contract)},
+    {x:mainB.map(b=>b.date),y:mainB.map(b=>b.basis),name:'主力合约基差',mode:'lines+markers',
+     line:{color:GOLD,width:2.2},marker:{size:6},hovertemplate:'%{customdata} · %{y:,.1f}<extra></extra>',
+     customdata:mainB.map(b=>b.contract)}
+  ];
+  Plotly.react('basis',traces,{...base,autosize:true,margin:{l:66,r:20,t:16,b:40},
+    xaxis:{gridcolor:'#EDF1F4',type:'date'},yaxis:{gridcolor:'#E6EDF1',title:{text:'基差（点）'},zeroline:true,zerolinecolor:'#C9D6DE'},
+    legend:{orientation:'h',y:-0.15,x:0,font:{size:11}}},{displayModeBar:false,responsive:true});
+}
+
+/* ---------- tables ---------- */
+function table(el,heads,rows){
+  const th = heads.map(h=>`<th class="${h.num?'num':''}">${h.label}</th>`).join('');
+  const body = rows.map(r=>'<tr>'+r.map((c,i)=>{
+    if(c && typeof c==='object') return `<td class="${heads[i].num?'num':''}">${c.html}</td>`;
+    return `<td class="${heads[i].num?'num':''}">${c===null||c===undefined?'—':c}</td>`;
+  }).join('')+'</tr>').join('');
+  el.innerHTML = `<thead><tr>${th}</tr></thead><tbody>${body}</tbody>`;
+}
+const cls = v => v===null||v===undefined ? '' : (v<0?'neg':'pos');
+
+table(document.getElementById('cross-table'),
+  [{label:'合约'},{label:'收盘',num:1},{label:'结算',num:1},{label:'成交量',num:1},{label:'持仓量',num:1},{label:'基差（点）',num:1},{label:'基差率',num:1},{label:'备注'}],
+  DATA.cross.map(r=>[r.contract,num(r.close),num(r.settle),r.volume.toLocaleString(),r.open_interest.toLocaleString(),
+    {html:num(r.basis_points)}, {html:`<span class="${cls(r.basis_rate)}">${pct(r.basis_rate)}</span>`},
+    r.note==='主力'?`<span class="tag main">主力</span>`:r.note]));
+
+table(document.getElementById('year-table'),
+  [{label:'年度'},{label:'末收盘',num:1},{label:'年涨跌',num:1},{label:'年内最高',num:1},{label:'年内最低',num:1},{label:'交易日',num:1}],
+  DATA.years.map(y=>[y.year,num(y.close),{html:`<span class="${cls(y.chg)}">${pct(y.chg)}</span>`},num(y.high),num(y.low),y.n]));
+
+table(document.getElementById('month-table'),
+  [{label:'月份'},{label:'月末收盘',num:1},{label:'月涨跌',num:1},{label:'月内最高',num:1},{label:'月内最低',num:1},{label:'交易日',num:1}],
+  DATA.months.map(m=>[m.month,num(m.close),{html:`<span class="${cls(m.chg)}">${pct(m.chg)}</span>`},num(m.high),num(m.low),m.n]));
+
+(function(){
+  const m=DATA.meta;
+  table(document.getElementById('extremes-table'),
+    [{label:'项目'},{label:'日期'},{label:'数值',num:1},{label:'合约'}],
+    [['历史最高收盘（任一挂牌合约）',m.high.date,num(m.high.close),m.high.contract],
+     ['历史最低收盘（任一挂牌合约）',m.low.date,num(m.low.close),m.low.contract],
+     ['首个交易日',m.first,num(m.first_main.close),m.first_main.contract],
+     ['最新交易日',m.last,num(m.last_main.close),m.last_main.contract],
+     ['现货区间起始',DATA.spot.dates[0],num(DATA.spot.close[0]),'中证500'],
+     ['现货区间结束',DATA.spot.dates.at(-1),num(DATA.spot.close.at(-1)),'中证500']]);
+  const ratio = (DATA.spot.dates.length/DATA.main.dates.length*100).toFixed(1);
+  document.getElementById('cross-note').textContent =
+    `四个合约收盘价通常随到期日递减，远端贴水更深；持仓最多仅标记当日持仓量最大合约，不代表交易建议。中证500现货仅 ${DATA.spot.dates.length} 日（${ratio}% 的期货历史）可用，故基差不可外推。`;
+})();
+
+drawFull(); drawZoom(); drawBasis();
+window.addEventListener('resize',()=>{drawFull();drawZoom();drawBasis();});
+</script>
+</body>
+</html>
