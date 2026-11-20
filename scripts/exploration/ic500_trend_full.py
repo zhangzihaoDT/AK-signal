@@ -62,6 +62,21 @@ def main_series(frames):
 
 
 SLOTS = ('当月', '次月', '当季', '下季')
+# Same four listing positions, named for the basis section (user-facing labels).
+BASIS_SLOTS = ('近月', '次近月', '季月1', '季月2')
+
+
+def expiry_months(contract, iso_date):
+    """Whole months from `iso_date` to the contract's delivery month (YYMM suffix).
+
+    Used as the x-distance in the term-structure chart so 2703 is visibly further
+    out than 2612 rather than just 'the third slot'. CFFEX delivery months are the
+    contract month, so this is a bounded transformation, not a duration claim.
+    """
+    y, m = int(contract[-4:-2]), int(contract[-2:])
+    year = 2000 + y
+    cur_y, cur_m = int(iso_date[:4]), int(iso_date[5:7])
+    return (year - cur_y) * 12 + (m - cur_m)
 
 
 def slot_series(frames):
@@ -116,17 +131,39 @@ def build(args):
     spot_days = [compact[d] for d in days if compact[d] in spot]
     spot_series = [(d, spot[d]) for d in spot_days]
 
-    # basis for every contract on spot-covered days
+    # basis for every contract on spot-covered days, tagged with its listed-expiry slot
     basis_rows = []
     for d in spot_days:
-        for row in frames[iso[d]]:
-            if row['return_status'] == 'OK':
-                basis = row['close'] - spot[d]
-                basis_rows.append({'date': d, 'contract': row['contract'], 'close': row['close'],
-                                   'spot': spot[d], 'basis': basis,
-                                   'rate': basis / (spot[d] or 1),
-                                   'main': row['is_main_open_interest'],
-                                   'oi': row['open_interest']})
+        ranked = sorted(frames[iso[d]], key=lambda r: r['contract'][-4:])
+        for i, row in enumerate(ranked):
+            if row['return_status'] != 'OK':
+                continue
+            basis = row['close'] - spot[d]
+            basis_rows.append({'date': d, 'contract': row['contract'],
+                               'slot': BASIS_SLOTS[i] if i < len(BASIS_SLOTS) else None,
+                               'rank': i, 'close': row['close'], 'spot': spot[d],
+                               'basis': basis,
+                               # discount rate = (futures - spot)/spot, quoted in %; the
+                               # denominator is the spot close so years are comparable
+                               'rate': basis / (spot[d] or 1),
+                               'main': row['is_main_open_interest'],
+                               'oi': row['open_interest']})
+
+    # ---- term structure: discount depth across expiries, one snapshot per day ----
+    by_day = defaultdict(list)
+    for r in basis_rows:
+        by_day[r['date']].append(r)
+    term = []
+    for d in sorted(by_day):
+        rows = sorted(by_day[d], key=lambda r: r['rank'])
+        rates = [r['rate'] for r in rows]
+        # "贴水随期限扩大" is a directional claim; record it per day rather than assume it.
+        monotonic = all(rates[k] <= rates[k - 1] + 1e-12 for k in range(1, len(rates)))
+        term.append({'date': d, 'slots': [r['slot'] for r in rows],
+                     'rates': rates, 'basis': [r['basis'] for r in rows],
+                     'contracts': [r['contract'] for r in rows],
+                     'months': [expiry_months(r['contract'], d) for r in rows],
+                     'monotonic': monotonic, 'n': len(rows)})
 
     first, last = compact[days[0]], compact[days[-1]]
     first_main, last_main = main[0][1], main[-1][1]
@@ -199,6 +236,8 @@ def build(args):
                   'series': slot_series_iso},
         'spot': {'dates': [d for d, _ in spot_series], 'close': [c for _, c in spot_series]},
         'basis': basis_rows,
+        'term': term,
+        'basis_slots': list(BASIS_SLOTS),
         'years': years,
         'months': month_rows,
         'cross': [{'contract': r['contract'], 'close': r['close'], 'settle': r['settle'],
@@ -212,6 +251,8 @@ def build(args):
                  'high': {'date': hi_q[1], 'close': hi_q[0], 'contract': hi_q[2]},
                  'low': {'date': lo_q[1], 'close': lo_q[0], 'contract': lo_q[2]},
                  'spot_span': spot_span,
+                 'term_monotonic': {'n': sum(1 for t in term if t['n'] == 4),
+                                    'monotonic': sum(1 for t in term if t['n'] == 4 and t['monotonic'])},
                  'spot_na': 'SPOT_UNAVAILABLE'},
     }
     write_html(payload, args.output, root, inline=getattr(args, 'inline', False))

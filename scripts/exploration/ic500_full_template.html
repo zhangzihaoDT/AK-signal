@@ -50,6 +50,7 @@
   .tag { font-family:'SF Mono',ui-monospace,monospace; font-size:9px; padding:2px 6px; border-radius:3px; letter-spacing:0.04em; }
   .tag.main { background:rgba(215,154,54,0.16); color:#8A5310; }
   .tag.na { background:rgba(168,68,43,0.10); color:var(--warn); }
+    h3.sub-h { font-size:13px; font-weight:600; color:var(--zh-text); margin:18px 0 2px; letter-spacing:0.01em; }
   .lede { font-size:13px; color:var(--zh-muted); margin:0 0 18px; max-width:940px; }
   footer { border-top:1px solid var(--rule); margin-top:34px; padding-top:16px; font-size:11px; color:var(--zh-muted); }
   @media (max-width:900px){ .cards{grid-template-columns:1fr 1fr;} .page{padding:36px 20px;} h1{font-size:30px;} .chart.main{height:380px;} }
@@ -85,9 +86,22 @@
   </section>
 
   <section class="panel">
-    <h2>基差（期货 − 现货）</h2>
-    <p class="chart-note">基差 = 同一日 IC 具体合约收盘 − 中证500指数收盘（指数点）。主力合约贴水深度随到期临近收敛，远月贴水更深。仅覆盖 __SPOT_START__ 之后。</p>
+    <h2>基差（期货 − 现货）：四个挂牌月</h2>
+    <p class="chart-note">按近月 / 次近月 / 季月1 / 季月2 四条线分别展示，<b>换月处断线</b>——两份不同合约之间的差不是任何一天的基差变化。仅覆盖 __SPOT_START__ 之后有同批现货收盘的交易日。</p>
+    <h3 class="sub-h">基差点数（指数点）</h3>
+    <p class="chart-note">基差 = IC 合约收盘 − 中证500指数收盘。点数受指数绝对水平影响，跨年度不宜直接比较。</p>
     <div id="basis" class="chart small"></div>
+    <h3 class="sub-h">贴水率（%）</h3>
+    <p class="chart-note">贴水率 = 基差 ÷ 当日中证500收盘 × 100%。以现货为分母，剔除指数点位高低的量纲差异，因此可在 2024→2026 之间横向比较贴水深度。</p>
+    <div id="basisRate" class="chart small"></div>
+  </section>
+
+  <section class="panel">
+    <h2>基差期限结构：同一交易日、四个到期月份</h2>
+    <p class="chart-note">对每个交易日，把四个挂牌合约的贴水率按<b>到期月份远近</b>排列，判断贴水是否随期限拉长而扩大。横轴是距交付月的月数，因此季月在图上确实更靠右，而不只是一个位次标签。</p>
+    <div class="totals" id="termSnap"></div>
+    <div id="term" class="chart small"></div>
+    <p class="chart-note" id="term-note"></p>
   </section>
 
   <p class="source"><strong>来源：</strong>中金所官方按日期发布日行情（CFFEX，GB 编码 CSV，逐日原始文件与 SHA-256 摘要留档）；中证500指数 000905.SH，长桥 ForwardAdjust=NoAdjust 快照。<strong>口径：</strong>期货为未调整合约价格（index points），每点 200 元；基差 = 期货收盘 − 指数收盘，不作分红调整、不年化；不含手续费、保证金与展期成本，<b>不是</b>保证金收益或可执行策略回报。<strong>验收：</strong>全部数字经 <code>derivatives.consume</code> 生产门控重算（四合约覆盖、前结算连续、持仓变化一致）；数据截至 __LAST__。</p>
@@ -106,6 +120,12 @@
   <details>
     <summary>月度摘要（全部月份）</summary>
     <div class="table-scroll"><table id="month-table"></table></div>
+  </details>
+
+  <details>
+    <summary>基差期限结构明细（每个交易日四个到期月份）</summary>
+    <div class="table-scroll"><table id="term-table"></table></div>
+    <p class="chart-note">「结构」列判断当日贴水是否随距交付月月数单调加深。非单调表示某相邻两个到期月份之间的贴水次序被打乱，通常是近月流动性或交割因素所致，不作因果解释。</p>
   </details>
 
   <details>
@@ -211,21 +231,80 @@ function drawZoom(){
 }
 
 /* ---------- basis chart ---------- */
-function drawBasis(){
-  const mainB = DATA.basis.filter(b=>b.main);
-  const farB  = DATA.basis.filter(b=>!b.main);
-  const traces=[
-    {x:farB.map(b=>b.date),y:farB.map(b=>b.basis),name:'其他到期合约',mode:'markers',
-     marker:{size:5,color:'rgba(23,74,124,0.28)'},hovertemplate:'%{customdata} · %{y:,.1f}<extra></extra>',
-     customdata:farB.map(b=>b.contract)},
-    {x:mainB.map(b=>b.date),y:mainB.map(b=>b.basis),name:'主力合约基差',mode:'lines+markers',
-     line:{color:GOLD,width:2.2},marker:{size:6},hovertemplate:'%{customdata} · %{y:,.1f}<extra></extra>',
-     customdata:mainB.map(b=>b.contract)}
-  ];
-  Plotly.react('basis',traces,{...base,autosize:true,margin:{l:66,r:20,t:16,b:40},
-    xaxis:{gridcolor:'#EDF1F4',type:'date'},yaxis:{gridcolor:'#E6EDF1',title:{text:'基差（点）'},zeroline:true,zerolinecolor:'#C9D6DE'},
-    legend:{orientation:'h',y:-0.15,x:0,font:{size:11}}},{displayModeBar:false,responsive:true});
+/* Break a per-contract series wherever the contract changes, so a drawn segment
+   never spans two contracts (same rule as the price chart). */
+function slotTraces(valueKey, colors, fmtTip, scale){
+  return DATA.basis_slots.map(slot=>{
+    const rows = DATA.basis.filter(b=>b.slot===slot).sort((a,b)=>a.date<b.date?-1:1);
+    const x=[],y=[],c=[];
+    for(let k=0;k<rows.length;k++){
+      if(k>0 && rows[k].contract!==rows[k-1].contract){x.push(rows[k].date);y.push(null);c.push(null);}
+      x.push(rows[k].date);y.push(rows[k][valueKey]*scale);c.push(rows[k].contract);
+    }
+    return {x,y,name:slot,mode:'lines',line:{color:colors[slot],width:1.6},connectgaps:false,
+      customdata:c,hovertemplate:'%{customdata} · '+fmtTip+'<extra>'+slot+'</extra>'};
+  });
 }
+function drawBasis(){
+  Plotly.react('basis',slotTraces('basis',SLOT_COLORS,'%{y:,.1f} 点',1),
+    {...base,autosize:true,margin:{l:66,r:20,t:12,b:40},
+     xaxis:{gridcolor:'#EDF1F4',type:'date'},
+     yaxis:{gridcolor:'#E6EDF1',title:{text:'基差（点）'},zeroline:true,zerolinecolor:'#C9D6DE'},
+     legend:{orientation:'h',y:-0.16,x:0,font:{size:11}}},{displayModeBar:false,responsive:true});
+}
+function drawBasisRate(){
+  Plotly.react('basisRate',slotTraces('rate',SLOT_COLORS,'%{y:.2f}%',100),
+    {...base,autosize:true,margin:{l:66,r:20,t:12,b:40},
+     xaxis:{gridcolor:'#EDF1F4',type:'date'},
+     yaxis:{gridcolor:'#E6EDF1',title:{text:'贴水率（%）'},zeroline:true,zerolinecolor:'#C9D6DE',ticksuffix:'%'},
+     legend:{orientation:'h',y:-0.16,x:0,font:{size:11}}},{displayModeBar:false,responsive:true});
+}
+
+/* ---------- term structure (same day, four expiries) ---------- */
+const TERM_COLORS=['#7ECDEB','#4A8DB7','#174A7C','#06213D'];
+let termSnap='last';
+(function initTermSnap(){
+  // offer the most recent day plus the start of the spot window for comparison
+  const opts=[{k:'last',label:'最新 '+(DATA.term.at(-1)||{}).date},
+              {k:'first',label:'起始 '+DATA.term[0].date},
+              {k:'steep',label:'贴水最深'}];
+  let steep=DATA.term[0];
+  for(const t of DATA.term){ const v=Math.min(...t.rates); if(v<Math.min(...steep.rates)) steep=t; }
+  opts[2].label='贴水最深 '+steep.date;
+  document.getElementById('termSnap').innerHTML=opts.map(o=>
+    `<button data-t="${o.k}" class="${o.k===termSnap?'active':''}">${o.label}</button>`).join('');
+  window.__termOpts={steep};
+})();
+function termPick(){
+  if(termSnap==='last') return DATA.term.at(-1);
+  if(termSnap==='first') return DATA.term[0];
+  return window.__termOpts.steep;
+}
+function drawTerm(){
+  const t=termPick();
+  const trace={x:t.months,y:t.rates.map(r=>r*100),text:t.contracts,mode:'lines+markers+text',
+    textposition:'top center',textfont:{size:10,family:"'SF Mono', ui-monospace, monospace"},
+    line:{color:GOLD,width:2.4},marker:{size:9,color:t.months.map((_,i)=>TERM_COLORS[i%TERM_COLORS.length])},
+    customdata:t.slots.map((s,i)=>[s,t.basis[i]]),
+    hovertemplate:'%{text}（%{customdata[0]}）<br>贴水率 %{y:.2f}%<br>基差 %{customdata[1]:,.1f} 点<extra></extra>'};
+  Plotly.react('term',[trace],{...base,autosize:true,hovermode:'closest',
+    margin:{l:66,r:24,t:24,b:48},
+    xaxis:{gridcolor:'#EDF1F4',title:{text:'距交付月的月数'},dtick:1,zeroline:false},
+    yaxis:{gridcolor:'#E6EDF1',title:{text:'贴水率（%）'},ticksuffix:'%',zeroline:true,zerolinecolor:'#C9D6DE'}},
+    {displayModeBar:false,responsive:true});
+  const mt=DATA.meta.term_monotonic;
+  const verdict = t.n<4 ? '当日仅挂牌 '+t.n+' 个合约，无法比较完整期限结构。'
+    : (t.monotonic ? '当日贴水随期限单调扩大。' : '当日贴水并未随期限单调扩大。');
+  document.getElementById('term-note').textContent =
+    `选取日 ${t.date}：${t.contracts.map((c,i)=>t.slots[i]+' '+c).join(' · ')}。${verdict}`
+    + `  样本内 ${mt.n} 个四合约满额交易日中，${mt.monotonic} 天（${(mt.monotonic/mt.n*100).toFixed(1)}%）贴水随期限单调加深。`
+    + '  该判定只比较同一交易日的到期月份，不涉及跨日收益。';
+}
+document.querySelectorAll('#termSnap button').forEach(b=>b.onclick=()=>{
+  termSnap=b.dataset.t;
+  document.querySelectorAll('#termSnap button').forEach(x=>x.classList.toggle('active',x===b));
+  drawTerm();
+});
 
 /* ---------- tables ---------- */
 function table(el,heads,rows){
@@ -267,8 +346,23 @@ table(document.getElementById('month-table'),
     `四个合约收盘价通常随到期日递减，远端贴水更深；持仓最多仅标记当日持仓量最大合约，不代表交易建议。中证500现货仅 ${DATA.spot.dates.length} 日（${ratio}% 的期货历史）可用，故基差不可外推。`;
 })();
 
-drawFull(); drawZoom(); drawBasis();
-window.addEventListener('resize',()=>{drawFull();drawZoom();drawBasis();});
+(function(){
+  const rows = DATA.term.slice().reverse().map(t=>({
+    date:t.date,
+    combo:t.slots.map((s,i)=>`${s} ${t.contracts[i]}`).join(' · '),
+    dist:t.months.join('/'),
+    spread:(t.rates.at(-1)-t.rates[0])*100,
+    mono:t.n<4?null:t.monotonic
+  }));
+  table(document.getElementById('term-table'),
+    [{label:'日期'},{label:'四个挂牌合约'},{label:'距交付月（月）',num:1},{label:'首末贴水差（百分点）',num:1},{label:'结构'}],
+    rows.map(r=>[r.date,{html:`<span style="font-family:'SF Mono',monospace;font-size:11px">${r.combo}</span>`},
+      r.dist,{html:`<span class="${r.spread<0?'neg':''}">${r.spread.toFixed(2)}</span>`},
+      r.mono===null?'<span class="tag na">仅 3 合约</span>':(r.mono?'<span class="tag main">单调加深</span>':'<span class="tag na">非单调</span>')]));
+})();
+
+drawFull(); drawZoom(); drawBasis(); drawBasisRate(); drawTerm();
+window.addEventListener('resize',()=>{drawFull();drawZoom();drawBasis();drawBasisRate();drawTerm();});
 </script>
 </body>
 </html>
