@@ -7,7 +7,9 @@ REASONS = {'MISSING_TARGET_BATCH':'缺少目标日期货快照', 'FETCH_FAILED':
            'INVALID_SOURCE_DATA':'官方行情字段或完整性验收失败',
            'INCONSISTENT_OPEN_INTEREST_CHANGE':'持仓变化与前日不一致',
            'INCONSISTENT_PRE_SETTLE':'前结算价与前日结算不一致',
-           'SESSION_INCOMPLETE':'源文件获取时尚未收盘'}
+           'SESSION_INCOMPLETE':'源文件获取时尚未收盘',
+           'MISSING_PRIOR_SESSION':'前一交易日快照不可用（当日涨跌未知）',
+           'PRODUCT_LISTED':'上市首日，无前一交易日可比较（当日涨跌未知）'}
 
 
 def panel(document):

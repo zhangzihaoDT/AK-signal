@@ -156,3 +156,137 @@ def test_wrong_manifest_date_and_intraday_capture_rejected(root,monkeypatch):
     item,sig=m.definitions(root)
     rows=m.consume(root,DATE,item,sig,receipt,m.spot_reference(indices(),item,DATE))
     assert rows[0]['reason']=='SESSION_INCOMPLETE' and rows[0]['close'] is None
+
+
+# --- historical backfill -------------------------------------------------
+
+def _fake_backfill_source(monkeypatch, days, fail=()):
+    """Serve dated CFFEX files for `days` only; anything else is a 404.
+
+    Levels step by session index so pre_settle[t] == settle[t-1] holds, exactly
+    like the real exchange files, and open interest stays chained.
+    """
+    def get(url, timeout):
+        assert timeout == 25
+        day = url.split('/')[-1].removesuffix('_1.csv')
+        if day not in days or day in fail:
+            raise m.requests.HTTPError('404 Not Found')
+        step = sorted(days).index(day)
+        rows = []
+        for i, contract in enumerate(('IC2611', 'IC2612', 'IC2703', 'IC2706')):
+            base = 100 + i + step
+            rows.append([contract, base, base + 4, base - 1, 1000 + i, '1234',
+                         10000 + i * 100 + step * 10, 10, base + 2, base + 1, base, 0, 0, '--'])
+        stream = StringIO(); w = csv.writer(stream); w.writerow(HEADER); w.writerows(rows)
+        return SimpleNamespace(content=stream.getvalue().encode('gb18030'), status_code=200,
+                               raise_for_status=lambda: None)
+    monkeypatch.setattr(m.requests, 'get', get)
+
+
+def test_backfill_refuses_sessions_before_ic_listed(root, monkeypatch):
+    # IC listed 2015-04-16; earlier exchange files carry no IC rows at all.
+    assert m.PRODUCT_LISTED_DATE == '20150416'
+    for start, end in (('20150101', '20150415'), ('20261029', '20261027')):
+        with pytest.raises(ValueError, match='no listed-product session'):
+            m.backfill_sessions(root, start, end)
+    # A range straddling the listing date is clamped forward, never widened back.
+    monkeypatch.setattr(m, 'PRODUCT_LISTED_DATE', '20150101')
+    _, clamped = m.backfill_sessions(root, '20150101', '20150417')
+    monkeypatch.undo()
+    _, listed = m.backfill_sessions(root, '20150101', '20150417')
+    assert listed[0] == '20150416' and all(d >= '20150416' for d in listed)
+    assert clamped[0] == '20150105' and '20150416' in listed
+
+
+def test_backfill_is_idempotent_and_resumable(root, monkeypatch):
+    _fake_backfill_source(monkeypatch, {'20261027', '20261028', '20261029'})
+    first = m.backfill(root, '20261027', '20261029')
+    assert first['created'] == ['20261027', '20261028', '20261029']
+    assert first['failed_count'] == 0
+    # Re-running never refetches or rewrites an existing partition.
+    monkeypatch.setattr(m.requests, 'get',
+                        lambda *_a, **_k: pytest.fail('must not refetch backfilled sessions'))
+    again = m.backfill(root, '20261027', '20261029')
+    assert again['created'] == [] and len(again['already_present']) == 3
+
+
+def test_backfill_skips_unavailable_days_without_faking_facts(root, monkeypatch):
+    _fake_backfill_source(monkeypatch, {'20261027', '20261029'}, fail={'20261028'})
+    report = m.backfill(root, '20261027', '20261029')
+    assert report['created'] == ['20261027', '20261029']
+    assert [f['date'] for f in report['failed']] == ['20261028']
+    # A failed day registers no partition, so it cannot look like available facts.
+    assert not (root/'data/sources/cffex/raw/daily/partitions/20261028.json').exists()
+    assert (root/'data/sources/cffex/raw/daily/partitions/20261027.json').exists()
+
+
+def test_backfilled_day_uses_prior_session_own_archive(root, monkeypatch):
+    _fake_backfill_source(monkeypatch, {'20261026', '20261027'})
+    m.backfill(root, '20261026', '20261027')
+    item, sig = m.definitions(root)
+    receipt = json.loads((root/'data/sources/cffex/raw/daily/partitions/20261027.json').read_text())
+    spot = m.spot_reference(indices(), item, '20261027')
+    rows = m.consume(root, '20261027', item, sig, receipt, spot)
+    assert rows[0]['status'] == 'AVAILABLE'
+    # Prior close is sourced from 20261026's own archived file, not a same-batch fetch,
+    # and backfill never claims a previous_date it did not itself fetch.
+    assert rows[0]['previous_session_source'] == 'previous_session_archive'
+    assert rows[0]['previous_source_url'] == m.source_url('20261026')
+    assert rows[0]['previous_source_trade_date'] == '20261026'
+    # The prior session is one step lower in the fake ladder.
+    assert rows[0]['previous_close'] == pytest.approx(rows[0]['close'] - 1)
+    # Pre-settle chains, so the day verifies instead of degrading.
+    assert rows[0]['reason'] == '' and rows[0]['return_status'] == 'OK'
+    manifest = json.loads(Path(receipt['snapshot_manifest']).read_text())
+    assert manifest['acquisition'] == 'historical_backfill'
+    assert [r['source_trade_date'] for r in manifest['records']] == ['20261027']
+
+
+def test_backfilled_day_without_prior_archive_degrades_to_unknown(root, monkeypatch):
+    _fake_backfill_source(monkeypatch, {'20261027'})
+    m.backfill(root, '20261027', '20261027')
+    item, sig = m.definitions(root)
+    receipt = json.loads((root/'data/sources/cffex/raw/daily/partitions/20261027.json').read_text())
+    spot = m.spot_reference(indices(), item, '20261027')
+    rows = m.consume(root, '20261027', item, sig, receipt, spot)
+    assert rows[0]['reason'] == 'MISSING_PRIOR_SESSION'
+    assert rows[0]['close'] is None and rows[0]['status'] == 'UNAVAILABLE'
+
+
+def test_backfilled_materialised_history_matches_chain_semantics(root, monkeypatch, tmp_path):
+    """Backfilled history and the live chain must agree on every level fact."""
+    _fake_backfill_source(monkeypatch, {'20261026', '20261027'})
+    m.backfill(root, '20261026', '20261027')
+    item, sig = m.definitions(root)
+    spot = m.spot_reference(indices(), item, '20261027')
+    back = m.consume(root, '20261027', item, sig,
+                     json.loads((root/'data/sources/cffex/raw/daily/partitions/20261027.json').read_text()), spot)
+    assert back[0]['previous_session_source'] == 'previous_session_archive'
+    # The live chain fetches {previous, target} in one batch into a separate root.
+    chain_root = tmp_path/'chain'
+    for name in ('derivatives.yaml', 'observation_sources.yaml', 'market_calendars/XSHG.json'):
+        (chain_root/'config'/name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT/'config'/name, chain_root/'config'/name)
+    _fake_backfill_source(monkeypatch, {'20261026', '20261027'})
+    chained = m.build('20261027', indices(), online=True, root=chain_root)['rows']
+    assert all(r['previous_session_source'] == 'same_batch' for r in chained)
+    for a, b in zip(back, chained):
+        assert a['contract'] == b['contract']
+        for key in ('open', 'high', 'low', 'close', 'settle', 'volume', 'open_interest',
+                    'is_main_open_interest', 'return_1d', 'previous_close'):
+            assert a[key] == b[key]
+
+
+def test_listing_day_is_distinct_from_a_missing_prior_session(root, monkeypatch):
+    """2015-04-16 has no earlier IC session; a stray gap day is a different reason."""
+    monkeypatch.setattr(m, 'PRODUCT_LISTED_DATE', '20150416')
+    monkeypatch.setattr(m, 'backfill_sessions',
+                        lambda r, s, e: (None, ['20150416']))
+    _fake_backfill_source(monkeypatch, {'20150416'})
+    m.backfill(root, '20150416', '20150417')
+    item, sig = m.definitions(root)
+    receipt = json.loads((root/'data/sources/cffex/raw/daily/partitions/20150416.json').read_text())
+    spot = m.spot_reference(indices(), item, '20150416')
+    rows = m.consume(root, '20150416', item, sig, receipt, spot)
+    assert rows[0]['reason'] == 'PRODUCT_LISTED' and rows[0]['close'] is None
+    assert '上市首日' in panel({'rows': rows})

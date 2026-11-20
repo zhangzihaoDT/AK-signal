@@ -25,6 +25,9 @@ from .core_indices import digest
 
 RULE_VERSION = 'listed-derivative-facts-v1'
 ENDPOINT = 'http://www.cffex.com.cn/sj/hqsj/rtj/{month}/{day}/{date}_1.csv'
+# CFFEX listed IC (CSI 500 index futures) on 2015-04-16. Dated exchange files published
+# before this date contain no IC rows at all, so earlier sessions are pre-listing, not gaps.
+PRODUCT_LISTED_DATE = '20150416'
 NUMBERS = ('open', 'high', 'low', 'close', 'settle', 'pre_settle', 'volume',
            'open_interest', 'open_interest_change', 'return_1d', 'previous_close',
            'close_vs_pre_settle', 'basis_points', 'basis_rate')
@@ -160,7 +163,7 @@ def spot_reference(indices, item, date):
     return ref
 
 
-def consume(root, date, item, signature, receipt, spot):
+def consume(root, date, item, signature, receipt, spot, *, previous_date=None):
     if receipt is None:
         return [_base(item, date, 'MISSING_TARGET_BATCH')]
     path = Path(receipt['snapshot_manifest'])
@@ -171,11 +174,34 @@ def consume(root, date, item, signature, receipt, spot):
     if hashlib.sha256(content).hexdigest() != receipt['manifest_sha256']:
         raise ValueError('derivatives manifest hash mismatch')
     manifest = json.loads(content)
-    calendar, previous_date = _dates(root, date)
-    if (manifest.get('trade_date') != date or manifest.get('previous_trade_date') != previous_date
-            or manifest.get('registry_hash') != signature or manifest.get('provider') != 'cffex'
-            or [r['source_trade_date'] for r in manifest['records']] != [previous_date,date]):
-        raise ValueError('derivatives manifest date/registry mismatch')
+    calendar, expected_previous = _dates(root, date)
+    if previous_date is not None and previous_date != expected_previous:
+        raise ValueError('derivatives previous session override mismatch')
+    previous_date = expected_previous
+    backfilled = manifest.get('acquisition') == 'historical_backfill'
+    if backfilled:
+        # A backfilled manifest holds only its own dated file. The previous session's
+        # close comes from that session's own archived file, so a backfill never
+        # fabricates a prior close and never needs the daily chain to have run.
+        previous_path = root/'data/sources/cffex/raw/daily/partitions'/f'{previous_date}.json'
+        if (manifest.get('trade_date') != date or manifest.get('registry_hash') != signature
+                or manifest.get('provider') != 'cffex'
+                or [r['source_trade_date'] for r in manifest['records']] != [date]):
+            raise ValueError('derivatives manifest date/registry mismatch')
+        if not previous_path.exists():
+            # Listing day: the product has no earlier session to chain a return from.
+            # This is a known, structural start of history, not a data gap.
+            return [_base(item, date, 'PRODUCT_LISTED' if date == PRODUCT_LISTED_DATE
+                          else 'MISSING_PRIOR_SESSION')]
+        via = 'previous_session_archive'
+    else:
+        if (manifest.get('trade_date') != date or manifest.get('previous_trade_date') != previous_date
+                or manifest.get('registry_hash') != signature or manifest.get('provider') != 'cffex'
+                or [r['source_trade_date'] for r in manifest['records']] != [previous_date,date]):
+            raise ValueError('derivatives manifest date/registry mismatch')
+        via = 'same_batch'
+    if (manifest.get('previous_trade_date') not in (None, previous_date)):
+        raise ValueError('derivatives manifest previous date mismatch')
     fetched_at = datetime.fromisoformat(manifest['generated_at'])
     if fetched_at.tzinfo is None or fetched_at < datetime.fromisoformat(calendar.closes[pd.Timestamp(date).date().isoformat()]):
         return [_base(item, date, 'SESSION_INCOMPLETE')]
@@ -196,6 +222,29 @@ def consume(root, date, item, signature, receipt, spot):
             frames[day] = parse_daily(raw, day, item)
         except (ValueError, KeyError, UnicodeError, TypeError):
             return [_base(item, date, 'INVALID_SOURCE_DATA')]
+    previous_evidence = None
+    if backfilled:
+        # Resolve the prior session from its own immutable archive; a broken or
+        # missing prior day degrades the return to unknown instead of raising.
+        prior_receipt = json.loads(previous_path.read_text())
+        prior_manifest = Path(prior_receipt['snapshot_manifest'])
+        prior_day = prior_manifest.parent.parent.name
+        if prior_day != previous_date or not prior_manifest.exists():
+            return [_base(item, date, 'MISSING_PRIOR_SESSION')]
+        prior_records = json.loads(prior_manifest.read_text())['records']
+        prior_file = next((r for r in prior_records if r['source_trade_date'] == previous_date), None)
+        if prior_file is None or 'file' not in prior_file:
+            return [_base(item, date, 'MISSING_PRIOR_SESSION')]
+        prior_raw = (prior_manifest.parent/prior_file['file']).read_bytes()
+        if hashlib.sha256(prior_raw).hexdigest() != prior_file.get('sha256'):
+            raise ValueError('derivatives prior raw file hash mismatch')
+        try:
+            frames[previous_date] = parse_daily(prior_raw, previous_date, item)
+        except (ValueError, KeyError, UnicodeError, TypeError):
+            return [_base(item, date, 'MISSING_PRIOR_SESSION')]
+        previous_evidence = {'previous_source_trade_date': prior_day,
+                             'previous_source_url': prior_file['url'],
+                             'previous_sha256': prior_file['sha256']}
     previous = {r['contract']:r for r in frames[previous_date]}
     max_oi = max(r['open_interest'] for r in frames[date])
     rows = []
@@ -220,6 +269,11 @@ def consume(root, date, item, signature, receipt, spot):
         row['basis_status'] = 'OK' if spot['usable'] else 'SPOT_UNAVAILABLE'
         if spot['usable']:
             row.update(basis_points=raw['close']-spot['close'], basis_rate=raw['close']/spot['close']-1)
+        # Which immutable input supplied the prior close, so a return is auditable
+        # without assuming the daily chain ever ingested the preceding session.
+        row['previous_session_source'] = via
+        if previous_evidence:
+            row.update(previous_evidence)
         rows.append(row)
     return rows
 
@@ -255,3 +309,93 @@ def validate_document(document, date, indices, root=None):
     expected = consume(root, date, item, signature, document['input_receipt'], spot)
     if document['spot_reference'] != spot or document['rows'] != expected or document['module'] != module_status(expected):
         raise ValueError('derivatives facts differ from immutable inputs')
+
+
+# ---------------------------------------------------------------------------
+# Historical backfill (separate from the daily incremental chain)
+#
+# The daily chain only ever fetches {previous, target}: two files per run. That is
+# deliberate (bounded requests, immutable evidence) but means history that predates
+# the first run can never be reached by it. Backfill reconstructs the same evidence
+# shape for past sessions and writes it under the normal runs/{date}/ + partitions/
+# layout, so `consume`/`validate_document` treat it like any other day.
+#
+# Backfill must never fabricate prices or rankings: a session with no IC rows is
+# pre-listing (before PRODUCT_LISTED_DATE) or a real coverage gap, and is recorded
+# as such instead of being forward-filled.
+# ---------------------------------------------------------------------------
+
+def backfill_sessions(root, start, end):
+    """Calendar sessions in [start, end], inclusive, at or after product listing."""
+    start, end = pd.Timestamp(start).strftime('%Y%m%d'), pd.Timestamp(end).strftime('%Y%m%d')
+    if start < PRODUCT_LISTED_DATE:
+        start = PRODUCT_LISTED_DATE
+    calendar = SessionCalendar.load(root/'config/market_calendars/XSHG.json')
+    days = [d.strftime('%Y%m%d') for d in calendar.days if start <= d.strftime('%Y%m%d') <= end]
+    if not days:
+        raise ValueError('backfill range contains no listed-product session')
+    return calendar, days
+
+
+def _fetch(root, day, folder):
+    """Fetch one dated CFFEX file into folder, returning an evidence record."""
+    record = {'source_trade_date': day, 'url': source_url(day)}
+    path = folder/(day+'_1.csv')
+    try:
+        response = requests.get(record['url'], timeout=25)
+        path.write_bytes(response.content)
+        record.update(file=path.name, sha256=hashlib.sha256(response.content).hexdigest(),
+                      http_status=response.status_code)
+        response.raise_for_status()
+    except Exception as exc:
+        record['error_type'] = type(exc).__name__
+    return record
+
+
+def backfill(root, start, end, *, dry_run=False):
+    """Fetch historical CFFEX files for every calendar session in range.
+
+    Idempotent: a session whose partition already exists is left untouched, so an
+    interrupted backfill is resumed by re-running with the same range.
+    """
+    root = root or project_root()
+    item, signature = definitions(root)
+    calendar, days = backfill_sessions(root, start, end)
+    runs = root/'data/sources/cffex/raw/daily/runs'
+    parts = root/'data/sources/cffex/raw/daily/partitions'
+    parts.mkdir(parents=True, exist_ok=True)
+    report = {'product': item['product'], 'registry_hash': signature, 'start': days[0],
+              'end': days[-1], 'total': len(days), 'created': [], 'already_present': [],
+              'failed': [], 'pre_listing_excluded': start}
+    for day in days:
+        pointer = parts/f'{day}.json'
+        if pointer.exists():
+            report['already_present'].append(day)
+            continue
+        if dry_run:
+            report['created'].append(day)
+            continue
+        folder = runs/day/uuid4().hex
+        folder.mkdir(parents=True, exist_ok=False)
+        record = _fetch(root, day, folder)
+        manifest = {'trade_date': day, 'previous_trade_date': None, 'registry_hash': signature,
+                    'provider': 'cffex', 'acquisition': 'historical_backfill',
+                    'generated_at': datetime.now(timezone.utc).isoformat(), 'records': [record]}
+        path = folder/'manifest.json'
+        atomic_json(path, manifest)
+        if record.get('error_type') or record.get('http_status') != 200:
+            report['failed'].append({'date': day, 'error': record.get('error_type') or record.get('http_status')})
+            continue
+        try:
+            parse_daily((folder/record['file']).read_bytes(), day, item)
+        except (ValueError, KeyError, UnicodeError, TypeError) as exc:
+            # Keep the raw file and manifest for the audit trail, but register no
+            # partition: an unparseable day must not masquerade as available facts.
+            report['failed'].append({'date': day, 'error': f'{type(exc).__name__}: {exc}'})
+            continue
+        atomic_json(pointer, {'snapshot_manifest': str(path),
+                              'manifest_sha256': hashlib.sha256(path.read_bytes()).hexdigest()})
+        report['created'].append(day)
+    report['created_count'] = len(report['created'])
+    report['failed_count'] = len(report['failed'])
+    return report

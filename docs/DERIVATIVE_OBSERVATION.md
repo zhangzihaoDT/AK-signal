@@ -30,3 +30,16 @@ IC是品种而非单一到期合约。表格保留官方目标日日文件的四
 规则 `listed-derivative-facts-v1`。检查CSV字段、重复表头、具体合约唯一性、四合约覆盖、代码月份、非有限/非正价格、原始OHLC关系、非负整数成交/持仓及前后日持仓变化一致性。前结算必须与该合约前日结算一致。异常不修复、不前填；失败时保留IC固定不可用行，禁止用连续合约兜底。
 
 `observation build`在线获取、离线只消费精确目标日引用。输出 `derivatives_{date}.json/.parquet/.csv`；JSON记录注册签名、输入回执、现货快照引用及全部合约事实。`observation check`从不可变CSV重算，核对事实/回执/HTML/Markdown及面板顺序；摘要或身份篡改拒绝发布。模块不可用进入PARTIAL；`--require-complete`拒绝不完整发布。单日展示不改ETF/指数横截面或策略资格。
+
+## 历史回补
+
+日常链每天只取「目标日 + 前一交易日」两份文件，因此首次运行前的历史结构上不可达。`src.market_facts.derivatives.backfill(root, start, end)` 为独立通道：按 XSHG 日历会话逐日获取官方日文件，复用同一 `parse_daily`，写入常规 `runs/{date}/` 与 `partitions/{date}.json`，manifest 标记 `acquisition: historical_backfill` 并保留 URL/状态码/摘要。
+
+- **区间下界钳制到上市日** `PRODUCT_LISTED_DATE=20150416`。中金所 IC 于 2015-04-16 上市；更早的官方日文件不含任何 IC 行，属于上市前而非缺日，不能伪造四合约。
+- **幂等与断点续跑**：已存在 `partitions/{date}.json` 的日期直接跳过，不重取、不覆盖。
+- **失败不登记**：抓取失败或解析失败的日期只保留原始文件与 manifest 供审计，不写分区，因此不会被误认为可用事实。
+- **前收回溯**：回补日的前收盘取「前一交易日自身归档」，行内记录 `previous_session_source=previous_session_archive` 与 `previous_sha256`；日常链为 `same_batch`。前一日归档缺失时降级为 `MISSING_PRIOR_SESSION`（上市当日为 `PRODUCT_LISTED`），不取更早文件冒名顶替。
+- **基差**：回补日无同批 csi500 现货快照，`basis_status=SPOT_UNAVAILABLE`，不以外部指数或第三方序列反推。
+
+当前登记范围 2015-04-16 → 2026-11-19 共 2,819 个交易日，零缺口。见 `config/decisions/20261120-ic-history-backfill.md`。
+
