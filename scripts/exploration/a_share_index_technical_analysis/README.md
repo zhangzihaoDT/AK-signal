@@ -15,6 +15,18 @@
 
 ## 复现与继续研究
 
+专题的取数入口是 AKsignal 的共享工具 `scripts/audits/backfill_csi500.py`。它按指数分批保存中证官方原始响应、请求回执、CSV、Parquet 和质量审计。已有匹配快照时，直接运行下方绘图命令即可。
+
+需要重放本专题的取数批次时，从 AKsignal 根目录执行：
+
+```bash
+for code in 000905 000852; do
+  .venv/bin/python -m scripts.audits.backfill_csi500 --index-code "$code" --end 2026-11-20 --run-id official-20261123 || break
+done
+```
+
+回填工具复用已保存的请求回执，缺少回执时访问官方接口。核对生成结果时以 `sources.json` 锁定的 SHA-256 为准。取得其他截止日的行情时使用新的批次名。
+
 在 AKsignal 根目录运行，使用已有的 Python 环境和中证官方长历史回填。
 
 ```bash
