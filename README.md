@@ -85,4 +85,6 @@ pip install -r requirements.txt
 
 独立 [篮子研究报告](docs/RESEARCH_BASKETS.md) 使用8个研究篮子 + 高现金流参照、68只个股与长桥同源基准；季度再平衡为默认结构指数，买入持有为对照。数据源探索旧材料见 [历史归档](docs/archive/source_migration_20261016/README.md)。
 
+[A 股宽基指数技术分析](scripts/exploration/a_share_index_technical_analysis/README.md) 是独立研究专题，包含中证500和中证1000的历史收盘、价格轨道及事件标注。
+
 目录职责：[业务架构与决策](config/decisions/README.md) · [项目工程结构](docs/PROJECT_STRUCTURE.md) · [数据存储架构](data/README.md) · [手动工具](scripts/README.md)。

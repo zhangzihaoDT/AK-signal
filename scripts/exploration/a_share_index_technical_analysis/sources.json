@@ -1,0 +1,28 @@
+{
+  "topic": "A 股宽基指数技术分析",
+  "provider": "csindex",
+  "price_basis": "index_level",
+  "backfill": "official-20261123",
+  "indices": {
+    "000905": {
+      "index_name": "中证500",
+      "source": "data/sources/csindex/processed/history/000905/official-20261123/000905.csv",
+      "source_sha256": "ef54cb9c7199f9f7b4a04c133c2dbcf8dace8adabae92a0dfed98ebfd3d1e2d8",
+      "source_audit": "data/sources/csindex/audits/history/000905/official-20261123/audit.json",
+      "start": "2007-01-15",
+      "end": "2026-11-20",
+      "bars": 4824,
+      "calendar_checked_from": "2015-01-01"
+    },
+    "000852": {
+      "index_name": "中证1000",
+      "source": "data/sources/csindex/processed/history/000852/official-20261123/000852.csv",
+      "source_sha256": "4dbeb52f1b8929856d169db43de2c72ba451e4ca70a197f0299d101bd98de21d",
+      "source_audit": "data/sources/csindex/audits/history/000852/official-20261123/audit.json",
+      "start": "2014-10-17",
+      "end": "2026-11-20",
+      "bars": 2941,
+      "calendar_checked_from": "2015-01-01"
+    }
+  }
+}
