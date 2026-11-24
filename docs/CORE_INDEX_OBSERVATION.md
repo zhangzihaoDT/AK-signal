@@ -31,6 +31,10 @@
 
 回填处理结果位于 `data/sources/csindex/processed/history/{000905,000852,000688}/official-20261123/`，原始分段响应及回执位于 `data/sources/csindex/raw/history/{000905,000852,000688}/official-20261123/`，质量审计位于 `data/sources/csindex/audits/history/{000905,000852,000688}/official-20261123/audit.json`。该长历史数据集独立于日报核心指数事实链；日报仍按本页所述365自然日窗口构建，不因回填而扩大或自动消费此历史数据。
 
+带滚动市盈率的 CSV、Parquet 和质量审计使用 `official-20261123-pe-ttm` 版本，复用 `official-20261123` 的原始响应及请求回执。`pe_ttm` 直接取 `peg`，单位为倍，采用中证官方指数单张的计算用股本口径。沿用原回填的日期与 `pre_launch` 标记，源空值保留为空。中证500自 2011-06-28 开始有值，2012-09-04 起的已验收行情行均有值。中证1000和科创50自正式发布日起的已验收行情行均有值。
+
+使用 `python -m scripts.audits.backfill_csi500 --index-code 000905 --end 2026-11-20 --run-id official-20261123 --include-pe-ttm` 可复建。将 `--index-code` 换为 `000852` 或 `000688` 即可复建对应指数。审计记录源批次、PE-TTM 覆盖和输出摘要。
+
 各收益窗口独立验收；历史不足标记 `INSUFFICIENT_HISTORY`，报价缺口标记 `DATA_GAP`，不前填、不按行数跨缺口计算。目标日缺失、未收盘或源日期未验证时所有数值为空。真实末次源交易日可用于解释缺失，但不显示成目标日报价。交易日历复用有界独立规则模型，非交易所全历史认证。
 
 ## 构建、验收与发布

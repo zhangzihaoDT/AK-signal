@@ -16,6 +16,7 @@ from src.market_facts.calendar import SessionCalendar
 from src.market_facts.csindex_source import ENDPOINT
 
 INDICES = {
+    '000300': ('沪深300', date(2004, 12, 31), date(2005, 4, 8)),
     '000905': ('中证500', date(2004, 12, 31), date(2007, 1, 15)),
     '000688': ('科创50', date(2019, 12, 31), date(2020, 7, 23)),
     '000852': ('中证1000', date(2004, 12, 31), date(2014, 10, 17)),
@@ -83,6 +84,8 @@ def main():
     parser.add_argument('--run-id', required=True)
     parser.add_argument('--end', required=True, type=date.fromisoformat)
     parser.add_argument('--index-code', choices=INDICES, default='000905')
+    parser.add_argument('--include-pe-ttm', action='store_true',
+                        help='Add official rolling P/E in a sibling <run-id>-pe-ttm output version')
     args = parser.parse_args()
     code = args.index_code
     name, base, launch = INDICES[code]
@@ -93,15 +96,19 @@ def main():
         calendar.closes[args.end.isoformat()]
     ):
         parser.error('end must be a complete session in the project calendar')
-    raw, processed, audits = [ROOT / layer / 'history' / code / args.run_id
-                              for layer in ('raw', 'processed', 'audits')]
+    output_id = f'{args.run_id}-pe-ttm' if args.include_pe_ttm else args.run_id
+    raw = ROOT / 'raw' / 'history' / code / args.run_id
+    processed, audits = [ROOT / layer / 'history' / code / output_id
+                         for layer in ('processed', 'audits')]
     for path in (raw, processed, audits):
         path.mkdir(parents=True, exist_ok=True)
     manifest = raw / 'run.json'
     scope = dict(start=str(base), end=str(args.end))
-    if manifest.exists() and json.loads(manifest.read_bytes()) != scope:
-        parser.error('run ID is already bound to a different date range')
-    save_json(manifest, scope)
+    if manifest.exists():
+        if json.loads(manifest.read_bytes()) != scope:
+            parser.error('run ID is already bound to a different date range')
+    else:
+        save_json(manifest, scope)
     receipts = []
 
     def get(start, end):
@@ -183,6 +190,11 @@ def main():
                           price_basis='index_level', pre_launch=day < launch, **prices,
                           volume_source_value=row.get('tradingVol'),
                           amount_source_value=row.get('tradingValue'), price_status=status))
+        if args.include_pe_ttm:
+            pe = row['peg']
+            if pe is not None and (type(pe) not in (int, float) or not math.isfinite(pe)):
+                raise ValueError(f'{code} {day}: invalid official rolling P/E')
+            table[-1]['pe_ttm'] = pe
     valid_days = {date.fromisoformat(row['trade_date']) for row in table if row['close'] is not None}
     report = dict(**scope, first=str(min(merged)) if merged else None,
                   last=str(max(merged)) if merged else None, rows=len(table),
@@ -193,12 +205,28 @@ def main():
                                 authority=calendar.authority, sha256=calendar.digest,
                                 missing_sessions=sorted(map(str, expected - valid_days)),
                                 unexpected_sessions=sorted(map(str, unexpected))),
-                  copied_start_dates=copied_boundaries, one_sided_overlap_dates=boundary_differences, annual_rows=Counter(d.year for d in merged.keys() - unexpected), issues=issues, requests=receipts,
+                  copied_start_dates=copied_boundaries, one_sided_overlap_dates=boundary_differences,
+                  annual_rows=Counter(d.year for d in sorted(merged.keys() - unexpected)),
+                  issues=issues, requests=receipts,
                   volume_amount_units='unverified')
-    save_json(audits / 'audit.json', report)
     if args.end not in valid_days:
+        save_json(audits / 'audit.json', report)
         raise ValueError('target close missing')
     frame = pd.DataFrame(table)
+    if args.include_pe_ttm:
+        frame['pe_ttm'] = frame['pe_ttm'].astype('float64')
+        observed = frame['pe_ttm'].notna()
+        days_with_pe = frame.loc[observed, 'trade_date']
+        since_launch = ~frame['pre_launch']
+        report['raw_run_id'] = args.run_id
+        report['pe_ttm'] = dict(
+            source_field='peg', units='multiple', share_basis='calculation_shares',
+            first_non_null=days_with_pe.min() if observed.any() else None,
+            last_non_null=days_with_pe.max() if observed.any() else None,
+            non_null_rows=int(observed.sum()), null_rows=int((~observed).sum()),
+            non_null_rows_since_launch=int((observed & since_launch).sum()),
+            null_rows_since_launch=int((~observed & since_launch).sum()),
+        )
     csv_path, parquet_path = processed / f'{code}.csv', processed / f'{code}.parquet'
     save(csv_path, frame.to_csv(index=False).encode())
     temp = parquet_path.with_suffix('.parquet.tmp')

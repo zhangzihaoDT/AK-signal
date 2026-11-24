@@ -6,23 +6,35 @@
   "indices": {
     "000905": {
       "index_name": "中证500",
-      "source": "data/sources/csindex/processed/history/000905/official-20261123/000905.csv",
-      "source_sha256": "ef54cb9c7199f9f7b4a04c133c2dbcf8dace8adabae92a0dfed98ebfd3d1e2d8",
-      "source_audit": "data/sources/csindex/audits/history/000905/official-20261123/audit.json",
+      "source": "data/sources/csindex/processed/history/000905/research-20261123-a804c5c02826/000905.csv",
+      "source_sha256": "d72e35f0959e2eb7a61a98fbfcf2c5a6a90824d961db68897c98a5123e5fbeb7",
+      "source_audit": "data/sources/csindex/audits/history/000905/research-20261123-a804c5c02826/audit.json",
       "start": "2007-01-15",
-      "end": "2026-11-20",
-      "bars": 4824,
+      "end": "2026-11-23",
+      "bars": 4825,
       "calendar_checked_from": "2015-01-01"
     },
     "000852": {
       "index_name": "中证1000",
-      "source": "data/sources/csindex/processed/history/000852/official-20261123/000852.csv",
-      "source_sha256": "4dbeb52f1b8929856d169db43de2c72ba451e4ca70a197f0299d101bd98de21d",
-      "source_audit": "data/sources/csindex/audits/history/000852/official-20261123/audit.json",
+      "source": "data/sources/csindex/processed/history/000852/research-20261123-a804c5c02826/000852.csv",
+      "source_sha256": "057762326baca16f7c1f673dc7410c48a52f089b4ab44a64f7ec9411276c0fd1",
+      "source_audit": "data/sources/csindex/audits/history/000852/research-20261123-a804c5c02826/audit.json",
       "start": "2014-10-17",
-      "end": "2026-11-20",
-      "bars": 2941,
+      "end": "2026-11-23",
+      "bars": 2942,
+      "calendar_checked_from": "2015-01-01"
+    },
+    "000300": {
+      "index_name": "沪深300",
+      "source": "data/sources/csindex/processed/history/000300/official-20261124-pe-ttm/000300.csv",
+      "source_sha256": "1c9df64536629cff064dff00a7a5368e73018643e4ba9dbb0b53d6e922ca0ed0",
+      "source_audit": "data/sources/csindex/audits/history/000300/official-20261124-pe-ttm/audit.json",
+      "start": "2005-04-08",
+      "end": "2026-11-23",
+      "bars": 5254,
       "calendar_checked_from": "2015-01-01"
     }
-  }
+  },
+  "update_batch": "research-20261123-a804c5c02826",
+  "updated_at": "2026-11-24T14:24:05.003148+08:00"
 }
