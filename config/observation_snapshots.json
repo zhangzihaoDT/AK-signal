@@ -80,6 +80,11 @@
       "date": "20261119",
       "path": "observation/industry_rotation_20261119.parquet",
       "sha256": "be61a43f88da4ab93fe6ea3fb20fe347f3a5e24a590e4639b704f37a5472b90e"
+    },
+    {
+      "date": "20261123",
+      "path": "observation/industry_rotation_20261123.parquet",
+      "sha256": "332a63576932fa55a3f97d6990bf7a7dbf1f902b33c5b62626d069a32229e869"
     }
   ]
 }
