@@ -129,7 +129,7 @@ def test_sw_source_dates_do_not_promote_undated_realtime(tmp_path):
     f=frame.tail(2).rename(columns={'date':'trade_date'})
     f['source']=['sw_daily','sw_realtime']
     # The primary-source allowlist comes from the existing SW date contract.
-    from src.sw_industry_rps.source_status import PRIMARY_SOURCES
+    from src.market_facts.industry_quality import PRIMARY_SOURCES
     f.loc[f.index[0],'source']=next(iter(PRIMARY_SOURCES))
     path=tmp_path/'industry.csv';f.to_csv(path,index=False)
     s=snapshot_from_cache(path,identity,c.days[-1],datetime.now(timezone.utc),

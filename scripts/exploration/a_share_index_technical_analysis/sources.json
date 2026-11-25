@@ -6,35 +6,35 @@
   "indices": {
     "000905": {
       "index_name": "中证500",
-      "source": "data/sources/csindex/processed/history/000905/research-20261123-a804c5c02826/000905.csv",
-      "source_sha256": "d72e35f0959e2eb7a61a98fbfcf2c5a6a90824d961db68897c98a5123e5fbeb7",
-      "source_audit": "data/sources/csindex/audits/history/000905/research-20261123-a804c5c02826/audit.json",
+      "source": "data/sources/csindex/processed/history/000905/research-20261124-a5f71de808a8/000905.csv",
+      "source_sha256": "6a461cc7f3e5cb54640c3aaff29e84a86d359a70b0f75efd8d686ea8888056a0",
+      "source_audit": "data/sources/csindex/audits/history/000905/research-20261124-a5f71de808a8/audit.json",
       "start": "2007-01-15",
-      "end": "2026-11-23",
-      "bars": 4825,
+      "end": "2026-11-24",
+      "bars": 4826,
       "calendar_checked_from": "2015-01-01"
     },
     "000852": {
       "index_name": "中证1000",
-      "source": "data/sources/csindex/processed/history/000852/research-20261123-a804c5c02826/000852.csv",
-      "source_sha256": "057762326baca16f7c1f673dc7410c48a52f089b4ab44a64f7ec9411276c0fd1",
-      "source_audit": "data/sources/csindex/audits/history/000852/research-20261123-a804c5c02826/audit.json",
+      "source": "data/sources/csindex/processed/history/000852/research-20261124-a5f71de808a8/000852.csv",
+      "source_sha256": "80e9e27994eea0d92c6d4bee12dfb2761bdb5406af0254880cfbd84c24d18b17",
+      "source_audit": "data/sources/csindex/audits/history/000852/research-20261124-a5f71de808a8/audit.json",
       "start": "2014-10-17",
-      "end": "2026-11-23",
-      "bars": 2942,
+      "end": "2026-11-24",
+      "bars": 2943,
       "calendar_checked_from": "2015-01-01"
     },
     "000300": {
       "index_name": "沪深300",
-      "source": "data/sources/csindex/processed/history/000300/official-20261124-pe-ttm/000300.csv",
-      "source_sha256": "1c9df64536629cff064dff00a7a5368e73018643e4ba9dbb0b53d6e922ca0ed0",
-      "source_audit": "data/sources/csindex/audits/history/000300/official-20261124-pe-ttm/audit.json",
+      "source": "data/sources/csindex/processed/history/000300/research-20261124-a5f71de808a8/000300.csv",
+      "source_sha256": "aed4ad3dfb43612afda83eb7394227926342dfa3f03d08c5f8f01af1394c0963",
+      "source_audit": "data/sources/csindex/audits/history/000300/research-20261124-a5f71de808a8/audit.json",
       "start": "2005-04-08",
-      "end": "2026-11-23",
-      "bars": 5254,
+      "end": "2026-11-24",
+      "bars": 5255,
       "calendar_checked_from": "2015-01-01"
     }
   },
-  "update_batch": "research-20261123-a804c5c02826",
-  "updated_at": "2026-11-24T14:24:05.003148+08:00"
+  "update_batch": "research-20261124-a5f71de808a8",
+  "updated_at": "2026-11-25T08:49:12.440662+08:00"
 }

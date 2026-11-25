@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.0.0 Financial Data Assets & Research Platform — 2026-11-25
+
+项目正式定位为金融数据资产与专题研究平台：Collection → Data Assets → Serving → Research。GridTrading 独立承担策略、回测、交易信号、账本与自动化；AKsignal 不再维护独立交易策略运行体系。
+
+- ETF：保留采集、主表、来源策略、历史回补、分类与事实指标；退役 Rotation 报告、Watchlist、账户映射、候选卡、BUY_CANDIDATE、独立 backtest 及策略 CLI。
+- SW 行业：正式来源固定为 TDX Research Industry；退役旧 SW RPS 更新/计算/确认/结构/THS 报告链。SW 原始行情、加工数据、来源证据和 Manifest 保留。
+- Basket：删除 legacy 多源计算/抓取/报告；正式 Basket Compare V2 保留。
+- 策略配置：删除 `strategy_spec.yaml`、`execution.yaml`、`portfolio.yaml`、账户黑名单及 Strategy/Execution/Portfolio 模型；`indicator_spec.yaml` 只保留事实指标与质量配置。
+- 研究：保留 Market Facts 日报、Holdings Dashboard、CSI500 Price Channel、Basket Compare V2、IC500 专题与 A-Shape V2；A-Shape V2 仅做历史形态研究。
+- 交付：新增本地看板目录、跨项目数据供给契约、退役审计与文件级删除清单。
+- 验收：677 项测试通过；`make run-day-offline RUN_DATE=20261123 RUN_FLAGS=--restart` 正常发布，治理前后同日事实 parquet、日报 summary 与 final_check 一致。
+- 标签：`financial-data-assets-research-platform`。
+
 ## ETF Classification v1.2.0 归档 — 2026-10-29
 
 AKsignal 项目版本保持 `0.7.3`，本次功能里程碑标签为 `etf-classification-v1.2.0`。按用户确认归档当前完整运行版本，包括下述日报信息架构、核心指数、衍生品及行业快照发布修复。

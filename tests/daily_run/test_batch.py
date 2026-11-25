@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from src import daily_run
-from src.final_validation import cli as validation
+from src.observation import quality as validation
 
 
 def test_every_stage_is_pinned_and_offline_has_no_acquisition():
@@ -54,7 +54,7 @@ def test_final_check_reports_etf_and_named_stock_holes(tmp_path, monkeypatch):
     raw.mkdir()
     diag = tmp_path / 'diagnostics'
     diag.mkdir()
-    monkeypatch.setattr(validation, 'etf_signal_raw_dir', lambda: raw)
+    monkeypatch.setattr(validation, 'etf_signal_diagnostics_dir', lambda: diag)
     monkeypatch.setattr(validation, 'stock_metrics_dir', lambda: tmp_path)
     (diag / 'source_audit_20261012.json').write_text(json.dumps({'failed_codes': ['560650']}))
     pd.DataFrame({'source_trade_date': [pd.NaT], 'data_status': ['missing'],
@@ -98,12 +98,9 @@ def test_daily_bottom_scan_excludes_stale_prices_but_research_retains_them(tmp_p
     assert list(price_map.build_price_map('2026-10-12').fund_code) == ['000001']
 
 
-def test_offline_enrichment_never_fetches_missing_cache(monkeypatch):
-    from src.sw_industry_rps import constituents
+def test_offline_market_data_never_fetches_missing_cache(monkeypatch):
     from src.common import market_data
     monkeypatch.setenv('AKSIGNAL_OFFLINE', '1')
-    monkeypatch.setattr(constituents.requests, 'get', lambda *a, **kw: pytest.fail('network called'))
-    assert constituents.fetch_constituent_list('801101.SI').empty
     assert market_data.fetch_cn_daily('002050') is None
 
 
@@ -125,21 +122,3 @@ def test_release_requires_observation_reports(tmp_path, monkeypatch):
     for suffix in ('.html','.md','.json'):
         (folder/f'observation_20261012{suffix}').write_text('facts')
     assert daily_run.validate_release('20261012') == receipt
-
-
-@pytest.mark.parametrize("ready", [False, True])
-def test_industry_update_checks_verified_target_before_calculation(tmp_path, monkeypatch, ready):
-    from src.sw_industry_rps import storage
-    raw = tmp_path / "raw"
-    monkeypatch.setattr(daily_run, "sw_industry_raw_dir", lambda: raw)
-    storage.save_master(pd.DataFrame({"industry_code": ["801081.SI"]}), raw)
-    storage.save_active_snapshot(["801081.SI"], raw)
-    storage.save_industry_raw(pd.DataFrame({"trade_date": pd.to_datetime(["2026-10-15"]),
-                                            "source": ["swsresearch" if ready else "realtime"],
-                                            "close": [100.]}), raw, "801081.SI")
-    command = ["industry", "update", "--target-date", "20261015"]
-    if ready:
-        daily_run.check_step(command, "20261015")
-    else:
-        with pytest.raises(ValueError, match="已核验 0/1"):
-            daily_run.check_step(command, "20261015")

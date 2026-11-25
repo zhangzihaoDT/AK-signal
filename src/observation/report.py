@@ -1007,7 +1007,7 @@ def render_html(date,assets,industries,etfs,stocks,etf_positions,stock_positions
     unclassified, classified_count = scope['unclassified'], scope['classified']
     if not assets.empty:
         assets['alias'] = assets.direction
-        from src.etf_signal.rotation import CROSS_ASSET_ORDER
+        from src.market_facts.etf_observation import CROSS_ASSET_ORDER
         assets['_direction_order'] = assets.direction.map({v:i for i,v in enumerate(CROSS_ASSET_ORDER)})
         assets = ordered(assets,identity=('_direction_order','direction'))
         assets.attrs['unclassified'] = unclassified
@@ -1057,7 +1057,7 @@ def _quality_parts(quality):
 
 def quality_lines(date,etfs,industries,stocks):
     from src.common.paths import raw_dir,stock_metrics_dir,data_dir
-    from src.final_validation.cli import data_quality_warnings
+    from src.observation.quality import data_quality_warnings
     from src.market_facts.policy import source_policy
     policy=source_policy()
     lines=[f'统一交易日：{date}。ETF 趋势样本 {len(etfs)} 只；行业 {len(industries)} 个；固定池股票 {len(stocks.drop_duplicates(["market","symbol"]))} 只。']

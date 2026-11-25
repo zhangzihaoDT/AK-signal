@@ -7,18 +7,12 @@ from src import daily_run
 from src.common import batch_release as release
 
 
-def test_industry_failure_publishes_other_modules_as_partial(tmp_path, monkeypatch):
-    monkeypatch.setattr("src.market_facts.policy.source_policy", lambda: {})
+def test_tdx_module_unavailable_publishes_other_modules_as_partial(tmp_path, monkeypatch):
     commands = []
     monkeypatch.setattr(daily_run, "project_root", lambda: tmp_path)
     monkeypatch.setattr(daily_run, "step_artifacts", lambda *_: [])
     monkeypatch.setattr(daily_run, "check_generated_reports", lambda *_: None)
-
-    def check_step(command, _date):
-        if command[:2] == ["industry", "update"]:
-            raise ValueError("行业目标日 20261015 带日期价格尚未就绪（已核验 0/124）")
-
-    monkeypatch.setattr(daily_run, "check_step", check_step)
+    monkeypatch.setattr(daily_run, "check_step", lambda command, _date: None)
 
     def run_step(command, _env, log, _title):
         commands.append(command[:2])
@@ -46,6 +40,7 @@ def test_industry_failure_publishes_other_modules_as_partial(tmp_path, monkeypat
     monkeypatch.setattr(daily_run, "validate_release", validate_release)
 
     assert daily_run.execute_batch(tmp_path, "20261015", offline=False) == 0
+    assert ["industry", "update"] not in commands
     assert ["industry", "calculate"] not in commands
     assert ["etf", "calculate"] in commands
     assert ["observation", "stock-metrics"] in commands
@@ -56,6 +51,4 @@ def test_industry_failure_publishes_other_modules_as_partial(tmp_path, monkeypat
     state = release.read_checkpoint(tmp_path, "20261015", False)
     assert state is not None
     assert state["status"] == "published"
-    assert state["degraded_modules"]["industry_rotation"]["status"] == "unavailable"
-    assert state["steps"][1]["status"] == "degraded"
-    assert state["steps"][3]["status"] == "skipped_degraded"
+    assert all(item["status"] == "completed" for item in state["steps"])

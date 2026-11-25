@@ -1,36 +1,23 @@
-# AKsignal 两方向主题框架配置（v0.4.3）— 单一事实源
+# AKsignal 主题/研究分组注册表 — 观察与专题研究的单一事实源
 #
-# 结构：bucket（组合意图） → theme（市场方向） → industries（申万二级行业）+ etf_keywords
+# 结构：bucket（研究分组） → theme（研究方向） → industries（关联行业）+ etf_keywords
 #
-#   方向一  Core      AI 基础设施（长期增长）
-#   方向二  Quality   高现金流资产（电力 / 三大运营商 / 公用事业，稳定现金流资产）
+# 用途：
+#   - 组织日报中的研究主线与专题研究分组；
+#   - 为 ETF 事实提供主题标签，为研究观察提供行业/ETF 线索；
+#   - 不授予交易资格，不产生买卖信号，不参与策略回测或仓位分配。
 #
-#   bucket       为什么持有（Core / Quality）
-#   theme        持有什么方向（AI 基础设施 / 高现金流资产）
-#   industries   该主题关联的申万二级行业（Layer ② 行业确认的焦点组）
+#   industries   关联行业（用于研究分组/交叉证据展示）
 #     relevance   core = 核心 / related = 相关
-#   etf_keywords  Layer ③ 从 Layer① 全市场 rotation 按名称关键词挑选 ETF 候选
-#   etf_exclude_keywords（可选，v0.11.1）
-#     该 theme 的 ETF 名称反向排除子串：名称命中任一 exclude 子串 → 跳过该 theme
-#     （即使正向关键字命中）。用于拦截「泛词子串误命中」——如「港股通信息技术ETF」
-#     名称含子串「通信」被 AI 基建关键词吸收，但实为港股海外权益，须显式排除。
-#     判定优先级：先 exclude（跳过 theme）再 include，两者不共用子串语义。
-#
-# 消费方：
-#   Layer ①  etf_signal.rotation    每主题 ETF 焦点组（rotation 报告）
-#   Layer ②  sw_industry_rps.confirm  每主题行业群共振
-#   Layer ③  selection              每主题候选资产（ETF + 个股观察池）
+#   etf_keywords 名称匹配线索（仅用于事实标签/研究分组）
+#   etf_exclude_keywords（可选）
+#     该 theme 的名称反向排除子串；判定优先级先 exclude 再 include。
 #
 # 匹配规则：ETF 名称按 bucket 顺序、theme 顺序逐个关键词匹配，首个命中生效。
 # 注意区分「AI 基础设施」与「AI 应用」：AI 应用（软件开发/IT 服务）不纳入基础设施主题。
 #
-# 高现金流资产为「质量信号」占位（signal_model=quality_equity，maturity=PARTIAL）：
-# 当前用 SW 行业确认近似，完整股息/现金流质量 adapter 属 v0.5。
-#
-# Future Themes（Not Enabled）：Resource Cycle（有色/钢铁/煤炭）、High-end Equipment（高端装备）、
-# Aerospace / Shipping（航空航天/船舶）等不在当前两方向，仅是「未启用」而非被否定，
-# 可在本文件重新打开。若启用商品类 theme（如 copper/aluminum），表达的是「权益/ETF 代理」
-# （ETF + 申万有色行业 + 资源股），非商品期货趋势系统，须标 maturity: PARTIAL。
+# Future Themes 仅是「未启用」而非被否定，可在本文件重新打开。
+# 主题注册不改变任何行情口径或数据质量规则。
 
 version: "0.4.3"
 

@@ -50,7 +50,7 @@ def snapshot_from_cache(path: Path, identity: SeriesIdentity, target: date,
     # a single provider/basis for their full history.
     frame = pd.read_parquet(path) if path.suffix == ".parquet" else pd.read_csv(path)
     if date_column == "trade_date" and "source" in frame:
-        from src.sw_industry_rps.source_status import verified_price_dates
+        from src.market_facts.industry_quality import verified_price_dates
         frame["_date_verified"] = verified_price_dates(frame)
     result = snapshot_from_frame(frame, identity, target, wrapped_at, date_column=date_column, close_only=close_only)
     result["provenance"].update(cache_path=str(path), cache_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),

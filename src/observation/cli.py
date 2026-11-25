@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from src.common.paths import (outputs_dir, raw_dir, stock_metrics_dir, selection_universe_path,
-    etf_signal_daily_dir, sw_industry_processed_dir, sw_industry_raw_dir, config_dir, project_root)
+    etf_signal_daily_dir, config_dir, project_root)
 
 WINDOWS = (60, 120, 360)
 
@@ -167,10 +167,8 @@ def write_frame(frame: pd.DataFrame, stem: str, date: str) -> None:
 
 
 def build(date: str) -> None:
-    from src.sw_industry_rps import storage
-    from src.sw_industry_rps.report import classify_trend_stage
-    from src.sw_industry_rps.metrics import cross_industry_direction
-    from src.etf_signal.rotation import cross_asset_direction
+    from src.market_facts.industry_observation import classify_trend_stage, cross_industry_direction
+    from src.market_facts.etf_observation import cross_asset_direction
     rotation = pd.read_parquet(etf_signal_daily_dir()/f'rotation_{date}.parquet')
     indicators = pd.read_parquet(etf_signal_daily_dir()/f'daily_indicators_{date}.parquet')
     stocks = pd.read_parquet(stock_metrics_dir()/f'stock_metrics_{date}.parquet')
@@ -179,23 +177,17 @@ def build(date: str) -> None:
     from src.market_facts import derivatives
     derivative_facts = derivatives.build(date, index_facts, online=os.environ.get('AKSIGNAL_OFFLINE') == '0')
     from src.market_facts.policy import source_policy
-    industry_policy = source_policy().get('industry',{})
-    tdx_pending = industry_policy.get('provider') == 'tdx'
+    industry_policy = source_policy().get('industry', {})
+    if industry_policy.get('provider') != 'tdx':
+        raise ValueError('industry observation requires the registered TDX source; legacy SW pipeline is retired')
     industry_error = ''
-    if tdx_pending:
-        industries = pd.DataFrame(columns=['industry_code','industry_name','parent_industry','RPS15','RPS5',
-                                          'trend_stage','source_status','data_status','close','source_trade_date','source'])
-        try:
-            from src.market_facts.tdx_industry import load
-            industries = load(date, online=os.environ.get('AKSIGNAL_OFFLINE') == '0')
-        except Exception as exc:
-            industry_error = f'{type(exc).__name__}: {exc}'
-    else:
-        try:
-            industries = storage.load_metrics(sw_industry_processed_dir())
-            industries = industries[pd.to_datetime(industries.trade_date) == pd.Timestamp(date)].copy()
-        except (OSError, ValueError, KeyError, TypeError):
-            industries = pd.DataFrame()
+    industries = pd.DataFrame(columns=['industry_code','industry_name','parent_industry','RPS15','RPS5',
+                                      'trend_stage','source_status','data_status','close','source_trade_date','source'])
+    try:
+        from src.market_facts.tdx_industry import load
+        industries = load(date, online=os.environ.get('AKSIGNAL_OFFLINE') == '0')
+    except Exception as exc:
+        industry_error = f'{type(exc).__name__}: {exc}'
     if any(d.empty for d in (rotation, indicators, stocks)):
         raise ValueError('核心观察输入为空')
     from src.observation.report import mark_identity
@@ -207,23 +199,14 @@ def build(date: str) -> None:
     trend['trend_active'] = trend.above_ma20 & trend.above_ma60 & (trend.ma20_slope > 0) & (trend.ma60_slope > 0)
     assets = pd.DataFrame(cross_asset_direction(trend))
     # The old helper expects policy trend_state; replace breadth with factual MA breadth.
-    from src.etf_signal.rotation import _cross_asset_direction
+    from src.market_facts.etf_observation import _cross_asset_direction
     direction = trend.apply(_cross_asset_direction, axis=1)
     if not assets.empty:
         assets['active_ratio'] = assets.direction.map(trend.groupby(direction).trend_active.mean())
-    from src.sw_industry_rps.source_status import classify_source_status, classify_data_status
-    from src.sw_industry_rps.cli import _observation_falls_on_closed_day
-    from src.sw_industry_rps.source_status import price_source_dates, verified_price_dates
-    try:
-        active_codes = [] if tdx_pending else storage.compute_active_codes(sw_industry_raw_dir())[0]
-    except (OSError, ValueError, KeyError, TypeError):
-        active_codes = []
-    if tdx_pending:
-        from src.market_facts.tdx_industry import universe
-        expected_codes = set(universe().tdx_code)
-    else:
-        expected_codes = set(active_codes)
+    from src.market_facts.tdx_industry import universe
+    expected_codes = set(universe().tdx_code)
     actual_codes = set(industries.get('industry_code', pd.Series(dtype=str)).dropna().astype(str))
+    from src.market_facts.industry_quality import price_source_dates, verified_price_dates
     verified_rows = verified_price_dates(industries) if not industries.empty else pd.Series(dtype=bool)
     industry_available = bool(
         expected_codes
@@ -245,15 +228,14 @@ def build(date: str) -> None:
             'industry_master_missing' if not expected_codes else 'target_date_missing_or_unverified'
         ),
     }
-    if tdx_pending:
-        industry_module.update(provider='tdx', classification='TDX Research Industry',
-                               classification_version=industry_policy.get('classification_snapshot'),
-                               reason=industry_error or industry_module['reason'], no_cross_provider_fallback=True,
-                               status_code='AVAILABLE' if industry_available else 'UNAVAILABLE')
+    industry_module.update(provider='tdx', classification='TDX Research Industry',
+                           classification_version=industry_policy.get('classification_snapshot'),
+                           reason=industry_error or industry_module['reason'], no_cross_provider_fallback=True,
+                           status_code='AVAILABLE' if industry_available else 'UNAVAILABLE')
     if industry_available:
         industries['source_trade_date'] = price_source_dates(industries)
-        industries['source_status'] = 'primary' if tdx_pending else industries.source.map(lambda source: classify_source_status([source]))
-        industries['data_status'] = industries.source_status.map(lambda status: classify_data_status(status, _observation_falls_on_closed_day(pd.Timestamp(date))))
+        industries['source_status'] = 'primary'
+        industries['data_status'] = 'confirmed'
         industries['generated_at'] = pd.Timestamp.now(tz='UTC').isoformat()
         industries['trend_stage'] = industries.apply(classify_trend_stage, axis=1)
         industries['strength_level'] = np.where(industries.RPS15 >= 80, '观察', '—')
@@ -291,10 +273,9 @@ def build(date: str) -> None:
     quality.append(derivative_quality_line(derivative_facts))
     available_groups = sum(r['status']!='UNAVAILABLE' for r in group_activity['groups'])
     quality.append(f'分组趋势启动观察：{available_groups}/{len(group_activity["groups"])} 组可判定；复用本批长桥快照，缺失、休市或历史不足不判为无启动候选。规则 {group_activity["rule_version"]}；仅为阅读提示。')
-    if tdx_pending:
-        quality.append('行业数据契约：通达信官方 .day · TDX Research Industry 20261016 · 128 个二级行业；未复权指数；AKsignal 独立收益率及 RPS；不使用申万替代。')
-        if industry_available:
-            quality.append(f'行业历史门控：120日有效 {int(industries.valid_count_120d.iloc[0])}/128；250日有效 {int(industries.valid_count_250d.iloc[0])}/128；历史不足指标标记 INSUFFICIENT_HISTORY。')
+    quality.append('行业数据契约：通达信官方 .day · TDX Research Industry 20261016 · 128 个二级行业；未复权指数；AKsignal 独立收益率及 RPS；不使用申万替代。')
+    if industry_available:
+        quality.append(f'行业历史门控：120日有效 {int(industries.valid_count_120d.iloc[0])}/128；250日有效 {int(industries.valid_count_250d.iloc[0])}/128；历史不足指标标记 INSUFFICIENT_HISTORY。')
     if not industry_available:
         quality.append(
             f"行业轮动模块降级：目标日价格已核验 {industry_module['verified_count']}/"
@@ -587,7 +568,7 @@ def validate(date: str) -> dict:
             errors.append(f'{p.name} 含行业模块降级前的旧事实')
         if stem not in ('asset_directions','industry_directions') and ('trade_date' not in d or not (pd.to_datetime(d.trade_date)==pd.Timestamp(date)).all()):
             errors.append(f'{p.name} 日期未对齐')
-    from src.final_validation.cli import data_quality_warnings
+    from src.observation.quality import data_quality_warnings
     warnings.extend(x['message'] for x in data_quality_warnings(date))
     warnings.append('观察池个股价格依据独立记录；供应商复权算法未独立认证，不标为已验证')
     from src.observation.report import identity_issues
@@ -604,18 +585,12 @@ def validate(date: str) -> dict:
             f"{industry_module.get('expected_count', 0)}；其余观察模块已独立验收"
         )
     if not industries.empty:
-        from src.sw_industry_rps.source_status import verified_price_dates
+        from src.market_facts.industry_quality import verified_price_dates
         if not verified_price_dates(industries).all():
             errors.append('行业价格缺少独立源交易日证据或日期未对齐')
             status = 'UNKNOWN'
-        from src.sw_industry_rps import storage
-        from src.market_facts.policy import source_policy
-        if source_policy()['industry']['provider'] == 'tdx':
-            from src.market_facts.tdx_industry import universe
-            expected = set(universe().tdx_code)
-        else:
-            history = storage.load_metrics(sw_industry_processed_dir())
-            expected = set(history.industry_code.dropna().astype(str))
+        from src.market_facts.tdx_industry import universe
+        expected = set(universe().tdx_code)
         actual = set(industries.industry_code.dropna().astype(str))
         if actual != expected or industries.industry_code.duplicated().any():
             errors.append('行业覆盖不完整或有重复代码')

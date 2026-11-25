@@ -9,7 +9,7 @@ AKSignal 顶层命令路由
   python src/main.py                        → 观察系统每日批次（默认）
   python src/main.py final-check            → 观察产物验收
   python src/main.py run-summary run        → 观察日报摘要
-  python src/main.py etf <command>          → ETF 行情与指标
+  python src/main.py etf <command>          → ETF 行情采集与事实计算
   python src/main.py run-day                → 观察系统每日批次
   python src/main.py research basket compare → 独立篮子研究
 """

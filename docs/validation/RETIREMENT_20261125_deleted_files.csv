@@ -1,0 +1,68 @@
+path,category
+config/_legacy/etf_signal_rules.yaml,Retired strategy config
+config/_legacy/etf_universe.yaml,Retired strategy config
+config/execution.yaml,Retired strategy config
+config/guojin_tradable_blacklist.csv,Retired strategy config
+config/industry_data.yaml,Retired strategy config
+config/portfolio.yaml,Retired strategy config
+config/strategy_spec.yaml,Retired strategy config
+docs/archive/source_migration_20261016/validation/validate_tushare_sw_daily.py,Archive script depending on retired SW
+scripts/exploration/a_shape.py,One-off script
+scripts/exploration/probe_csindex_history.py,One-off script
+scripts/validation/preview_group_attention.py,One-off script
+src/common/spec/hash.py,Strategy config model
+src/etf_signal/account.py,ETF retired module
+src/etf_signal/card.py,ETF retired module
+src/etf_signal/heat.py,ETF retired module
+src/etf_signal/rotation.py,ETF retired module
+src/etf_signal/rotation_report.py,ETF retired module
+src/etf_signal/signal.py,ETF retired module
+src/etf_signal/universe.py,ETF retired module
+src/final_validation/__init__.py,Retired action validation
+src/final_validation/cli.py,Retired action validation
+src/research/baskets/legacy/__init__.py,Basket legacy module
+src/research/baskets/legacy/calculator.py,Basket legacy module
+src/research/baskets/legacy/fetch.py,Basket legacy module
+src/research/baskets/legacy/report.py,Basket legacy module
+src/sw_industry_rps/__init__.py,SW retired module
+src/sw_industry_rps/cli.py,SW retired module
+src/sw_industry_rps/confirmation.py,SW retired module
+src/sw_industry_rps/confirmation_sections.py,SW retired module
+src/sw_industry_rps/constituents.py,SW retired module
+src/sw_industry_rps/contribution.py,SW retired module
+src/sw_industry_rps/data_source.py,SW retired module
+src/sw_industry_rps/drive_labels.py,SW retired module
+src/sw_industry_rps/metrics.py,SW retired module
+src/sw_industry_rps/regimes.py,SW retired module
+src/sw_industry_rps/report.py,SW retired module
+src/sw_industry_rps/source_status.py,SW retired module
+src/sw_industry_rps/stock_emerging.py,SW retired module
+src/sw_industry_rps/storage.py,SW retired module
+src/sw_industry_rps/structure.py,SW retired module
+src/sw_industry_rps/ths_mapping.py,SW retired module
+src/sw_industry_rps/tier_confirmation.py,SW retired module
+src/sw_industry_rps/validator.py,SW retired module
+tests/etf_signal/test_rotation_pulse.py,Retired tests
+tests/final_validation/__init__.py,Retired tests
+tests/research/test_a_shape.py,Retired tests
+tests/research/test_baskets.py,Retired tests
+tests/sw_industry_rps/__init__.py,SW retired tests
+tests/sw_industry_rps/conftest.py,SW retired tests
+tests/sw_industry_rps/test_calculate.py,SW retired tests
+tests/sw_industry_rps/test_confirmation_multi_theme.py,SW retired tests
+tests/sw_industry_rps/test_confirmation_sections.py,SW retired tests
+tests/sw_industry_rps/test_constituents.py,SW retired tests
+tests/sw_industry_rps/test_contribution.py,SW retired tests
+tests/sw_industry_rps/test_drive_labels.py,SW retired tests
+tests/sw_industry_rps/test_metrics.py,SW retired tests
+tests/sw_industry_rps/test_price_dates.py,SW retired tests
+tests/sw_industry_rps/test_regimes.py,SW retired tests
+tests/sw_industry_rps/test_report.py,SW retired tests
+tests/sw_industry_rps/test_source_status.py,SW retired tests
+tests/sw_industry_rps/test_stock_emerging.py,SW retired tests
+tests/sw_industry_rps/test_storage.py,SW retired tests
+tests/sw_industry_rps/test_structure.py,SW retired tests
+tests/sw_industry_rps/test_ths_mapping.py,SW retired tests
+tests/sw_industry_rps/test_tier_confirmation.py,SW retired tests
+tests/sw_industry_rps/test_trend_stage.py,SW retired tests
+tests/trend_engine/test_industry_update.py,Retired tests

@@ -1,90 +1,67 @@
-# AKsignal — Investment Decision System
+# AKsignal — Financial Data Assets & Research Platform
 
-当前基线：**v0.7.2**（2026-10-25）。版本源为 `VERSION`，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本标记仍为 `VERSION`（变更记录见 [CHANGELOG.md](CHANGELOG.md)）。AKsignal 的职责是采集、治理并沉淀可追溯的金融数据资产，向下游项目提供稳定、可复现的数据文件，并基于这些资产开展市场观察与专题研究。
 
-AKsignal 通过可追溯的市场事实、策略信号和真实组合约束，辅助管理投资组合。投资者保留最终决策权。
-
-## 四层架构
+## 项目边界
 
 ```text
-04 · Portfolio / Position
-仓位管理 · 持仓监控 · 风险暴露 · 调仓决策
-            ↑ 决策约束与执行反馈
-03 · Strategy
-机会识别 · 信号生成 · 策略验证 · 买卖规则
-            ↑ 标准化市场事实
-02 · Market Facts
-市场日报 · 行业趋势 · 篮子 Compare
-            ↑ 行情数据与质量验证
-01 · Data Foundation
-数据源 · 历史行情 · 增量更新 · 数据质量
+Collection → Data Assets → Serving → Research
+     │             │            │          ├─ Market Facts 观察日报
+     │             │            │          ├─ Holdings Dashboard
+     │             │            │          ├─ CSI500 Price Channel
+     │             │            │          ├─ 正式 Basket Compare
+     │             │            │          └─ IC500 期限结构专题研究
+     └─ 来源证据、身份、日期、质量门、历史版本与快照
+
+GridTrading：策略开发、参数优化、策略回测、交易信号、交易账本与策略自动化
 ```
 
-| 层级 | 回答的问题 | 核心产出 |
-|---|---|---|
-| Data Foundation | 数据是否完整、可信？ | 标准化行情及质量证据 |
-| Market Facts | 市场正在发生什么？ | 市场事实与比较结果 |
-| Strategy | 根据事实应该采取什么行动？ | 买卖信号及其独立验证依据 |
-| Portfolio / Position | 结合实际持仓应该如何执行？ | 仓位建议、风险与调仓计划 |
+AKsignal **不新增或维护独立交易策略运行体系**，不生成交易信号，不管理交易账本，也不重复建设 GridTrading 的策略和执行能力。市场事实与交易策略分离；Holdings Dashboard 只观察个人资产及持仓事实，不负责执行交易。
 
-**层间约束：** Facts 不知道 Strategy 的存在，也不编码策略语义；Strategy 不直接维护或重算底层行情；Position 不自行生成市场信号。Strategy 信号不等于仓位决策：Position 可以基于实际持仓和风险暴露拒绝或调整策略建议，但不能篡改市场事实。
+## 数据资产与正式来源
 
-**v0.7.2 完成重点：日报 04 研究注意力简报，区分新增与已有机会、突出关键变化，提供九组速览与折叠证据；v0.7.1 接入分组趋势启动观察，v0.7.0 完成 Basket Compare v2。** 展示解释见 [日报 04 信息架构](docs/DAILY_GROUP_ATTENTION.md)，不改变底层 V2 规则。Strategy 与 Portfolio / Position 是后续建设阶段，将按新架构重新设计；不以旧 Selection、Timing、回测或仓位代码作为实现蓝本。
+| 数据资产 | 当前来源 / 处理边界 |
+|---|---|
+| ETF 行情 | 东方财富 / 新浪模块路由；AKShare 为适配器。保留逐序列来源、日期和价格口径，不拼接已知不同口径。 |
+| 股票及沪深300 | Longbridge OpenAPI / ForwardAdjust；公司行为算法未独立认证时保持 `price_basis_verified=false`。 |
+| 核心指数 | 按 `core_indices.yaml` 固定来源；Longbridge 与中证官方指数序列各自独立。 |
+| 股指期货 | CFFEX 官方日行情；按具体到期合约记录，不拼接连续合约。 |
+| 行业指数 | TDX 官方 `.day`，固定 128 个 TDX Research Industry；SW2021 仅作为保留的历史研究数据，不再是正式运行或回退来源。 |
 
-当前 Market Facts 保留九项能力：固定池个股数据、全市场 ETF 数据、全行业指数数据、行业轮动、大类资产趋势、ETF 趋势活跃池、个股趋势、ETF 与个股底部位置、分组趋势启动观察。覆盖范围随配置和行情质量变化，固定池个股不等于 A 股全量。
+来源、价格依据、分类版本、源交易日、目标交易日、生成时间、覆盖情况、质量状态、Manifest 与快照摘要均应可追溯。缺失或质量不足保持 `UNAVAILABLE` / `INSUFFICIENT_HISTORY`，不以旧数据冒充新数据。详见 [来源契约](docs/OBSERVATION_DATA_SOURCES.md) 与 [数据存储说明](data/README.md)。
 
-**必须坚持：数据质量与市场事实可追溯；策略信号不等于持仓决策；投资者保留最终决策权。**
+## 日常运行与报告
 
-## 当前 Market Facts 与日报
-
-Data Foundation（数据基础）：固定池股票、全市场 ETF、全行业指数。
-Trend（趋势观察）：行业轮动、大类资产、ETF 趋势、个股趋势。
-Price Position（价格位置观察）：ETF 与固定池个股的历史价格位置。
-Daily Observation Report：统一日期、统一数据质量、统一发布。
-
-日报按大类资产、行业轮动、ETF、个股观察四个板块展示，每部分标明来源；趋势和位置归入各资产板块，审计放数据质量区。个股按8个研究篮子加高现金流分类，目前68只有效、禾赛1只排除。正式来源见 [模块来源契约](docs/OBSERVATION_DATA_SOURCES.md)。
-
-## 每日运行
+唯一完整日常入口为 `make run-day`；离线运行使用 `make run-day-offline`。主链为 ETF 行情更新/事实计算 → 个股事实 → 核心指数、CFFEX 与 TDX 观察构建 → 验收 → 原子发布。日报只发布市场事实，不输出买入建议或交易 action。
 
 ```bash
 make run-day
-make run-day RUN_DATE=20261012
-make run-day-offline RUN_DATE=20261012
+make run-day RUN_DATE=20261124
+make run-day-offline RUN_DATE=20261124
 make run-day-status
-make run-day RUN_DATE=20261012 RUN_FLAGS=--resume
-make run-day RUN_DATE=20261012 RUN_FLAGS=--restart
 make run-day-check
-make run-day-summary
+make daily-scheduler-status
 ```
 
-主链：ETF更新/计算 → 长桥观察池个股事实 → Observation构建（含通达信增量/收益/RPS）→ 验收 → 统一发布。启动时固定最近完整交易日，失败从检查点恢复；代码或配置变化需 --restart。离线模式不联网补数。
+正式日报入口：`outputs/observation/observation_{date}.html`，并带同日 JSON、Markdown、Parquet/CSV 事实和发布回执。批次输出从空目录构建；验收失败时保留上一正式发布。历史批次和快照不因瘦身清理而批量删除。
 
-当前每日产品只发布市场事实，不输出买入推荐或投资 action。未来 Strategy 与 Portfolio / Position 将分别建设，不能把事实层、信号层和仓位层合并。
+专题与个人页面：
 
-## 交付
+- `Holdings Dashboard`：个人资产和持仓事实观察。
+- `CSI500 Price Channel`：中证500 / 中证1000 历史价格轨道。
+- `Basket Compare V2`：正式研究报告，输出不是实际组合收益或策略回测。
+- `IC500`：全历史与期限结构研究，不要求自动更新。
 
-- `outputs/observation/observation_{date}.{html,json,md}`：一个观察日报入口。
-- `outputs/observation/{etf_trends,asset_directions,industry_rotation,industry_directions,etf_positions,stock_positions}_{date}.{parquet,csv}`：完整观察事实。
-- `outputs/stock_metrics/stock_metrics_{date}.parquet`：个股趋势事实。
-- `outputs/stock_metrics/stock_update_audit_{date}.json`：个股行情审计。
-- `outputs/run_day/final_check_{date}.json`、`publication.json`：验收与发布回执，不含投资 action。
+本地入口见 [`dashboards/index.html`](dashboards/index.html)。刷新卡片链接与元信息运行 `make dashboards-index`；看板 HTML 仍留在原有 `data/audits/` 路径，不复制到目录页。
 
-批次 outputs 从空目录建立，验收后一次切换发布指针。失败保持上一完整日报；历史批次仍保存在 `.run_day/runs`，首次旧目录保存在 `.run_day/legacy`，不随新批次重复复制。
+## 项目结构
 
-底部只描述历史价格位置。个股统一使用长桥ForwardAdjust，price_basis_verified=false表示供应商复权未独立认证。缺历史与数据洞保持未知，不伪造离底。
+- `config/`：数据来源、资产身份、分类、市场观察和研究配置。
+- `src/market_facts/`：标准化数据契约、来源适配、质量门、数据采集与市场事实计算。
+- `src/observation/`：日报事实组织、展示和验收。
+- `src/research/baskets/`：正式 Basket Compare V2。
+- `scripts/`：数据维护、审计、验证与独立专题研究工具。
+- `data/`：raw / processed / audits / snapshots / state 等金融数据资产；受 `.gitignore` 保护，不进行未分类清理。
+- `dashboards/`：本地 HTML 入口页及目录更新工具。
 
-## 安装
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-能力与边界见 [canonical 状态图](docs/ARCHITECTURE_MAP.md)；位置口径见 [POSITION_OBSERVATION.md](docs/POSITION_OBSERVATION.md)。
-
-独立 [篮子研究报告](docs/RESEARCH_BASKETS.md) 使用8个研究篮子 + 高现金流参照、68只个股与长桥同源基准；季度再平衡为默认结构指数，买入持有为对照。数据源探索旧材料见 [历史归档](docs/archive/source_migration_20261016/README.md)。
-
-[A 股宽基指数技术分析](scripts/exploration/a_share_index_technical_analysis/README.md) 是独立研究专题，包含中证500和中证1000的历史收盘、价格轨道及事件标注。
-
-目录职责：[业务架构与决策](config/decisions/README.md) · [项目工程结构](docs/PROJECT_STRUCTURE.md) · [数据存储架构](data/README.md) · [手动工具](scripts/README.md)。
+详细结构见 [PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)，当前能力状态见 [ARCHITECTURE_MAP.md](docs/ARCHITECTURE_MAP.md)，跨项目数据供给边界见 [DATA_SERVING_CONTRACT.md](docs/DATA_SERVING_CONTRACT.md)。本次职责收敛与退役记录见 [RETIREMENT_20261125.md](docs/validation/RETIREMENT_20261125.md)。

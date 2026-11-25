@@ -6,7 +6,8 @@ import pandas as pd
 import pytest
 
 from src.common import batch_release
-from src.etf_signal import classification_facts as facts, classifier, rotation
+from src.etf_signal import classification_facts as facts, classifier
+from src.market_facts import etf_observation as rotation
 from scripts.maintenance.publish_etf_classification import publish
 
 

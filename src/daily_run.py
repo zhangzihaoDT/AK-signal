@@ -16,7 +16,7 @@ from src.common.sleep_guard import batch_sleep_guard
 
 import pandas as pd
 
-from src.common.paths import project_root, sw_industry_raw_dir, stock_metrics_dir, etf_signal_daily_dir, etf_signal_signals_dir, sw_industry_processed_dir, outputs_dir
+from src.common.paths import project_root, stock_metrics_dir, etf_signal_daily_dir, outputs_dir
 
 
 def resolve_date(value: str = "") -> str:
@@ -29,17 +29,12 @@ def resolve_date(value: str = "") -> str:
 def steps(trade_date: str, offline: bool = False) -> list[list[str]]:
     target = ["--target-date", trade_date]
     day = ["--date", trade_date]
-    acquisition = [] if offline else [["etf", "update", *target], ["industry", "update", *target]]
-    plan = acquisition + [
-        ["etf", "calculate", *day], ["industry", "calculate", *target],
+    acquisition = [] if offline else [["etf", "update", *target]]
+    return acquisition + [
+        ["etf", "calculate", *day],
         ["observation", "stock-metrics", *day, *([] if offline else ["--allow-online-fetch"])],
         ["observation", "build", *day], ["observation", "check", *day],
     ]
-    from src.market_facts.policy import source_policy
-    if source_policy().get('industry',{}).get('provider') == 'tdx':
-        # TDX acquisition/calculation is owned by observation build; SW is research-only.
-        plan = [c for c in plan if c[0] != 'industry']
-    return plan
 
 
 
@@ -71,36 +66,13 @@ def check_partition(path: Path, trade_date: str, column: str = "trade_date") -> 
         raise ValueError(f"产物日期不一致或为空：{path.name}，目标={trade_date}")
 
 
-def industry_target_coverage(trade_date: str) -> tuple[int, int, list[str]]:
-    from src.sw_industry_rps import storage
-    from src.sw_industry_rps.cli import validate_raw_completeness
-    raw = sw_industry_raw_dir()
-    try:
-        active, _, _ = storage.compute_active_codes(raw)
-        covered, expected, missing = validate_raw_completeness(raw, trade_date, active)
-        return covered, expected, missing
-    except (OSError, ValueError, KeyError, TypeError):
-        return 0, 0, []
-
-
 def check_step(command: list[str], trade_date: str) -> None:
     kind = tuple(command[:2])
-    if kind == ("industry", "update"):
-        covered, expected, _ = industry_target_coverage(trade_date)
-        if not expected or covered != expected:
-            raise ValueError(
-                f"行业目标日 {trade_date} 带日期价格尚未就绪（已核验 {covered}/{expected}）；"
-                "主源或历史源需补齐目标日行情，无日期实时价格不能替代")
-    elif kind == ("etf", "calculate"):
+    if kind == ("etf", "calculate"):
         check_partition(etf_signal_daily_dir() / f"rotation_{trade_date}.parquet", trade_date)
         check_partition(etf_signal_daily_dir() / f"daily_indicators_{trade_date}.parquet", trade_date, "date")
     elif kind == ("observation", "stock-metrics"):
         check_stock_date(trade_date)
-    elif kind == ("industry", "calculate"):
-        from src.sw_industry_rps import storage
-        df = storage.load_metrics(sw_industry_processed_dir())
-        if df.empty or not (pd.to_datetime(df["trade_date"]) == pd.Timestamp(trade_date)).any():
-            raise ValueError(f"行业指标缺少目标日 {trade_date}")
     elif kind == ("observation", "build"):
         from src.observation.cli import validate
         validate(trade_date)
@@ -109,8 +81,8 @@ def check_step(command: list[str], trade_date: str) -> None:
 
 def phase(command: list[str]) -> str:
     return {
-        ("etf", "update"): "更新 ETF 行情", ("industry", "update"): "更新行业行情",
-        ("etf", "calculate"): "计算 ETF 强度", ("industry", "calculate"): "计算行业轮动",
+        ("etf", "update"): "更新 ETF 行情",
+        ("etf", "calculate"): "计算 ETF 市场观察事实",
         ("observation", "stock-metrics"): "更新观察池个股趋势",
         ("observation", "build"): "构建核心指数、趋势与底部位置观察",
         ("observation", "check"): "验收观察事实",
@@ -122,8 +94,6 @@ def step_artifacts(command: list[str], trade_date: str) -> list[Path]:
     if kind == ("etf", "calculate"):
         return [etf_signal_daily_dir() / f"rotation_{trade_date}.parquet",
                 etf_signal_daily_dir() / f"daily_indicators_{trade_date}.parquet"]
-    if kind == ("industry", "calculate"):
-        return [sw_industry_processed_dir() / "industry_daily_metrics.csv"]
     if kind == ("observation", "stock-metrics"):
         paths = [stock_metrics_dir() / f"stock_metrics_{trade_date}.parquet",
                  stock_metrics_dir() / f"stock_update_audit_{trade_date}.json"]
@@ -344,35 +314,11 @@ def execute_batch(root: Path, trade_date: str, offline: bool, *, resume: bool = 
                 print(f"从第 {start + 1} 步恢复，复用前 {start} 步结果", flush=True)
             for item in state["steps"][start:]:
                 item["status"] = "pending"
-            state.setdefault("degraded_modules", {})
-            from src.market_facts.policy import source_policy
-            state['degraded_modules'].pop('industry_rotation', None)
-            industry_update_index = next((i for i, command in enumerate(commands)
-                                          if tuple(command[:2]) == ("industry", "update")), None)
-            industry_degraded = bool(offline or (industry_update_index is not None and start > industry_update_index))
-            if industry_degraded:
-                covered, expected, _ = industry_target_coverage(trade_date)
-                industry_degraded = not expected or covered != expected
-                if not industry_degraded:
-                    state["degraded_modules"].pop("industry_rotation", None)
             total = len(commands) + 1
             for index in range(start, len(commands)):
                 command = commands[index]
                 item = state["steps"][index]
                 title = f"[{index + 1}/{total}] {phase(command)}"
-                kind = tuple(command[:2])
-                if kind == ("industry", "calculate") and industry_degraded:
-                    reason = state["degraded_modules"].get("industry_rotation", {}).get(
-                        "reason", "industry update 未获得完整、已核验目标日价格")
-                    log = release.run_dir(root, state) / "logs" / f"{index + 1:02d}-skipped-degraded.log"
-                    log.parent.mkdir(parents=True, exist_ok=True)
-                    log.write_text(f"SKIPPED: industry_rotation unavailable: {reason}\n", encoding="utf-8")
-                    item.update(status="skipped_degraded", log=str(log), error=reason)
-                    item.pop("artifacts", None)
-                    state["current_step"] = index + 1
-                    release.save_checkpoint(root, state)
-                    print(f"{title} · 跳过，行业模块降级交付", flush=True)
-                    continue
                 print(title, flush=True)
                 state.update(status="running", current_step=index, pid=os.getpid(), error="")
                 item.update(status="running", attempts=item["attempts"] + 1, started_at=release.now())
@@ -381,30 +327,13 @@ def execute_batch(root: Path, trade_date: str, offline: bool, *, resume: bool = 
                 release.save_checkpoint(root, state)
                 started = time.monotonic()
                 started_ns = time.time_ns()
-                try:
-                    code = run_step(command, env, log, title)
-                    if code:
-                        raise ValueError(f"{phase(command)}失败（退出码 {code}），详细日志：{log}")
-                    verify_step(command, trade_date, log)
-                except (OSError, ValueError, KeyError) as exc:
-                    if kind not in {("industry", "update"), ("industry", "calculate")}:
-                        raise
-                    industry_degraded = True
-                    reason = str(exc)
-                    state["degraded_modules"]["industry_rotation"] = {
-                        "status": "unavailable", "trade_date": trade_date, "reason": reason,
-                    }
-                    item.update(status="degraded", error=reason, elapsed_s=round(time.monotonic() - started, 1))
-                    item.pop("artifacts", None)
-                    state["current_step"] = index + 1
-                    release.save_checkpoint(root, state)
-                    print(f"  行业模块降级 · {reason}", flush=True)
-                    continue
+                code = run_step(command, env, log, title)
+                if code:
+                    raise ValueError(f"{phase(command)}失败（退出码 {code}），详细日志：{log}")
+                verify_step(command, trade_date, log)
                 check_generated_reports(command, trade_date, started_ns)
                 item["artifacts"] = {str(p): release.fingerprint(p) for p in step_artifacts(command, trade_date)}
                 item.update(status="completed", elapsed_s=round(time.monotonic() - started, 1))
-                if kind == ("industry", "update"):
-                    state["degraded_modules"].pop("industry_rotation", None)
                 state["current_step"] = index + 1
                 release.save_checkpoint(root, state)
                 print(f"  已完成 · {item['elapsed_s']} 秒", flush=True)
@@ -416,7 +345,7 @@ def execute_batch(root: Path, trade_date: str, offline: bool, *, resume: bool = 
                                      or receipt.get("status") not in ("CONFIRMED", "COMPLETE")):
                 raise ValueError("目标日数据尚未完整就绪，保持上一发布；请在数据就绪后手动恢复（不会自动重试）")
             if receipt.get('status') == 'COMPLETE' and receipt.get('industry_price_dates_verified') is not True:
-                raise ValueError('行业兜底缺少独立源交易日验收证据；请在数据就绪后手动恢复（不会自动重试）')
+                raise ValueError('行业价格缺少独立源交易日验收证据；请在数据就绪后手动恢复（不会自动重试）')
             if release.implementation_signature(root) != state["signature"]:
                 raise ValueError("运行过程中代码或配置发生变化，暂不发布；请 --restart")
             read_input(Path(classification_input['file']), classification_input['sha256'])

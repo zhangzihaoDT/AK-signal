@@ -185,6 +185,8 @@ def main():
         if not args.data_only:
             subprocess.run([sys.executable, str(TOPIC / 'generate.py'), '--repo-root', str(REPO), '--package'],
                            check=True, cwd=REPO)
+            subprocess.run([sys.executable, str(REPO / 'dashboards/update_catalog.py')],
+                           check=True, cwd=REPO)
     except (ValueError, RuntimeError, AssertionError, OSError, subprocess.CalledProcessError) as exc:
         parser.exit(1, f'Update failed: {exc}\n')
 

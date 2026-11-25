@@ -65,17 +65,7 @@
 
 `today`中的RS20Δ与5/10日参与度变化来自`changes`，其日期来自`previous_observation_date`，单位均为pp；详情“RS20Δ较5日前变化”来自`metrics.rs_20d_change_5d_pp`。不从日历猜上一有效日，不用5日变化冒充逐观察日变化。`phase_fields`、`priority_fields`、`observation_fields`和trace用于追溯标签及摘要。
 
-Hub继续交付原文件名与HTML artifact类型；锚点、favicon、原4个日报区域和数据质量区保留。解释JSON是增补字段。开发验收先生成独立本地预览；用户确认后通过正式离线入口重新发布，Hub只读正式发布回执，不直接指向开发预览。
-
-## 本地复现
-
-```sh
-.venv/bin/python scripts/validation/preview_group_attention.py \
-  --source data/audits/group_activity/20261023/trend_start_v2 \
-  --output data/audits/group_activity/20261023/attention_preview_v3
-```
-
-输出目录必须不存在；已有预览不覆盖。脚本读取已验收目录及其回执，校验事实摘要，只重渲染既有事实，复制V2 JSON时保持字节一致，核对输入文件前后哈希，输出新版04、旧版04、完整日报、增补JSON及`render_verification.json`。不取行情、不重放状态机、不写正式outputs或latest。
+Hub继续交付正式日报文件；锚点、favicon、原4个日报区域和数据质量区保留。解释JSON是增补字段。历史开发预览不再作为可运行入口；其一次性HTML/PNG已清理，事实和验收回执保留。
 
 2026-10-23：商用车、汽车热管理、Physical AI并列优先；汽车全球化（非OEM）重点观察；存储观察持续性；AZ暂不优先；其余常规观察。热管理仍低于MA20，故为反弹修复，未套用任务示例中的“修复转强”。Physical AI的RS20Δ较5日前+9.77pp，但较上一有效观察日-3.69pp，两个事实分别展示。
 
@@ -85,7 +75,7 @@ Hub继续交付原文件名与HTML artifact类型；锚点、favicon、原4个�
 - Chrome无头浏览器：1280px桌面、390px移动及320px窄屏；9行、9个原锚点，默认折叠，点击自动展开，外部深链接自动展开；组内搜索返回实际结果；无JavaScript时原生折叠仍可用。无脚本错误，移动端和窄屏无页面横向溢出。
 - `render_verification.json`确认来源文件哈希不变、V2事实副本字节一致、原JSON states回执不变、渲染依据和锚点校验通过。
 - 只重渲染已有2026-10-23验收事实，未重新取数、调参、重放历史评估或发布。原验收中的ETF未更新及位置未知等警告仍在完整日报的数据质量区；展示验收不把原有数据限制提升为“全数据已验证”。
-- 本地最终预览：`data/audits/group_activity/20261023/attention_preview_v3/section04.html`。同目录有`section04_before.html`、完整`observation_20261023.html/json`、事实JSON副本、桌面/移动端/展开详情截图及两个验收JSON。
+- 预览HTML和截图已清理；验收回执仍保留在 `data/audits/group_activity/20261023/attention_preview_v3/`（`render_verification.json`、`browser_verification.json`）。
 
 | 原展示 | 新展示 |
 | --- | --- |
@@ -105,5 +95,5 @@ Hub继续交付原文件名与HTML artifact类型；锚点、favicon、原4个�
 - `tests/observation/test_group_attention.py`：实际9组与缺失、并列、两种时钟、标签边界和风险回归。
 - `tests/observation/fixtures/group_activity_20261023_v2.json`：已验收事实的精简提取，记录原文件SHA256。
 - `tests/observation/test_report.py`、`tests/observation/test_module_partial.py`：新布局、成员线索及不可用分组的展示断言。
-- `scripts/validation/preview_group_attention.py`：只读验收事实的本地预览及字节/哈希对照。
+- 一次性 `preview_group_attention.py` 与预览产物已退役；源事实及上述回执保留用于追溯。
 - `docs/DAILY_GROUP_ATTENTION.md`、`docs/STOCK_GROUP_ACTIVITY.md`：展示定义、边界、复现与验收记录。

@@ -1,14 +1,14 @@
 # AKsignal — 当前操作手册
 
-更新：2026-10-28 · v0.7.3。业务架构思考与调整记录在 `config/decisions/`；工程历史与迁移过程见 `docs/archive/`，不作为当前每日运行规范。能力总览真源为 `docs/ARCHITECTURE_MAP.md`，模块来源真源为 `config/observation_sources.yaml`。
+更新：2026-11-25 · v1.0.0 Financial Data Assets & Research Platform。业务架构思考与调整记录在 `config/decisions/`；工程历史与迁移过程见 `docs/archive/`，不作为当前每日运行规范。能力总览真源为 `docs/ARCHITECTURE_MAP.md`，模块来源真源为 `config/observation_sources.yaml`。
 
 ## 定位与边界
 
-AKsignal = **Investment Decision System（投资决策系统）**，由四层组成：01 Data Foundation（数据源、历史行情、增量更新、数据质量）→ 02 Market Facts（市场日报、行业趋势、篮子 Compare）→ 03 Strategy（机会识别、信号生成、策略验证、买卖规则）→ 04 Portfolio / Position（仓位管理、持仓监控、风险暴露、调仓决策）。v0.6.0 稳定化 Data Foundation 与 Market Facts；v0.7.0 完成 Basket Compare v2、日报 RPS 三列与跨市场休市验收；v0.7.1 将分组趋势启动观察接入日报 04；v0.7.2 完善为研究注意力简报，展示解释不改变 V2 规则；v0.7.3 重整日报信息架构（Summary/Observation/Evidence 三层与固定展示契约，不改计算与规则）；Strategy 和 Portfolio / Position 尚未正式实现。
+AKsignal = **Financial Data Assets & Research Platform（金融数据资产与专题研究平台）**。核心职责是 Collection（采集）、Data Assets（清洗、标准化、质量治理与长期沉淀）、Serving（可信、稳定、可复现的数据文件供给）和 Research（市场观察与专题研究）。
 
-Data Foundation 对行情完整性、来源及质量负责；Market Facts 只消费标准化行情并描述市场，不感知 Strategy；Strategy 消费版本化事实，不直接维护或重算底层行情；Portfolio / Position 消费实际持仓和策略信号，不自行生成市场信号。信号不等于仓位决策，事实不可被策略或仓位建议覆盖。实际仓位、目标权重、调整量分别记录。
+GridTrading 独立承担策略开发、参数优化、策略回测、交易信号、交易账本和策略自动化。AKsignal **不新增或维护独立交易策略运行体系**，不将废弃的 ETF Rotation、SW 行业 RPS、Selection、账户映射或旧回测链重新包装成正式能力，也不把退役代码迁移到 GridTrading。
 
-每日主链只发布 Market Facts，不输出买入推荐或投资 action。后续 Strategy 和 Portfolio / Position 按新架构重新设计，不恢复旧 Selection、Timing、三 Lane 或旧回测代码作为实现基础。
+AKsignal 的正式输出是带来源、交易日、价格口径、覆盖状态、质量状态、快照和 Manifest 证据的金融数据资产，以及消费这些资产的 Market Facts 与专题研究。市场事实不等同于交易信号；Holdings Dashboard 仅观察个人资产与持仓事实，不下单、不生成策略动作。
 
 ## 正式来源
 
@@ -43,12 +43,12 @@ Data Foundation 对行情完整性、来源及质量负责；Market Facts 只消
 ## 工程维护
 
 - 不修改或输出 `.env` 凭证；长桥适配器仅行情接口，不交易。
-- 配置真源：主题 `theme_registry.yaml`，固定池 `selection_universe.yaml`，研究观察 `research_observations.yaml`，研究篮子 `research_baskets.yaml`。不重复维护清单；未注册主题按现有降级规则处理。
-- 策略参数仍走 typed frozen loader；config_hash/universe_hash/rule_version 分清配置、资产范围、算法变化，不因取数性能参数修改策略版本。
+- 配置真源：主题/研究分组 `theme_registry.yaml`，固定观察资产注册 `selection_universe.yaml`，研究观察 `research_observations.yaml`，研究篮子 `research_baskets.yaml`。这些配置不授予交易准入或执行权。不重复维护资产清单；未注册主题按现有观察降级规则处理。
+- `indicator_spec.yaml` 只保留正式事实指标窗口和数据质量设置的 typed loader；不维护策略、执行或组合规则。
 - 对变更运行有针对性的测试；涉及来源时核对日期/口径/缺失与失败路径。报告只消费事实，不为展示反向改变事实。
 - 保留原始事实和输入摘要；清理先查引用。归档材料不能被当作当前规范，历史研究数据不能充当正式日报兜底。
 - 详细规范：`docs/OBSERVATION_DATA_SOURCES.md`、`docs/MARKET_FACTS_CONTRACT.md`、`docs/TDX_INDUSTRY_INTEGRATION.md`、`docs/DAILY_SCHEDULER.md`。
 
 ## 目录职责
 
-config是业务架构与决策记录，docs是项目工程架构，data是按来源与raw/processed/audits/state组织的数据；存储说明见data/README.md。探索/验收/审计脚本分列scripts/exploration、validation、audits。Hub通信集中src/hub，生产入口不导入探索代码。正式篮子链为src/research/baskets/{comparison,nav,report}，旧研究隔离legacy。完整布局见docs/PROJECT_STRUCTURE.md。
+config是数据来源、资产身份、分类、观察契约及研究定义；docs是项目工程架构；data按来源与raw/processed/audits/state组织，存储说明见data/README.md。探索/验收/审计脚本分列scripts/exploration、validation、audits。Hub通信集中src/hub，只服务日报状态/附件和正式 Basket Compare 摘要。正式篮子链为src/research/baskets/{comparison,nav,report}；不保留 Basket legacy 实现。`dashboards/` 只含本地入口页，不复制报告或行情数据。完整布局见docs/PROJECT_STRUCTURE.md。

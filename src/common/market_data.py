@@ -3,7 +3,7 @@
 从 trend_engine.data_provider 抽取的独立 CN 行情获取层，
 支持 em → sina → tx 故障切换 + 节流 + 退避。
 
-供 trend_engine 和 sw_industry_rps drilldown 共同调用。
+供 trend_engine 的缓存/回补路径与历史研究工具调用。
 """
 
 from __future__ import annotations

@@ -1,11 +1,8 @@
-"""
-Layer ③ 分层资产池 — universe 加载与行业确认注入
+"""Registered observation universe and asset identity loading.
 
-职责：
-  - 加载 config/selection_universe.yaml（theme → tier → assets 分层结构）
-  - 将分层池扁平化为可运行的资产列表；bucket 归属由 config/theme_registry.yaml 推导，
-    不在本文件重复维护
-  - 读取 Layer ② confirmation_{date}.parquet，按 sw_industry 注入行业确认信号
+Loads ``config/selection_universe.yaml`` (theme → tier → assets), flattens it
+into typed assets, and keeps registry metadata as identity only. It does not
+grant trading eligibility, confirmation status, or position sizing.
 """
 
 from __future__ import annotations

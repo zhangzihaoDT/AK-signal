@@ -14,7 +14,7 @@ AKShare是适配器，不是独立供应商。三模块独立维护历史，不�
 
 ## 长桥个股
 
-`src/market_facts/longbridge_source.py`负责只读行情与时区适配；`stock_daily.py`构建同源趋势/位置，`stock_universe.py`组合固定池与8个研究篮子注册。代码补足后按市场/代码去重，研究新增注册仅monitor_only，不修改策略资格。Daily不读取旧EM/Sina个股缓存。
+`src/market_facts/longbridge_source.py`负责只读行情与时区适配；`stock_daily.py`构建同源趋势/位置，`stock_universe.py`组合固定池与8个研究篮子注册。代码补足后按市场/代码去重，研究新增注册仅monitor_only，不授予交易资格。Daily不读取旧EM/Sina个股缓存。
 
 每批原始快照：`data/sources/longbridge/raw/daily/runs/{trade_date}/{run_id}/`；分区引用：`partitions/{trade_date}.json`。manifest及快照摘要、配置指纹、目标日、来源与基准必须通过校验，离线只读精确目标日批次。失败不读旧源或旧日期。SDK依赖longbridge==5.2.1，凭证仅在进程内读取，不写报告。
 
@@ -42,11 +42,11 @@ price_basis_verified=false表示供应商复权算法未独立认证，不以跨
 
 ## 日报、研究报告与发布
 
-日报按市场环境（固定指数与ETF分类概览）、行业轮动、ETF、个股观察排序，各部分标明来源；趋势和位置归入资产板块，质量审计集中末尾。个股按8个研究篮子加高现金流分类，跨篮子可重复，69/68计数均按个股去重。题材分类不改变确认权或策略准入。
+日报按市场环境（固定指数与ETF分类概览）、行业轮动、ETF、个股观察排序，各部分标明来源；趋势和位置归入资产板块，质量审计集中末尾。个股按8个研究篮子加高现金流分类，跨篮子可重复，69/68计数均按个股去重。题材分类只用于观察与专题组织，不改变数据范围或交易准入。
 
 `basket_compare`独立展示8个研究篮子 + 高现金流参照、68只股票，长桥收盘价与同源沪深300；组间/组内等权 + 季度再平衡为默认结构指数，买入持有为对照，报告同时给出RS、参与度、集中度和重叠诊断；不含汇率/费用，不视为真实组合或经验证总回报。见 [篮子报告](RESEARCH_BASKETS.md)。
 
-正常入口`make run-day`、离线`make run-day-offline`。代码/配置变化后旧检查点需要`--restart`。日报原子发布与研究Hub指针独立；失败保持上一发布，模块可按PARTIAL规则交付，`--require-complete`拒绝不完整发布。当前日报开发预览仍在`.run_day/source_migration_preview/20261015/outputs`，清理不会改变正式outputs指针。
+正常入口`make run-day`、离线`make run-day-offline`。代码/配置变化后旧检查点需要`--restart`。日报原子发布与研究Hub指针独立；失败保持上一发布，模块可按PARTIAL规则交付，`--require-complete`拒绝不完整发布。历史开发预览不再作为可运行入口；正式发布指针只由已验收批次切换。
 
 ## 验收与历史
 

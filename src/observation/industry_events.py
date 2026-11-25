@@ -281,7 +281,7 @@ def snapshot_rows(frame: pd.DataFrame, date: str) -> pd.DataFrame:
     classify_trend_stage(row) with the production default. Reproduction is
     checked against the stored stage; a mismatch is reported, never hidden.
     """
-    from src.sw_industry_rps.report import classify_trend_stage
+    from src.market_facts.industry_observation import classify_trend_stage
     d = frame.copy()
     keep = [c for c in d.columns if c in ('industry_name', 'RPS5', 'RPS10', 'history_bars')]
     out = d[keep].copy()

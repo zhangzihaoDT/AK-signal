@@ -2,42 +2,40 @@
 
 # AKsignal Canonical Architecture Map
 
-> 当前能力的 canonical 状态图。基线版本：v0.7.2。更新：2026-10-25。
+> 当前能力的 canonical 状态图。职责收敛版本：2026-11-25；应用版本仍以 `VERSION` 为准。
 
 ## 完整定位与项目目标
 
-**AKsignal = Investment Decision System（投资决策系统）。**
+**AKsignal = Financial Data Assets & Research Platform（金融数据资产与专题研究平台）。**
 
-目标是通过可追溯的市场事实、策略信号和真实组合约束，辅助管理投资组合；投资者保留最终决策权。
+核心职责为 Collection、Data Assets、Serving、Research：采集金融数据，清洗/标准化/治理并长期沉淀，向下游提供可追溯、稳定、可复现的数据文件，并基于数据资产生成市场观察及专题研究。GridTrading 独立承担策略、回测、交易信号、账本和自动化；AKsignal 不建设独立策略运行体系。
 
 ```text
 AKsignal
-├── 04 · Portfolio / Position
-│   └── 仓位管理 · 持仓监控 · 风险暴露 · 调仓决策
-├── 03 · Strategy
-│   └── 机会识别 · 信号生成 · 策略验证 · 买卖规则
-├── 02 · Market Facts
-│   └── 市场日报 · 行业趋势 · 篮子 Compare
-└── 01 · Data Foundation
-    └── 数据源 · 历史行情 · 增量更新 · 数据质量
+├── Collection      来源接入、增量采集、历史补齐
+├── Data Assets     身份、标准化、质量 Gate、来源与快照追溯
+├── Serving         本地可复现数据文件、清单与报告交付
+└── Research        Market Facts、正式 Basket Compare、专题研究
+
+GridTrading ─────── 策略开发、回测、交易信号、账本与自动化
 ```
 
-数据流自下而上：Data Foundation → Market Facts → Strategy → Portfolio / Position。持仓约束与执行反馈经明确接口传递，不回写或伪装底层市场事实。
+数据资产与市场事实可被下游消费，但不生成或托管交易动作。Holdings Dashboard 仅观察个人资产与持仓事实，不下单、不管理交易账本。
 
-| 层级 | 回答的问题 | 核心产出与边界 |
+| 职责 | 回答的问题 | 核心产出与边界 |
 |---|---|---|
-| Data Foundation | 数据是否完整、可信？ | 标准化行情、来源与质量证据；不生成市场信号 |
-| Market Facts | 市场正在发生什么？ | 市场事实与比较结果；不感知 Strategy，不编码策略语义或输出买卖建议 |
-| Strategy | 根据事实应该采取什么行动？ | 买卖信号及独立验证依据；消费版本化事实，不维护或重算行情 |
-| Portfolio / Position | 结合实际持仓应该如何执行？ | 仓位建议、风险与调仓计划；消费实际持仓和策略信号，不自行生成市场信号 |
+| Collection | 来源是否可持续、输入是否可追溯？ | Longbridge、CSIndex、CFFEX、TDX、ETF来源采集及历史补齐 |
+| Data Assets | 数据身份、口径、覆盖和质量是否明确？ | 标准化行情、版本/Manifest、质量状态、来源证据和历史快照 |
+| Serving | 下游如何稳定复现输入？ | 本地文件、固定路径清单、快照摘要；目前没有独立服务/API |
+| Research | 数据描述了什么市场事实？ | 统一日报、Basket Compare、Holdings Dashboard 与专题研究；不输出交易 action |
 
-**策略信号不等于仓位决策。** Strategy 判断 ETF 出现机会后，Portfolio / Position 可根据实际持仓、行业集中度和风险约束拒绝或调整执行建议。事实、信号、实际仓位、目标仓位和调整量分别记录，互不覆盖。
+**市场事实与交易策略严格分离。** GridTrading 不应依赖 AKsignal 可变内部目录；跨项目输入应通过明确的日期、口径、版本和质量契约冻结。本轮只审计并设计文件契约，不部署服务。
 
 ## 必须坚持的原则
 
-**AKsignal 负责发现和量化市场事实，你负责理解这些事实并作出投资决策。**
+**AKsignal 负责金融数据资产与研究事实；GridTrading 负责策略和执行。**
 
-该原则约束最终投资决策的责任与事实/建议分离，不排斥 Strategy 提供量化建议。系统辅助真实组合管理；投资者保留最终决策权。
+该边界避免重复建设、策略建议覆盖事实，或个人持仓报告被误认为交易执行系统。
 
 ## 模块数据来源更新（2026-10-16，优先于后文旧来源描述）
 
@@ -45,9 +43,9 @@ AKsignal
 
 ## 当前实现阶段
 
-v0.6.0 完成 **Data Foundation 与 Market Facts 稳定化**；v0.7.0 完成 Basket Compare v2、日报 RPS 三列与跨市场休市验收；v0.7.1 将分组趋势启动观察接入日报 04，v0.7.2 完善为研究注意力简报。当前每日主链观察全市场 ETF、128 个 TDX 研究行业及固定池个股，并发布日报；独立 Basket Compare 提供主线结构、相对强弱、参与度与重叠诊断。Strategy 与 Portfolio / Position 尚未作为正式能力实现。
+当前每日主链采集/计算全市场 ETF 事实、Longbridge 固定观察池个股事实、核心指数、CFFEX 合约及 128 个 TDX 研究行业，并发布统一日报。正式 Basket Compare 提供主线结构、相对强弱、参与度与重叠诊断；Holdings Dashboard 与 CSI500/IC500 为专题观察/研究页面。独立策略、回测、交易信号、账本与自动化不属于 AKsignal 能力。
 
-**当前正式实现限于 Data Foundation 与 Market Facts。** 后续 Strategy 将重新定义策略、信号与独立回测机制；Portfolio / Position 将接入实际持仓、风险约束与调仓决策。旧 Selection、Timing、研究或回测实现不代表新层能力已完成，也不作为新设计基础。
+**当前正式实现限于数据资产、市场观察和专题研究。** 交易策略与组合执行由 GridTrading 负责；AKsignal 不恢复旧 Selection、Timing、ETF Rotation、SW RPS 或旧回测链。
 
 主题和 tier 当前仅保留观察分组与注册身份；同一股票多个身份不压成单标签。
 
@@ -64,7 +62,7 @@ v0.6.0 完成 **Data Foundation 与 Market Facts 稳定化**；v0.7.0 完成 Bas
 | # | 能力 | 模块 / 输入 | 产物 |
 |---|---|---|---|
 | 1 | 固定观察池个股数据获取与整理 | market_facts.stock_daily；长桥；selection_universe.yaml观察池 | data/sources/longbridge/raw/daily；stock_update_audit_{date}.json |
-| 2 | 全市场 ETF 数据获取与整理 | etf_signal 数据获取 / 分类 / 缓存 | data/sources/etf_em_sina/raw、master、diagnostics |
+| 2 | 全市场 ETF 数据获取与整理 | etf_signal 数据获取/主表/分类 + market_facts.etf_observation 横截面事实 | data/sources/etf_em_sina/raw、master、daily、diagnostics |
 | 3 | 行业指数数据获取与整理 | TDX Research Industry固定128二级行业；官方.day基座+增量 | 精确目标日门控；申万仅历史研究 |
 | 4 | 全行业轮动观察 | 独立收益/RPS已接通；不以申万替代 | observation/industry_rotation、industry_directions；失败显式unavailable |
 | 5 | 大类资产趋势观察 | ETF 分类与横截面聚合；通过 ETF 代理观察 | observation/asset_directions |
@@ -99,13 +97,13 @@ etf update → etf calculate
 
 新批次暂存目录从空目录建立，不复制上一批 outputs 中的研究报告或旧候选。验收后切换 outputs 符号链接，上一批产物留在 `.run_day/runs/{date}/{run_id}/outputs`；首次旧 outputs 目录保存在 `.run_day/legacy`。失败不替换已发布产物。检查点、互斥锁、事实摘要、恢复与代码/config 兼容性检查继续保留。代码变化须 --restart。
 
-trade_date 为信号分区；run_date / generated_at 仅为审计时间。CONFIRMED / COMPLETE / PARTIAL 是来源与完整性状态，不是推荐状态。本产品不写新的 *_latest 报告别名。
+trade_date 为市场事实分区；run_date / generated_at 仅为审计时间。CONFIRMED / COMPLETE / PARTIAL 是来源与完整性状态，不是推荐状态。本产品不写新的 *_latest 报告别名。
 
-申万历史研究链的价格日期验收（2026-10-16；不再作为Daily来源）：日线主源的源端 trade_date 可作为日期证据；实时兜底必须提供对应价格字段的独立交易日期（最新价 close_trade_date / 昨收盘 prev_close_trade_date），匹配目标日后才允许落盘，并保存 source_trade_date。当前无日期的实时接口不能用于补齐目标日价格，转带日期历史源；历史源也缺数则 updater 停止并报告已核验数量。旧实时缓存、检查点及指标不能仅凭本地分区日期通过验收。更新摘要的覆盖及可用日期均排除未核验实时缓存。计算、Observation 构建与最终验收均检查日期证据；带日期行情的趋势/RPS 数值口径不变。
+SW 历史研究数据继续保存在 `data/legacy/` 并保留既有来源/日期证据；SW 采集、provisional fallback、行业 RPS 更新和确认流程已经退役，不参与 Daily，也不作为 TDX 的备用源。历史 SW 数据不得替代当前 TDX Research Industry 事实。
 
 在线 --require-complete 人工恢复保留原 run_id，但从第 1 步重新获取数据与验收；其他模式按有效检查点恢复。失败不会自动重试，数据就绪后需面板手动恢复；代码/config 签名变化需 --restart。
 
-模块级降级交付（2026-10-16）：ETF/固定池股票等有效观察可独立交付；TDX更新或质量门控失败时，行业事实分区为空，Daily不执行申万industry calculate，并在日报 summary/final_check 中标记 `modules.industry_rotation.status=unavailable`、总体 `status=PARTIAL`、`data_complete=false`。不混入旧日期、不以部分行业横截面计算 RPS。手动重跑 PARTIAL 日期可在源数据恢复后原子升级；Scheduler 接受 PARTIAL 发布但不自动重试。`--require-complete` 保留为显式严格门控。
+模块级降级交付：ETF/固定池股票等有效观察可独立交付；TDX 行业目标日或质量门缺失时，行业事实分区为空，并在日报 summary/final_check 标记 `modules.industry_rotation.status=unavailable`、总体 `status=PARTIAL`。不混入旧日期、不以部分横截面计算 RPS，也不回退到 SW。源数据恢复后可重跑目标日并原子升级发布；Scheduler 接受 PARTIAL 发布但不自动重试。`--require-complete` 保留为显式严格门控。
 
 
 ### AKsignal Daily Scheduler / Run Control
@@ -114,11 +112,11 @@ AKsignal 自己的 macOS LaunchAgent（`com.aksignal.daily-scheduler`）拥有 0
 
 `src/daily_scheduler.py` 安装/管理 LaunchAgent，`src/daily_schedule.py` 分离定时检查与人工运行入口，`src/daily_hub.py` 只读提供 Scheduler 与批次状态；Hub Worker 在 AKsignal 域分别暴露 Scheduler 服务控制与 Daily Run 人工操作。首次部署仍需显式安装/启动 AKsignal LaunchAgent；源码存在或面板可见不等于生产定时已启用。字段、操作和切换步骤见 [AKsignal Daily Scheduler](DAILY_SCHEDULER.md)。
 
-## 退出核心产品的能力
+## 已退役的策略和旧数据子系统
 
-主题 Tier 确认、Selection 推荐与 Timing、行业结构穿透、独立 Radar、三 Lane 合成、迁移生命周期状态机、历史赔率与策略回测已退出当前产品实现并清理对应入口。独立篮子比较研究仍保留；`price_map` 及位置契约继续由 Observation 复用，不产生投资建议。
+ETF Rotation 报告、候选筛选、账户映射、候选卡、BUY_CANDIDATE 信号及独立 backtest 已从正式运行链退役。旧 SW 行业 RPS 报告、确认/贡献/结构计算和双源更新链已退役；正式行业观察只使用 TDX。Basket legacy 多源实现已删除，保留正式 Basket Compare V2。
 
-`docs/ARCHITECTURE.md` 与 AGENTS.md 中旧 Layer / Lane 叙述为历史背景，当前范围以本状态图为准。
+退役不等于删除数据：SW 历史 raw/processed 文件、Manifest、来源证据和历史发布批次继续保留。旧实现由 Git 历史追溯；不可把历史报告或缓存当作当前正式输入。
 
 ## 每日展示一致性规则（布局 v10）
 

@@ -3,13 +3,13 @@ import json
 import pandas as pd
 
 from src.observation import cli, report
-from src.final_validation import cli as final_validation
+from src.observation import quality as observation_quality
 
 
 def test_industry_module_unavailable_is_explicit_partial_not_failed(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "outputs_dir", lambda: tmp_path)
     monkeypatch.setattr(cli, "stock_metrics_dir", lambda: tmp_path)
-    monkeypatch.setattr(final_validation, "data_quality_warnings", lambda _date: [])
+    monkeypatch.setattr(observation_quality, "data_quality_warnings", lambda _date: [])
     monkeypatch.setattr(report, "identity_issues", lambda _date: [])
 
     folder = tmp_path / "observation"
@@ -39,16 +39,8 @@ def test_industry_module_unavailable_is_explicit_partial_not_failed(tmp_path, mo
 
 
 def test_build_keeps_other_facts_and_emits_empty_industry_partition(tmp_path, monkeypatch):
-    from src.sw_industry_rps import storage
-
     monkeypatch.setattr(cli, "outputs_dir", lambda: tmp_path / "outputs")
     monkeypatch.setattr(cli, "stock_metrics_dir", lambda: tmp_path / "stock_metrics")
-    monkeypatch.setattr(cli, "sw_industry_raw_dir", lambda: tmp_path / "sw_raw")
-    monkeypatch.setattr(cli, "sw_industry_processed_dir", lambda: tmp_path / "sw_processed")
-    monkeypatch.setattr(storage, "compute_active_codes", lambda *_args: (["801081.SI"], [], False))
-    def sw_prices_forbidden(*_args):
-        raise AssertionError("TDX target must not consume SW prices, even if its cache exists")
-    monkeypatch.setattr(storage, "load_metrics", sw_prices_forbidden)
     monkeypatch.setattr(report, "mark_identity", lambda frame, _date: frame)
     monkeypatch.setattr(report, "quality_lines", lambda *_args: [])
     # The registry is read beside the root; a test root must never read or write

@@ -15,7 +15,7 @@ blocking_flags 与 data_quality_flags 的语义接口：
   - 本模块只做「对既有事实的分类 / 归集 / 展示」，不制造新事实、不重算指标。
   - 底层事实字段（risk_flags / reason_codes / data_status / position_level …）保留不动；
     本模块是它们的语义投影层，新增字段不影响既有消费方。
-  - 展示阈值是展示性分类，不进 indicator_spec / strategy_spec（避免全市场展示反向依赖策略配置）。
+  - 展示阈值是展示性分类，不写入正式指标配置（避免全市场展示反向依赖指标口径）。
 """
 
 from __future__ import annotations

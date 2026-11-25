@@ -1,4 +1,4 @@
-> 当前正式basket_compare（2026-10）：8个研究篮子 + 高现金流参照，共9条净值/68只去重个股，禾赛排除。个股与沪深300仅长桥，ForwardAdjust收盘价/NoAdjust指数；季度再平衡为默认结构指数，买入持有为对照。入口为 `python src/main.py research basket compare --start YYYY-MM-DD --end YYYY-MM-DD --snapshot <目录> --output <目录>`，联网需显式 `--allow-online-fetch`。旧legacy-run/legacy-fetch仅历史研究，不能作为正式报告备用。当前口径见本文“主线观察指标”和文末验证记录；旧[切换记录](validation/BASKET_COMPARE_LONGBRIDGE_20261016.md)保留作历史。下文保留研究配置和证据阶段定义。
+> 当前正式 Basket Compare V2：8 个研究篮子 + 高现金流参照，共 9 条净值 / 68 只去重个股，禾赛排除。个股与沪深300使用长桥，ForwardAdjust 收盘价 / NoAdjust 指数；季度再平衡为默认结构指数，买入持有为对照。入口为 `python src/main.py research basket compare --start YYYY-MM-DD --end YYYY-MM-DD --snapshot <目录> --output <目录>`，联网需显式 `--allow-online-fetch`。正式链只使用版本化 comparison/nav/report 实现，不是策略回测或真实组合收益。
 
 # Research Basket
 
@@ -130,7 +130,7 @@ python src/main.py research basket run --baskets all
 - `{basket}_contributions.csv`：个股收益贡献及 Top1/Top3 标记
 - `{basket}_quarterly_nav.csv`：季度首个交易日重置权重后的净值（供指标表的季度收益/超额列）
 
-## 研究边界（legacy 与通用约束）
+## 研究边界与通用约束
 
 以下部分保留旧 research basket 研究口径；正式 Compare 的 QR/BH、RS、参与度、集中度和重叠口径见上文“主线观察指标”和“可比走势图”。两者不能混用。
 
@@ -148,7 +148,7 @@ python src/main.py research basket run --baskets all
 - 首个有效交易日前不填充。
 - 当前结果存在静态资产池和幸存者偏差，不能直接视为可交易策略回测。
 - 旧 quarterly 研究采用季度首个交易日重置组间/组内权重，边界日不计入新季度收益；正式 Compare 改为自然季度最后确认交易日收盘重置，下一交易日生效。
-- 正式 Compare 的 QR/BH 贡献按逐日 P&L 相加，与净值变动对账；旧版按篮子初始权重乘区间收益计算，`top1` / `top3` 标记贡献排名，不把负贡献从分母中静默剔除。
+- 正式 Compare V2 的 QR/BH 贡献按逐日 P&L 相加，与净值变动对账；早期报告版本按篮子初始权重乘区间收益计算，`top1` / `top3` 标记贡献排名，不把负贡献从分母中静默剔除。早期版本只作历史结果理解，不作当前计算备用。
 - 当前尚未加入市值权重（`basket fetch` CLI 已提供）。
 
 ## 可比走势图（独立核验价格快照）

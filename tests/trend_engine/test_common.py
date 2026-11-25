@@ -6,10 +6,8 @@ from pathlib import Path
 
 from src.common.paths import (
     project_root, config_dir, selection_universe_path, research_observations_path,
-    industry_data_config_path, data_dir, raw_dir, processed_dir,
-    sw_industry_raw_dir, sw_industry_processed_dir, state_dir,
-    asset_state_path, outputs_dir,
-    sw_industry_rps_output_dir, docs_dir, manifest_path,
+    data_dir, raw_dir, processed_dir, sw_industry_raw_dir, sw_industry_processed_dir,
+    state_dir, asset_state_path, outputs_dir, docs_dir, manifest_path,
 )
 from src.common.run_context import RunContext
 from src.common.manifest import (
@@ -36,9 +34,6 @@ class TestPaths:
         assert research_observations_path().name == "research_observations.yaml"
         assert research_observations_path().parent == config_dir()
 
-    def test_sw_config_path(self):
-        assert industry_data_config_path().name == "industry_data.yaml"
-
     def test_data_dir(self):
         assert data_dir() == project_root() / "data"
 
@@ -60,9 +55,6 @@ class TestPaths:
 
     def test_outputs_dir(self):
         assert outputs_dir() == project_root() / "outputs"
-
-    def test_sw_industry_rps_output(self):
-        assert sw_industry_rps_output_dir() == outputs_dir() / "sw_industry_rps"
 
     def test_docs_dir(self):
         assert docs_dir() == project_root() / "docs"
@@ -254,7 +246,7 @@ class TestManifest:
 
     def test_manifest_idempotent(self, tmp_path):
         ctx1 = RunContext(subsystem="stock_trend", run_date=date(2026, 7, 16), status="completed")
-        ctx2 = RunContext(subsystem="sw_industry_rps", run_date=date(2026, 7, 16), status="partial")
+        ctx2 = RunContext(subsystem="industry_facts", run_date=date(2026, 7, 16), status="partial")
 
         import src.common.manifest as m
         import src.common.paths as p
@@ -265,6 +257,6 @@ class TestManifest:
             write_run_manifest(ctx2)
             data = json.loads((tmp_path / "outputs" / "manifest.json").read_text())
             assert "stock_trend" in data
-            assert "sw_industry_rps" in data
+            assert "industry_facts" in data
         finally:
             p._ROOT = original_root

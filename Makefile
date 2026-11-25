@@ -7,7 +7,7 @@ SRC_MAIN = src/main.py
 	daily-scheduler-install daily-scheduler-start daily-scheduler-stop daily-scheduler-restart daily-scheduler-status daily-scheduler-uninstall \
 	etf-bootstrap etf-bootstrap-core etf-update etf-calculate etf-retry-uncovered \
 	etf-preflight etf-backfill \
-	stock-metrics stock-metrics-online basket basket-refresh test install clean
+	stock-metrics stock-metrics-online basket basket-refresh dashboards-index test install clean
 
 help: ## 显示帮助信息
 	@grep -E '^[-a-zA-Z_0-9]+:.*## ' $(MAKEFILE_LIST) | sort | \
@@ -89,24 +89,6 @@ CLASSIFICATION_VALIDATOR ?= $(HOME)/.agents/skills/etf-classification/scripts/va
 etf-classification-publish: ## 独立发布 Skill 分类候选到 config（不运行行情）
 	$(PYTHON) -m scripts.maintenance.publish_etf_classification --candidate "$(CLASSIFICATION_CANDIDATE)" --version "$(CLASSIFICATION_VERSION)" --validator "$(CLASSIFICATION_VALIDATOR)" $(if $(CLASSIFICATION_BASE),--base-version "$(CLASSIFICATION_BASE)",)
 
-etf-layer1: ## 全市场资产热度分布
-	$(PYTHON) $(SRC_MAIN) etf layer1
-
-etf-watchlist: ## 生成趋势 Watchlist
-	$(PYTHON) $(SRC_MAIN) etf watchlist
-
-etf-account: ## 映射至国金账户可交易池
-	$(PYTHON) $(SRC_MAIN) etf account
-
-etf-account-blacklist: ## 维护国金不可交易黑名单（add/remove/list）
-	$(PYTHON) $(SRC_MAIN) etf account-blacklist
-
-etf-card: ## 生成 ETF 候选信息卡片
-	$(PYTHON) $(SRC_MAIN) etf card
-
-etf-pipeline: ## 完整发现链路：watchlist → account → card → JSON+CSV+HTML
-	$(PYTHON) $(SRC_MAIN) etf pipeline
-
 # ── Layer ②/③ 个股趋势指标（Observation 层：Market Observation → Stock / Tier） ──
 
 stock-metrics: ## 构建个股趋势指标产物（Observation 层，离线读缓存确定性；--allow-online-fetch 可手工补数）
@@ -127,6 +109,11 @@ basket: ## [Research] 长桥篮子离线重算（START/END/SNAPSHOT 必填）
 
 basket-refresh: ## [Research] 长桥获取+篮子重算（START/END 必填）
 	$(PYTHON) $(SRC_MAIN) research basket compare --start $(START) --end $(END) --allow-online-fetch --output $(BASKET_OUTPUT)
+
+# ── Local dashboard catalog ───────────────────────────────────
+
+dashboards-index: ## 刷新本地研究看板目录及报告入口
+	$(PYTHON) dashboards/update_catalog.py
 
 # ── 开发维护 ──────────────────────────────────────────────────
 

@@ -1,70 +1,34 @@
-> 定位：config是业务架构，不只是运行参数。来源/对象/分类/策略调整的思考与取舍记录在[decisions](decisions/README.md)；docs负责工程项目架构，data/README.md负责数据存储架构。
+# config/ — 数据来源、观察范围与研究定义
 
-# config/ — 策略知识与可实验参数的事实源
+AKsignal 的配置真源描述金融数据资产如何采集、识别、分类和质量验收，以及研究专题的对象范围。此目录不再定义交易策略、买卖信号、执行模型或组合分配规则；这些能力由 GridTrading 承担。
 
-> v0.6.1 Strategy Specification：**可研究、可扫描、可比较、可能按主题变化的内容进 config；
-> 算法定义、执行语义、系统不变量留在代码**。业务代码经 `src/common/spec` 统一 Loader 读取（不直接读 YAML）。
-
-## 分层一览（2026-08 命名收敛后）
-
-| 文件 | 职责 | 消费方 |
+| 文件 / 目录 | 职责 | 主要消费者 |
 |---|---|---|
-| `theme_registry.yaml` | 主题注册表：bucket / theme / 行业焦点组 / ETF 关键词（含 v0.11.1 `etf_exclude_keywords` 反向排除）/ Tier 映射 | Layer①②③ |
-| `selection_universe.yaml` | Selection 固定资产池（theme → tier → assets，含 ETF 与个股） | Selection / Tier 确认 / 回测 universe / 核心资产监控 |
-| `research_observations.yaml` | 研究观察组（evidence_stage 等三正交字段；不参与 Layer③ 确认与候选） | Research Basket / 观察组行情抓取 |
-| `strategy_spec.yaml` | Layer③ 选筹 Policy（etf_selection / stock_selection）+ 主题级回测策略（entry/exit + `strategy_id` + 权重） | Selection / 回测 / Portfolio |
-| `indicator_spec.yaml` | RPS/MA 窗口、信号门限（ETF 趋势态 / 行业确认 / Tier Gate 阈值） | Layer①②③ / Replay |
-| `execution.yaml` | 执行模型 / fee / slippage / leverage / pyramiding | Portfolio / Trade |
-| `portfolio.yaml` | 组合构建（资金 / 持仓 / 单资产上限 / deploy / 权重） | Portfolio |
-| `industry_data.yaml` | 申万行业数据模块自身配置（数据源 / provisional / storage / bootstrap） | SW 模块 |
-| `market_data.yaml` | ETF 行情获取 Data Acquisition 参数（增量窗口起点 / EM 熔断 window-min_requests-failure_rate / Sina 并发 workers-retry） | etf update（fetch_policy） |
-| `etf_classification.yaml` | ETF 两维度词表与离线名称线索 | 独立维护，不用于 RunDay 分类 |
-| `etf_classification_facts.json` | 已发布逐基金分类、独立核验状态与证据引用 | RunDay 只读、按批次锁定 |
-| `etf_classification_versions/` | 不可变分类版本归档 | 独立发布与历史复现 |
-| `research_baskets.yaml` | Research Basket 定义（来源 / 权重 / 基准） | Research Basket |
-| `research_stage_log.yaml` | 观察组商业化阶段变更审计日志（genesis + entries 链） | stage_log 校验 / 未来 stage event study |
-| `guojin_tradable_blacklist.csv` | 实战可交易黑名单 | Selection 账户映射 |
+| `observation_sources.yaml` | 股票、ETF、核心指数、衍生品和行业的正式来源、价格口径、回退边界 | `src/market_facts/`、日报验收 |
+| `market_data.yaml` | ETF 获取、限速、熔断及增量更新参数 | ETF 数据采集 |
+| `selection_universe.yaml` | 固定观察资产身份/分组来源；不是交易候选池或买入授权 | Observation、Basket Compare、资产身份读取 |
+| `research_observations.yaml` | 专题研究观察组与分组身份 | Observation、Research Basket |
+| `theme_registry.yaml` | 市场观察/专题研究的主题及行业/ETF 线索 | Observation 与研究页面，不产生交易信号 |
+| `etf_classification.yaml` | ETF 投资市场/方向证据分类规则与待核实边界 | ETF 事实分类维护 |
+| `etf_classification_facts.json` | 已发布逐基金分类、状态和证据引用 | 日报批次只读消费 |
+| `etf_classification_versions/` | 不可变分类版本及其审计 | 分类发布与历史复核 |
+| `indicator_spec.yaml` | 正式 RPS/MA 窗口、横截面和数据质量参数 | ETF 市场事实计算 |
+| `core_indices.yaml` | 固定核心指数观察清单及来源映射 | 核心指数 Market Facts |
+| `derivatives.yaml` | 具体 CFFEX 合约观察定义 | 衍生品 Market Facts |
+| `tdx_research_industry_20261016.csv` | 固定 128 个 TDX Research Industry 及分类版本 | TDX 行业采集/计算 |
+| `market_calendars/`、`a_share_calendar.json` | 交易日历与版本摘要 | 日期门控及观察验收 |
+| `research_baskets.yaml` | 正式 Basket Compare 的研究篮子、权重和基准 | `src/research/baskets/` |
+| `research_stage_log.yaml` | 研究观察组商业化阶段变更审计 | Research Basket |
+| `observation_snapshots.json` | 已发布行业事实快照登记 | Daily Build / Validate / Publish |
+| `decisions/` | 项目边界与数据/研究取舍记录 | 维护者复核 |
 
-## 职责边界要点
+## 退役配置
 
-- `theme_registry.yaml`（主题是什么、如何确认、ETF 如何归属）与
-  `selection_universe.yaml`（主题具体跟踪哪些资产）分工明确：前者不维护股票清单，
-  Tier 通过 `universe_tiers` 映射后者的 tier key。
-- `selection_universe.yaml` 与 `research_observations.yaml` 是两个互不重叠的宇宙：
-  前者进入交易候选与「核心资产监控」，后者只供研究观察（如中鼎股份在后者）。
-- **研究迁移 Tier（participation=monitor_only）** 是两者的受控接口：
-  资产在 selection_universe 获得监控资格，但商业化阶段事实仍从 research_observations
-  只读联接（`evidence_source`），不产生交易候选资格（如 ai_infrastructure.auto_thermal_ai_cooling）。
+ETF Selection/Strategy、Execution、Portfolio 和旧 SW RPS 运行配置已退役。旧 SW 历史行情及加工结果仍保存在 `data/legacy/`；数据留存不代表旧 SW CLI 或报告链继续受支持。旧配置和实现由 Git 历史追溯，不在当前运行链重载。
 
-## 命名迁移记录（2026-08）
+## 维护规则
 
-| 旧名 | 新名 |
-|---|---|
-| `themes_two_directions.yaml` | `theme_registry.yaml` |
-| `stock_universe.yaml` | 拆分为 `selection_universe.yaml`（themes）+ `research_observations.yaml`（observation_groups） |
-| `strategies.yaml` | `strategy_spec.yaml` |
-| `indicators.yaml` | `indicator_spec.yaml` |
-| `sw_industry_rps.yaml` | `industry_data.yaml` |
-| `etf_buckets.yaml` | `etf_classification.yaml` |
-| `research_baskets_stage_log.yaml` | `research_stage_log.yaml` |
-
-`execution.yaml` / `portfolio.yaml` / `research_baskets.yaml` / 黑名单保持原名。
-仅重命名不改内容也会改变 `config_hash`（文件名参与哈希），属预期中的配置迁移；
-历史里程碑文档中的旧文件名保持原样，作为当时状态的记录。
-
-## Hash 边界
-
-- `config_hash` = `theme_registry` + `selection_universe` + `research_observations` + `strategy_spec` + `indicator_spec` + `execution` + `portfolio` + `industry_data` + 黑名单，order-independent。
-- `universe_hash` = 实际参与运行的资产集合（排序后哈希）。
-- `rule_version` = v0.7.0（算法变化才改；配置数值变化只改 config_hash）。
-- **`market_data.yaml` 不进入以上 hash**：它只控制「怎么抓行情」，相同最终行情下 Layer①②③
-  结果不变，不应因抓取参数变化触发 replay parity / config_hash 失效。
-
-## _legacy/（归档，不参与运行）
-
-历史遗留配置，仅作参考，**不参与任何信号/回测/哈希**：
-- `etf_signal_rules.yaml`（旧 ETF 规则草案，无代码引用）
-- `etf_universe.yaml`（旧 ETF 门控草案，仅被已删除的 `load_gate_config` 读取）
-- `guojin_tradable_verified_backup.csv`（原人工验证白名单备份，黑名单机制已取代）
-
-ETF 分类发布与消费契约见 [docs/ETF_CLASSIFICATION.md](../docs/ETF_CLASSIFICATION.md)。分类证据与审计归 data/reference，发布入口归 scripts/maintenance，正式分类映射归 config。
+- 数据源、分类、交易日、调整口径、样本覆盖及缺失状态必须显式可追溯；名称相似不构成身份或来源证据。
+- 正式观察按 `trade_date` 与已验收数据生成；`run_date` / `generated_at` 仅为审计时间。
+- 事实展示不能回写底层事实；研究报告不生成买卖动作。
+- 详细字段与运行契约见 `docs/OBSERVATION_DATA_SOURCES.md`、`docs/MARKET_FACTS_CONTRACT.md`、`docs/DAILY_INFORMATION_ARCHITECTURE.md`。

@@ -1,16 +1,4 @@
-"""
-多主题框架配置加载（v0.4.3）
-
-单一事实源：config/theme_registry.yaml（当前范围为两 bucket 三主题：
-  Core · AI 基础设施 / 中国汽车全球化（长期增长），
-  Quality · 高现金流资产（稳定现金流防守））。
-结构：bucket（组合意图） → theme（市场方向） → industries（申万二级行业）+ etf_keywords。
-
-消费方：
-  Layer ①  etf_signal.rotation      每主题 ETF 焦点组
-  Layer ②  sw_industry_rps.confirm  每主题行业群共振
-  Layer ③  selection                每主题候选资产（ETF + 个股观察池）
-"""
+"""Load the registered research themes shared by observation and Basket Compare."""
 
 from __future__ import annotations
 

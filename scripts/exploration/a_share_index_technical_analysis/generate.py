@@ -111,6 +111,12 @@ def add_middle_rail(chart, dates, upper, lower):
     )
 
 
+def recent_range(dates, years=3):
+    end = pd.Timestamp(dates[-1])
+    start = max(pd.Timestamp(dates[0]), end - pd.DateOffset(years=years))
+    return [start.strftime("%Y-%m-%d"), dates[-1]]
+
+
 dates, close = load_history("000905")
 index_2010 = [i for i, day in enumerate(dates) if day.startswith("2010-")]
 upper_source = bisect_right(dates, UPPER_2025_DATE) - 1
@@ -150,7 +156,7 @@ common_layout = dict(
     autosize=True, paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
     font=dict(family="system-ui, PingFang SC, Microsoft YaHei, sans-serif", color=INK, size=12),
     margin=dict(l=59, r=21, t=49, b=63),
-    hovermode="x unified", dragmode="zoom",
+    hovermode="x unified", dragmode=False,
     hoverlabel=dict(bgcolor="white", bordercolor=GRID, font=dict(color=INK, size=13)),
     legend=dict(orientation="h", x=0, y=-0.07, yanchor="top",
                 groupclick="togglegroup"),
@@ -180,7 +186,7 @@ common_layout = dict(
     ),
 )
 chart.update_layout(common_layout)
-chart.update_xaxes(range=[dates[0], dates[-1]])
+chart.update_xaxes(range=recent_range(dates))
 
 dates_1000, close_1000 = load_history("000852")
 chart_1000 = go.Figure(closing_trace(dates_1000, close_1000))
@@ -215,7 +221,7 @@ chart_1000.add_annotation(
     font=dict(color=INK, size=13),
 )
 chart_1000.update_layout(common_layout)
-chart_1000.update_xaxes(range=[dates_1000[0], dates_1000[-1]])
+chart_1000.update_xaxes(range=recent_range(dates_1000))
 
 post_script = """
 const chart = document.getElementById("{plot_id}");
@@ -255,8 +261,8 @@ def render_chart(figure, div_id, filename, include_plotlyjs=False):
         full_html=False, include_plotlyjs=include_plotlyjs, div_id=div_id,
         default_height="100%", default_width="100%", post_script=post_script,
         config={
-            "responsive": True, "displaylogo": False, "scrollZoom": True,
-            "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+            "responsive": True, "displaylogo": False, "scrollZoom": False,
+            "doubleClick": False,
             "toImageButtonOptions": {"filename": filename, "scale": 2},
         },
     )

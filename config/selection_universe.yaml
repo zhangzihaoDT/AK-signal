@@ -1,24 +1,23 @@
-# AKsignal Layer ③ — Selection 资产池（v0.4.3 / v0.9.1 重构）
+# AKsignal 固定观察资产注册表
 #
-# 结构：theme（市场方向） → tier（标的层级） → assets
+# 结构：theme（研究方向） → tier（研究分组/资产层级） → assets
 #
 # 职责边界：
-#   本文件只维护「进入 Selection / Tier 确认 / 核心资产监控」的固定资产池。
+#   本文件维护日报、研究专题和持仓观察所使用的固定资产身份与分组来源。
+#   它不授予交易资格，不定义买卖信号、策略准入或仓位分配。
 #   研究观察组（scania_china_watch / auto_tier1_ai_infra / auto_tier1_embodied）
-#   已拆分至 config/research_observations.yaml —— 它们不参与 Layer ③ 主题确认
-#   与交易候选，仅供 Research Basket 与研究观察消费。
+#   位于 config/research_observations.yaml，仅供 Research Basket 与研究观察消费。
 #
-# theme 归属（bucket/行业/关键词）由 config/theme_registry.yaml 单一事实源推导，
-# 本文件不重复维护 bucket，只维护每个主题的固定资产池。
-#  theme 不在 theme_registry.yaml → bucket 为空，仅作展示，不参与确认门控。
+# theme 归属（bucket/行业/关键词）由 config/theme_registry.yaml 推导，
+# 本文件不重复维护 bucket，只维护每个主题的固定观察资产。
 #
-# 当前主题池：
-#   ai_infrastructure   AI 基础设施（长期增长，Tier basket 确认）
+# 当前研究主题池：
+#   ai_infrastructure   AI 基础设施
 #   high_cashflow       高现金流资产（水电/核电 · 运营商 · 收费公路 · 港口 + 周期电力观察）
-#   china_auto_global   中国汽车全球化（观察主题：整车/电池/电动化零部件/全球供应链）
+#   china_auto_global   中国汽车全球化（整车/电池/电动化零部件/全球供应链）
 #
 # tier 层级语义：
-#   theme_etf           主题 ETF（对应 theme 的首要表达）
+#   theme_etf           主题 ETF（研究分组中的代表资产）
 #   sub_industry_etf    细分行业 ETF
 #   optical_interconnect 光模块/光连接（中际旭创/新易盛/天孚通信…）
 #   server_network      服务器与网络（工业富联）

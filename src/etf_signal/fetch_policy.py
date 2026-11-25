@@ -1,9 +1,9 @@
 """ETF 行情获取策略 — 纯决策逻辑（Data Acquisition，Performance V1）。
 
 职责边界（v0.9.2 锁定）：
-  - 只回答「要不要抓 / 抓多少 / 数据够不够可信」，不做任何 Layer①②③ 计算或决策。
-  - 相同最终行情 → Layer①②③ 结果不变。本模块任何改动不得触碰 RPS / trend gate /
-    position / theme mapping / confirmation / selection 语义。
+  - 只回答「要不要抓 / 抓多少 / 数据够不够可信」，不做市场事实或策略计算。
+  - 相同最终行情 → 事实结果不变。本模块任何改动不得触碰 RPS、质量门、
+    价格位置或主题映射语义。
 
 本模块是纯函数层，不联网、不读写 raw，只依赖输入的 DataFrame 与日期参数：
   - decide_update:         SKIP_UP_TO_DATE / INCREMENTAL / FULL_REFRESH
@@ -11,7 +11,7 @@
   - validate_append:       append/merge 后 guardrail（date 唯一 + close/volume 完整）
 
 配置（config/market_data.yaml）经 frozen loader 读取，生产路径无隐藏默认值。
-该配置属于 Data Acquisition，不进 src/common/spec 的 strategy config_hash / rule_version。
+该配置属于 Data Acquisition，不进入市场事实指标口径或研究结果。
 """
 
 from __future__ import annotations

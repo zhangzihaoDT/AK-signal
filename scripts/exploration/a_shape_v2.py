@@ -1,6 +1,7 @@
 """Multi-scale, soft-ranked detector of *completed* A-shaped (inverted-V) price moves.
 
-Upgrade candidate for a_shape.py, not a trading system or drop-in replacement:
+Historical price-shape quantitative research; not a trading system or signal generator.
+V1 (`a_shape.py`) was retired after V2 replaced it.
     scan_a_shapes_v2({"159680.SZ": close_prices}, lookbacks=(20, 40, 60, 120, 200))
 
 Dependencies: numpy and scipy. Prices must be positive, finite, chronological,

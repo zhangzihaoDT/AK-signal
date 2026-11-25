@@ -16,7 +16,7 @@
 
 - 清除757个已被正式链路替代的试运行文件，442,990,425字节（约422.5 MiB）；包括data/pilots及四个无生产调用的试运行审计模块。删除前压缩备份，并逐文件比对SHA256。
 - 长桥试运行模块中的正式能力提取到longbridge_source.py，删除旧pilot命令和重复依赖表；可选日历工具依赖单列requirements-calendar-tools.txt。
-- 正式篮子只保留comparison.py、nav.py、report.py；删除旧build_comparison，合并平行的longbridge_comparison/comparison_report文件名。仍有研究用途的旧计算/季度再平衡/多源工具集中legacy/，命令明确legacy-run/legacy-fetch。make basket和basket-refresh仅走长桥正式入口。
+- 正式 Basket Compare 仅保留 `comparison.py`、`nav.py`、`report.py`；旧 `build_comparison`、平行命名实现及 multi-source `legacy-run/legacy-fetch` 代码已退役，历史数据资产与批次产物仍按各自保留规则处理。`make basket` / `basket-refresh` 只走正式长桥入口。
 - Hub通信集中src/hub；src/daily_hub.py仅保留既有Worker命令兼容入口，无重复业务实现。
 - 探索/验证/审计脚本分入scripts/exploration、validation、audits，更新引用与执行入口。
 - 14个数据目录按来源与raw/processed层重定位；TDX获取审计独立audits，Hub指针独立data/hub。没有复制原始价格制造第二事实源，也没有留下旧路径回退软链接。

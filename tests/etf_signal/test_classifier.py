@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from src.etf_signal.classifier import classify_all, classify_etf, load_config
-from src.etf_signal.rotation import compute_rotation_metrics
+from src.market_facts.etf_observation import compute_rotation_metrics
 
 
 @pytest.mark.parametrize('name,market,direction', [

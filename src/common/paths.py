@@ -37,15 +37,6 @@ def theme_registry_path() -> Path:
     return config_dir() / "theme_registry.yaml"
 
 
-def sw_industry_confirmation_dir() -> Path:
-    return processed_dir() / "sw_industry"
-
-
-def industry_data_config_path() -> Path:
-    """申万行业数据模块配置（数据源 / provisional / storage）。"""
-    return config_dir() / "industry_data.yaml"
-
-
 def data_dir() -> Path:
     return project_root() / "data"
 
@@ -81,11 +72,7 @@ def outputs_dir() -> Path:
     return project_root() / "outputs"
 
 
-def sw_industry_rps_output_dir() -> Path:
-    return outputs_dir() / "sw_industry_rps"
-
-
-# ── ETF Signal ───────────────────────────────────────────────────
+# ── ETF source and market-fact data ──────────────────────────────
 
 def etf_signal_raw_dir() -> Path:
     return data_dir() / "sources" / "etf_em_sina" / "raw"
@@ -97,22 +84,6 @@ def etf_signal_master_dir() -> Path:
 
 def etf_signal_daily_dir() -> Path:
     return data_dir() / "sources" / "etf_em_sina" / "processed" / "daily"
-
-
-def etf_signal_signals_dir() -> Path:
-    return data_dir() / "sources" / "etf_em_sina" / "processed" / "signals"
-
-
-def etf_signal_positions_dir() -> Path:
-    return data_dir() / "sources" / "etf_em_sina" / "processed" / "positions"
-
-
-def etf_signal_manifests_dir() -> Path:
-    return data_dir() / "sources" / "etf_em_sina" / "processed" / "manifests"
-
-
-def etf_signal_output_dir() -> Path:
-    return outputs_dir() / "etf_signal"
 
 
 def stock_metrics_dir() -> Path:
